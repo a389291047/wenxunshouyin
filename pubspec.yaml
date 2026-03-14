@@ -1,0 +1,32 @@
+name: wenxun
+version: 1.9.06+1906
+
+# Dart SDK与Flutter SDK约束
+environment:
+  sdk: '^3.10.0'  # 兼容3.10.0及以上Dart版本（不含4.0.0）
+  flutter: '^3.38.6'  # 匹配Flutter 3.38.6版本
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 第三方依赖
+  shared_preferences: ^2.2.2
+  flutter_slidable: ^3.0.1  # 侧滑组件
+  flutter_tts: ^3.8.0  # 语音播报核心依赖
+  http: ^1.1.0
+  cupertino_icons: ^1.0.6
+  usb_serial: ^0.5.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  # 资源文件配置（修正原有的标点错误）
+  assets:
+    - assets/wenxunlogo.jpeg
+    - assets/wenxun.png
+    - assets/kefu.png
+    - assets/bj.png

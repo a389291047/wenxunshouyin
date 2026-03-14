@@ -1,0 +1,75 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1869'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.8.69'
+}
+
+android {
+    namespace "com.wenxunwxzf.shop"
+    compileSdkVersion 36
+
+    defaultConfig {
+        applicationId "com.wenxunwxzf.shop"
+        // 修正：直接写死21，替代flutter.minSdkVersion（更明确）
+        minSdkVersion flutter.minSdkVersion
+        targetSdkVersion 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    // 签名配置（添加storeType，加固配置）
+    signingConfigs {
+        release {
+            keyAlias "成都稳讯科技有限公司"
+            keyPassword "a389291047"
+            storeFile file("anzhuo.keystore")
+            storePassword "a389291047"
+            // 可选加固：显式指定证书类型（JKS是.keystore的默认类型，添加后更稳定）
+            storeType "JKS"
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+flutter {
+    source '../..'
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.0"
+}
