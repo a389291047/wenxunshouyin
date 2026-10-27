@@ -14,7 +14,7 @@ void main() async {
   // 否则窗口先于 Flutter 首帧显示，Metal 渲染层无内容 → 黑屏
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await windowManager.ensureInitialized();
-    const WindowOptions windowOptions = WindowOptions(
+    final WindowOptions windowOptions = WindowOptions(
       center: true,
       minimumSize: Size(1180, 760),
       size: Size(1366, 860),
