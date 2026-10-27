@@ -23,13 +23,19 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Install ImageMagick
+        shell: pwsh
+        run: choco install imagemagick -y --no-progress
+
       - name: Replace app icon (png -> ico)
         shell: pwsh
         run: |
-          choco install imagemagick -y --no-progress
-          Import-Module $env:ProgramData\chocolatey\helpers\chocolateyProfile.psm1
-          refreshenv
-          magick assets/app_icon.png -define icon:auto-resize=256,128,64,48,32,16 windows/runner/resources/app_icon.ico
+          $magick = (Get-ChildItem "C:\Program Files\ImageMagick*" -Filter magick.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $magick) { $magick = "magick" }
+          Write-Host "magick path: $magick"
+          & $magick assets/app_icon.png -define icon:auto-resize=256,128,64,48,32,16 windows/runner/resources/app_icon.ico
+          if ($LASTEXITCODE -ne 0) { Write-Error "magick failed"; exit 1 }
+          Get-Item windows/runner/resources/app_icon.ico | Select-Object Length
 
       - name: Build Windows
         run: flutter build windows --release
