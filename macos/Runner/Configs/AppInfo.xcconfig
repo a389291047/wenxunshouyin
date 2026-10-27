@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = mac
+PRODUCT_NAME = 稳讯收银
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.wenxunwxzf.shop.mac
+PRODUCT_BUNDLE_IDENTIFIER = shop.wenxunwxzf.ios
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2025 com.wenxunwxzf.shop. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 Chengdu Wenxun Technology Co., Ltd. All rights reserved.

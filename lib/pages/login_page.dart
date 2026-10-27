@@ -1,638 +1,527 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'dart:async';
-import '../models/login_model.dart';
-import 'home_page.dart';
-import 'register_page.dart';
-import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../core/api.dart';
+import '../core/session.dart';
+import '../core/theme.dart';
+import 'shell_page.dart';
 
+/// 收银端登录页（触摸屏版）
+/// 左侧：渐变 + 气泡动画品牌区（零售版 / 餐饮版）
+/// 右侧：纯触摸交互——手机号数字键盘 / 密码全键盘，适配无物理键盘的安卓收银机
+/// 登录成功按商户行业 hangye 路由：1零售 → 零售收银；2餐饮 → 餐饮收银；3生鲜 → 零售收银
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
-
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final _formKey = GlobalKey<FormState>();
-  final _phoneController = TextEditingController();
-  final _passwordController = TextEditingController();
-  bool _showPassword = false;
-  bool _isLoading = false;
-  String? _errorMessage;
+  String _phoneVal = '';
+  String _pwdVal = '';
+  bool _showPwd = false;
+  bool _busy = false;
+  int _active = 0; // 0=手机号 1=密码（当前键盘作用对象）
+  bool _shift = false; // 密码键盘大小写
 
-  // 输入框焦点管理+当前激活的控制器
-  late FocusNode _phoneFocusNode;
-  late FocusNode _passwordFocusNode;
-  TextEditingController? _currentController;
-
-  @override
-  void initState() {
-    super.initState();
-    // 初始化焦点节点
-    _phoneFocusNode = FocusNode()..addListener(() {
-      if (_phoneFocusNode.hasFocus) {
-        setState(() => _currentController = _phoneController);
-      }
-    });
-    _passwordFocusNode = FocusNode()..addListener(() {
-      if (_passwordFocusNode.hasFocus) {
-        setState(() => _currentController = _passwordController);
-      }
-    });
-    // 加载记住的账号
-    _loadRememberedPhone();
-
-    // 新增：页面加载完成后默认聚焦手机号输入框
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      FocusScope.of(context).requestFocus(_phoneFocusNode);
-    });
-  }
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    _passwordController.dispose();
-    _phoneFocusNode.dispose();
-    _passwordFocusNode.dispose();
-    super.dispose();
-  }
-
-  // 读取记住的账号
-  Future<void> _loadRememberedPhone() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? rememberedPhone = prefs.getString('remembered_login_phone');
-    if (rememberedPhone != null) {
-      _phoneController.text = rememberedPhone;
-    }
-  }
-
-  // 登录核心方法
-  Future<void> _performLogin() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    if (!_formKey.currentState!.validate()) {
-      setState(() => _isLoading = false);
+  Future<void> _login({int? wenxunId}) async {
+    final phone = _phoneVal.trim();
+    final pwd = _pwdVal;
+    if (!RegExp(r'^1\d{10}$').hasMatch(phone)) {
+      _err('请输入正确的 11 位手机号');
       return;
     }
-
-    try {
-      final url = Uri.parse("https://shop.wx-zf.com/mac/login");
-      final response = await http.post(
-        url,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'application/json',
-        },
-        body: {
-          'phone': _phoneController.text.trim(),
-          'password': _passwordController.text.trim(),
-        },
-      ).timeout(const Duration(seconds: 10));
-
-      final loginResponse = LoginResponse.fromJson(jsonDecode(response.body));
-      if (loginResponse.code == 200 && loginResponse.data != null) {
-        await UserInfoManager().saveUserData(loginResponse.data!);
-        // 保存记住的账号
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        await prefs.setString('remembered_login_phone', _phoneController.text.trim());
-
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const HomePage()),
-          );
-        }
-      } else {
-        setState(() => _errorMessage = loginResponse.msg);
-      }
-    } on TimeoutException {
-      setState(() => _errorMessage = '请求超时，请稍后重试！');
-    } catch (e) {
-      setState(() => _errorMessage = '登录失败：${e.toString()}');
-    } finally {
-      setState(() => _isLoading = false);
+    if (pwd.length < 4) {
+      _err('请输入登录密码');
+      return;
     }
-  }
+    setState(() => _busy = true);
+    try {
+      final r = await Api.login(phone, pwd, wenxunId);
+      final code = int.tryParse('${r['code']}') ?? 0;
 
-  // 客服弹窗
-  void _showKefuImage(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black54,
-      builder: (BuildContext context) {
-        return GestureDetector(
-          onTap: () => Navigator.pop(context),
-          child: Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black26,
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  )
-                ],
-              ),
-              padding: const EdgeInsets.all(4),
-              child: InteractiveViewer(
-                panEnabled: true,
-                boundaryMargin: const EdgeInsets.all(10),
-                minScale: 0.8,
-                maxScale: 2.0,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.asset(
-                    'assets/kefu.png',
-                    fit: BoxFit.contain,
-                    width: MediaQuery.of(context).size.width * 0.7,
-                    height: MediaQuery.of(context).size.height * 0.7,
-                  ),
-                ),
-              ),
+      if (code == 300) {
+        // 多店铺选择
+        final shops = (r['shops'] ?? []) as List;
+        if (!mounted) return;
+        setState(() => _busy = false);
+        final picked = await showDialog<Map>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('选择店铺'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: shops
+                  .map((s) => ListTile(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        leading: const Icon(Icons.storefront, color: PosTheme.accent),
+                        title: Text('${s['name']}'),
+                        onTap: () => Navigator.pop(context, s),
+                      ))
+                  .toList(),
             ),
           ),
         );
-      },
-    );
-  }
-
-  // 响应式工具（input框缩小适配小屏）
-  double _getFormWidth(double screenWidth) {
-    if (screenWidth >= 1200) return 600;
-    else if (screenWidth >= 768) return screenWidth * 0.8;
-    else return screenWidth * 0.95;
-  }
-
-  double _getTitleFontSize(double screenWidth) {
-    if (screenWidth >= 1200) return 32;
-    else if (screenWidth >= 768) return 28;
-    else return 24;
-  }
-
-  // 修正：input框缩小（适配小屏触摸）
-  double _getInputHeight(double screenWidth) {
-    if (screenWidth >= 1200) return 90;    // 缩小适配小屏
-    else if (screenWidth >= 768) return 85; // 缩小
-    else return 80;                        // 缩小
-  }
-
-  // 手机号输入限制
-  void _onPhoneChanged(String value) {
-    final numericValue = value.replaceAll(RegExp(r'[^0-9]'), '');
-    final limitedValue = numericValue.substring(0, numericValue.length > 11 ? 11 : numericValue.length);
-    if (_phoneController.text != limitedValue) {
-      _phoneController.text = limitedValue;
-      _phoneController.selection = TextSelection.fromPosition(
-        TextPosition(offset: limitedValue.length),
-      );
-    }
-  }
-
-  // 数字键盘按键事件
-  void _onKeyPressed(String key) {
-    if (_currentController == null) return;
-
-    switch (key) {
-      case '下班':
-        SystemNavigator.pop();
-        break;
-      case '×':
-        if (_currentController!.text.isNotEmpty) {
-          _currentController!.text = _currentController!.text.substring(0, _currentController!.text.length - 1);
-          _currentController!.selection = TextSelection.fromPosition(
-            TextPosition(offset: _currentController!.text.length),
-          );
-          if (_currentController == _phoneController) _onPhoneChanged(_currentController!.text);
+        if (picked != null) {
+          await _login(wenxunId: int.tryParse('${picked['wenxun_id']}'));
         }
-        break;
-      default:
-        String newText = _currentController!.text + key;
-        if (_currentController == _phoneController && newText.length > 11) return;
-
-        _currentController!.text = newText;
-        if (_currentController == _phoneController) _onPhoneChanged(newText);
-
-        _currentController!.selection = TextSelection.fromPosition(
-          TextPosition(offset: _currentController!.text.length),
-        );
-        break;
+        return;
+      }
+      if (code != 200) {
+        _err((r['msg'] ?? '登录失败').toString());
+        return;
+      }
+      final data = r['data'];
+      if (data == null || int.tryParse('${data['staff_id']}') == null || '${data['staff_id']}'.isEmpty) {
+        _err('该账号不是收银员账号，请使用员工账号登录');
+        return;
+      }
+      if ('${data['status'] ?? 1}' == '0') {
+        _err('账号已被停用，请联系店主');
+        return;
+      }
+      await Session.save(data);
+      if (!mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ShellPage()));
+    } on ApiError catch (e) {
+      _err(e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
-  // 美化数字键盘（适配小屏+往左靠）
-  Widget _buildNumberKeyboard() {
-    final screenSize = MediaQuery.of(context).size;
-    final screenWidth = screenSize.width;
-    final screenHeight = screenSize.height;
+  void _err(String msg) {
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: PosTheme.red,
+      behavior: SnackBarBehavior.floating,
+    ));
+  }
 
-    final keys = [
-      '1', '2', '3',
-      '4', '5', '6',
-      '7', '8', '9',
-      '0', '下班', '×'
-    ];
-
-    return Container(
-      // 减少间距让右侧往左靠
-      padding: EdgeInsets.symmetric(
-        horizontal: screenWidth * 0.01,
-        vertical: screenHeight * 0.04,
-      ),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          childAspectRatio: 2,
-          mainAxisSpacing: 12, // 紧凑化适配小屏
-          crossAxisSpacing: 12,
-        ),
-        itemCount: keys.length,
-        itemBuilder: (context, index) {
-          final key = keys[index];
-          return InkWell(
-            onTap: () => _onKeyPressed(key),
-            borderRadius: BorderRadius.circular(12), // 柔和圆角
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withOpacity(0.15),
-                    blurRadius: 6, // 淡阴影适配小屏
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: () {
-                  if (key == '×') {
-                    return const Icon(Icons.backspace, color: Colors.red, size: 26);
-                  } else if (key == '下班') {
-                    return const Icon(Icons.power_settings_new, color: Colors.red, size: 26);
-                  } else {
-                    return Text(
-                      key,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    );
-                  }
-                }(),
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  // ==================== 触摸输入 ====================
+  void _onKey(String k) {
+    setState(() {
+      if (_active == 0) {
+        if (k == '<') {
+          if (_phoneVal.isNotEmpty) _phoneVal = _phoneVal.substring(0, _phoneVal.length - 1);
+        } else if (k == 'C') {
+          _phoneVal = '';
+        } else if (_phoneVal.length < 11) {
+          _phoneVal += k;
+          if (_phoneVal.length == 11) _active = 1; // 输满自动跳密码
+        }
+      } else {
+        if (k == '<') {
+          if (_pwdVal.isNotEmpty) _pwdVal = _pwdVal.substring(0, _pwdVal.length - 1);
+        } else if (k == 'C') {
+          _pwdVal = '';
+        } else if (k == '⇧') {
+          _shift = !_shift;
+        } else if (_pwdVal.length < 32) {
+          _pwdVal += _shift ? k.toUpperCase() : k.toLowerCase();
+        }
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    final screenWidth = screenSize.width;
-    final screenHeight = screenSize.height;
-
-    final formWidth = _getFormWidth(screenWidth);
-    final titleFontSize = _getTitleFontSize(screenWidth);
-    final inputHeight = _getInputHeight(screenWidth);
-    final logoRadius = screenWidth >= 768 ? 12.0 : 10.0;
-
-    // 非空Color
-    final bgColor = Color.fromRGBO(255, 255, 255, 0.95);
-    final shadowColor = Color.fromRGBO(0, 0, 0, 0.12);
-    final bgOverlayColor = Color.fromRGBO(0, 0, 0, 0.1);
-    final grey300 = Colors.grey[300]!;
-    final grey500 = Colors.grey[500]!;
-    final grey600 = Colors.grey[600]!;
-    final orange50 = Colors.orange[50]!;
-    final orange700 = Colors.orange[700]!;
-    final blue50 = Colors.blue[50]!;
-    final blue700 = Colors.blue[700]!;
-    final grey400 = Colors.grey[400]!;
-    final red600 = Colors.red[600]!;
-    final red200 = Colors.red[200]!;
-
     return Scaffold(
-      body: Stack(
+      body: Row(
         children: [
-          // 全屏背景
-          Positioned.fill(
-            child: Image.asset(
-              'assets/bj.png',
-              fit: BoxFit.cover,
-              width: screenWidth,
-              height: screenHeight,
-              color: bgOverlayColor,
-              colorBlendMode: BlendMode.darken,
-            ),
+          // 左侧品牌区（渐变 + 气泡上飘动画）
+          const Expanded(
+            flex: 5,
+            child: _BrandPanel(),
           ),
-
-          // 左右分栏布局（紧凑化适配小屏）
-          Row(
-            children: [
-              // 左侧表单（美化+紧凑）
-              Expanded(
-                flex: 2,
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: screenWidth * 0.02,
-                      vertical: screenHeight * 0.04,
-                    ),
-                    child: Container(
-                      width: formWidth,
-                      // 减少内边距适配小屏
-                      padding: EdgeInsets.all(screenWidth >= 768 ? 30 : 20),
-                      decoration: BoxDecoration(
-                        color: bgColor,
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: shadowColor,
-                            blurRadius: 12,
-                            offset: const Offset(0, 6),
-                            spreadRadius: 1,
-                          ),
-                        ],
+          // 右侧登录区（触摸键盘）
+          Expanded(
+            flex: 4,
+            child: Container(
+              color: const Color(0xFFFAFBFC),
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 28),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 420),
+                    child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      const Text('员工登录', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 6),
+                      const Text('请使用店主分配的收银员账号登录',
+                          style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                      const SizedBox(height: 22),
+                      _inputBox(
+                        label: '手机号',
+                        value: _phoneVal,
+                        active: _active == 0,
+                        obscure: false,
+                        onTap: () => setState(() => _active = 0),
+                        onClear: _phoneVal.isEmpty ? null : () => setState(() => _phoneVal = ''),
                       ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Logo
-                            Column(
-                              children: [
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(logoRadius),
-                                  child: Image.asset(
-                                    'assets/wenxun.png',
-                                    width: screenWidth >= 768 ? 80 : 65,
-                                    height: screenWidth >= 768 ? 80 : 65,
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '零售、餐饮、云打印',
-                                  style: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 18 : 16,
-                                    color: Colors.grey[700],
-                                    fontWeight: FontWeight.w500,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            SizedBox(height: screenWidth >= 768 ? 40 : 35),
-
-                            // 手机号输入（缩小+美化）
-                            SizedBox(
-                              height: inputHeight,
-                              child: TextFormField(
-                                controller: _phoneController,
-                                focusNode: _phoneFocusNode,
-                                readOnly: true, // 手机号仍保留只读，用自定义键盘
-                                cursorHeight: screenWidth >= 768 ? 28 : 26,
-                                cursorWidth: 2.0,
-                                cursorColor: Colors.red,
-                                decoration: InputDecoration(
-                                  labelText: '手机号码',
-                                  labelStyle: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 20 : 18,
-                                    color: grey600,
-                                  ),
-                                  hintStyle: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 18 : 16,
-                                    color: Colors.grey[400],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: BorderSide(width: 1.5, color: grey300),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: BorderSide(width: 1.5, color: grey300),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: const BorderSide(width: 2.0, color: Colors.red),
-                                  ),
-                                  // 适配缩小的input高度
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
-                                  prefixIcon: Icon(
-                                      Icons.phone_android,
-                                      size: screenWidth >= 768 ? 28 : 26,
-                                      color: grey500
-                                  ),
-                                  fillColor: Colors.white,
-                                  filled: true,
-                                ),
-                                style: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 20 : 18,
-                                    height: 1.2
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) return '请输入手机号';
-                                  if (value.length != 11) return '请输入11位手机号';
-                                  return null;
-                                },
-                                onChanged: _onPhoneChanged,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            // 密码输入（缩小+美化）
-                            SizedBox(
-                              height: inputHeight,
-                              child: TextFormField(
-                                controller: _passwordController,
-                                focusNode: _passwordFocusNode,
-                                readOnly: false, // 仅修改这一行：从true改为false，实现密码可手动输入
-                                obscureText: !_showPassword,
-                                cursorHeight: screenWidth >= 768 ? 28 : 26,
-                                cursorWidth: 2.0,
-                                cursorColor: Colors.red,
-                                decoration: InputDecoration(
-                                  labelText: '登录密码',
-                                  labelStyle: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 20 : 18,
-                                    color: grey600,
-                                  ),
-                                  hintStyle: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 18 : 16,
-                                    color: Colors.grey[400],
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: BorderSide(width: 1.5, color: grey300),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: BorderSide(width: 1.5, color: grey300),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                    borderSide: const BorderSide(width: 2.0, color: Colors.red),
-                                  ),
-                                  // 适配缩小的input高度
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 25),
-                                  prefixIcon: Icon(
-                                      Icons.lock,
-                                      size: screenWidth >= 768 ? 28 : 26,
-                                      color: grey500
-                                  ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _showPassword ? Icons.visibility : Icons.visibility_off,
-                                      size: screenWidth >= 768 ? 28 : 26,
-                                      color: grey600,
-                                    ),
-                                    padding: const EdgeInsets.only(right: 15),
-                                    onPressed: () => setState(() => _showPassword = !_showPassword),
-                                  ),
-                                  fillColor: Colors.white,
-                                  filled: true,
-                                ),
-                                style: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 20 : 18,
-                                    height: 1.2
-                                ),
-                                validator: (value) {
-                                  if (value == null || value.isEmpty) return '请输入密码';
-                                  if (value.length < 6) return '密码至少6位';
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-
-                            // 错误提示
-                            if (_errorMessage != null)
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  _errorMessage!,
-                                  style: const TextStyle(color: Colors.red, fontSize: 16, height: 1.2),
-                                ),
-                              ),
-                            const SizedBox(height: 18),
-
-                            // 客服+注册（“立即注册”改为“注册”）
-                            SizedBox(
-                              width: double.infinity,
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  TextButton(
-                                    onPressed: () => _showKefuImage(context),
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      minimumSize: const Size(80, 40),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      backgroundColor: orange50,
-                                    ),
-                                    child: Text(
-                                      '客服',
-                                      style: TextStyle(
-                                        color: orange700,
-                                        fontSize: screenWidth >= 768 ? 16 : 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton(
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(builder: (context) => const RegisterPage()),
-                                      );
-                                    },
-                                    style: TextButton.styleFrom(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                      minimumSize: const Size(80, 40),
-                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      backgroundColor: blue50,
-                                    ),
-                                    child: Text(
-                                      '注册', // 改为“注册”
-                                      style: TextStyle(
-                                        color: blue700,
-                                        fontSize: screenWidth >= 768 ? 16 : 14,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(height: screenWidth >= 768 ? 25 : 20),
-
-                            // 登录按钮
-                            SizedBox(
-                              width: double.infinity,
-                              height: screenWidth >= 768 ? 65 : 60,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _isLoading ? grey400 : red600,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(15),
-                                  ),
-                                  elevation: 6,
-                                  shadowColor: red200,
-                                  padding: EdgeInsets.zero,
-                                ),
-                                onPressed: _isLoading ? null : _performLogin,
-                                child: _isLoading
-                                    ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
-                                    : Text(
-                                  '登录',
-                                  style: TextStyle(
-                                    fontSize: screenWidth >= 768 ? 20 : 18,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 12),
+                      _inputBox(
+                        label: '登录密码',
+                        value: _pwdVal,
+                        active: _active == 1,
+                        obscure: !_showPwd,
+                        onTap: () => setState(() => _active = 1),
+                        onClear: _pwdVal.isEmpty ? null : () => setState(() => _pwdVal = ''),
+                        trailing: InkWell(
+                          onTap: () => setState(() => _showPwd = !_showPwd),
+                          borderRadius: BorderRadius.circular(14),
+                          child: Padding(
+                            padding: const EdgeInsets.all(6),
+                            child: Icon(_showPwd ? Icons.visibility : Icons.visibility_off,
+                                size: 20, color: PosTheme.textHint),
+                          ),
                         ),
                       ),
-                    ),
+                      const SizedBox(height: 14),
+                      _keyboard(),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        height: 56,
+                        child: ElevatedButton(
+                          onPressed: _busy ? null : () => _login(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: PosTheme.accent,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                          ),
+                          child: _busy
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4))
+                              : const Text('登 录'),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text('登录即代表已阅读并同意隐私保护指引',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                    ]),
                   ),
                 ),
               ),
-
-              // 右侧数字键盘
-              Expanded(
-                flex: 1,
-                child: _buildNumberKeyboard(),
-              ),
-            ],
+            ),
           ),
         ],
       ),
     );
   }
+
+  // ==================== 输入显示框（替代系统 TextField，防弹系统键盘） ====================
+  Widget _inputBox({
+    required String label,
+    required String value,
+    required bool active,
+    required bool obscure,
+    required VoidCallback onTap,
+    VoidCallback? onClear,
+    Widget? trailing,
+  }) {
+    final shown = obscure ? '•' * value.length : value;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        height: 62,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: active ? PosTheme.accent : PosTheme.line, width: active ? 2 : 1),
+          boxShadow: active ? [BoxShadow(color: PosTheme.accent.withValues(alpha: 0.10), blurRadius: 10, offset: const Offset(0, 2))] : null,
+        ),
+        child: Row(children: [
+          Text(label, style: TextStyle(fontSize: 14, color: active ? PosTheme.accent : PosTheme.textSub, fontWeight: FontWeight.w600)),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '请点击下方键盘输入' : shown,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 19,
+                letterSpacing: obscure ? 2 : 1.5,
+                color: value.isEmpty ? PosTheme.textHint : PosTheme.textMain,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (trailing != null) trailing,
+          if (onClear != null)
+            InkWell(
+              onTap: onClear,
+              borderRadius: BorderRadius.circular(14),
+              child: const Padding(
+                padding: EdgeInsets.all(6),
+                child: Icon(Icons.cancel_outlined, size: 20, color: PosTheme.textHint),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  // ==================== 触摸键盘 ====================
+  static const _letterRows = [
+    ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
+    ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
+    ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
+  ];
+
+  Widget _keyboard() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: PosTheme.line),
+      ),
+      child: _active == 0 ? _phonePad() : _fullPad(),
+    );
+  }
+
+  /// 手机号：大数字键盘
+  Widget _phonePad() {
+    return Column(children: [
+      _padRow(['1', '2', '3']),
+      _padRow(['4', '5', '6']),
+      _padRow(['7', '8', '9']),
+      Row(children: [
+        Expanded(child: _keyBtn('C', label: '清空', isAction: true, color: PosTheme.red)),
+        const SizedBox(width: 8),
+        Expanded(child: _keyBtn('0')),
+        const SizedBox(width: 8),
+        Expanded(child: _keyBtn('<', isAction: true, icon: Icons.backspace_outlined)),
+      ]),
+    ]);
+  }
+
+  /// 密码：数字行 + 字母键盘 + 功能键
+  Widget _fullPad() {
+    return Column(children: [
+      _padRow(['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], compact: true),
+      for (final row in _letterRows) _letterRow(row),
+      Row(children: [
+        Expanded(child: _keyBtn('⇧', isAction: true, active: _shift)),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('@')),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('.')),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('-')),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('_')),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('C', label: '清空', isAction: true, color: PosTheme.red)),
+        const SizedBox(width: 6),
+        Expanded(child: _keyBtn('<', isAction: true, icon: Icons.backspace_outlined)),
+      ]),
+    ]);
+  }
+
+  Widget _padRow(List<String> keys, {bool compact = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        for (int i = 0; i < keys.length; i++) ...[
+          Expanded(child: _keyBtn(keys[i], compact: compact)),
+          if (i < keys.length - 1) const SizedBox(width: 8),
+        ]
+      ]),
+    );
+  }
+
+  Widget _letterRow(List<String> keys) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(children: [
+        // 三行字母梯形对齐：中行缩进少、下行缩进多
+        if (keys.length == 9) const SizedBox(width: 18),
+        if (keys.length == 7) const SizedBox(width: 52),
+        for (int i = 0; i < keys.length; i++) ...[
+          Expanded(child: _keyBtn(_shift ? keys[i].toUpperCase() : keys[i])),
+          if (i < keys.length - 1) const SizedBox(width: 8),
+        ],
+        if (keys.length == 9) const SizedBox(width: 18),
+        if (keys.length == 7) const SizedBox(width: 52),
+      ]),
+    );
+  }
+
+  Widget _keyBtn(String k, {String? label, bool compact = false, bool isAction = false, bool active = false, Color? color, IconData? icon}) {
+    final bg = active
+        ? PosTheme.accent
+        : isAction
+            ? const Color(0xFFF2F3F7)
+            : Colors.white;
+    final fg = active
+        ? Colors.white
+        : (isAction && color != null ? color : PosTheme.textMain);
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: () => _onKey(k),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: compact ? 42 : 46,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: isAction || active ? Colors.transparent : PosTheme.line),
+          ),
+          child: icon != null
+              ? Icon(icon, size: 20, color: fg)
+              : k == '⇧'
+                  ? Icon(Icons.arrow_upward, size: 20, color: fg)
+                  : Text(label ?? k, style: TextStyle(fontSize: compact ? 16 : 18, fontWeight: FontWeight.w700, color: fg)),
+        ),
+      ),
+    );
+  }
+}
+
+// ==================== 登录页左侧品牌面板：渐变底 + 气泡上飘动画 ====================
+class _BrandPanel extends StatefulWidget {
+  const _BrandPanel();
+  @override
+  State<_BrandPanel> createState() => _BrandPanelState();
+}
+
+class _BrandPanelState extends State<_BrandPanel> with SingleTickerProviderStateMixin {
+  late final AnimationController _c;
+
+  /// 气泡参数（固定值，避免每次构建随机跳动）：
+  /// (水平位置 0~1, 直径px, 速度倍率, 初始相位 0~1, 基础透明度)
+  static const _bubbles = [
+    (0.08, 110.0, 1.00, 0.00, 0.10),
+    (0.18, 54.0, 1.35, 0.30, 0.16),
+    (0.28, 150.0, 0.72, 0.62, 0.07),
+    (0.38, 34.0, 1.60, 0.85, 0.20),
+    (0.47, 76.0, 1.10, 0.45, 0.12),
+    (0.57, 42.0, 1.45, 0.15, 0.18),
+    (0.66, 180.0, 0.60, 0.78, 0.06),
+    (0.74, 58.0, 1.25, 0.52, 0.14),
+    (0.84, 90.0, 0.90, 0.22, 0.10),
+    (0.92, 38.0, 1.55, 0.68, 0.18),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _c = AnimationController(vsync: this, duration: const Duration(seconds: 18))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (_, __) => CustomPaint(
+        painter: _BubblePainter(t: _c.value, bubbles: _bubbles),
+        child: Center(
+          child: Column(mainAxisSize: MainAxisSize.min, children: const [
+            Text('稳讯收银',
+                style: TextStyle(fontSize: 46, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 6)),
+            SizedBox(height: 18),
+            // 版本徽章：零售版 / 餐饮版
+            _VersionBadges(),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+/// 零售版 / 餐饮版 徽章
+class _VersionBadges extends StatelessWidget {
+  const _VersionBadges();
+  @override
+  Widget build(BuildContext context) {
+    Widget badge(String text, IconData icon) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.2),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 19, color: Colors.white),
+          const SizedBox(width: 8),
+          Text(text, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 1)),
+        ]),
+      );
+    }
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      badge('零售版', Icons.shopping_bag_outlined),
+      const SizedBox(width: 14),
+      badge('餐饮版', Icons.restaurant_outlined),
+    ]);
+  }
+}
+
+/// 渐变底色 + 上升气泡绘制
+class _BubblePainter extends CustomPainter {
+  final double t; // 0~1 循环进度
+  final List<(double, double, double, double, double)> bubbles;
+  _BubblePainter({required this.t, required this.bubbles});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 多段渐变底：左上亮橙 → 右下深红，中段过渡
+    final bgPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color(0xFFFF9A56),
+          Color(0xFFFF6A2C),
+          Color(0xFFF4471B),
+          Color(0xFFD93212),
+        ],
+        stops: [0.0, 0.42, 0.75, 1.0],
+      ).createShader(Offset.zero & size);
+    canvas.drawRect(Offset.zero & size, bgPaint);
+
+    // 左上一团柔光，增加层次
+    canvas.drawCircle(
+      Offset(size.width * 0.18, size.height * 0.16),
+      size.width * 0.42,
+      Paint()..color = Colors.white.withValues(alpha: 0.07),
+    );
+
+    // 气泡：自下而上飘动，带轻微左右摇摆，淡入淡出
+    for (int i = 0; i < bubbles.length; i++) {
+      final b = bubbles[i];
+      final p = (t * b.$3 + b.$4) % 1.0; // 单个气泡周期进度
+      final y = size.height * (1.15 - 1.35 * p);
+      final x = size.width * b.$1 + sin((p * 2 + i) * pi) * 16;
+      final fade = sin(p * pi); // 起止淡出
+      final r = b.$2 / 2;
+
+      final paint = Paint()..color = Colors.white.withValues(alpha: (b.$5 * fade).clamp(0.0, 1.0));
+      canvas.drawCircle(Offset(x, y), r, paint);
+      // 高光点
+      canvas.drawCircle(
+        Offset(x - r * 0.32, y - r * 0.32),
+        r * 0.22,
+        Paint()..color = Colors.white.withValues(alpha: (b.$5 * fade * 0.9).clamp(0.0, 1.0)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BubblePainter old) => old.t != t;
 }
