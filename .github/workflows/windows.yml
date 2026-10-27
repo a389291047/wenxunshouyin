@@ -23,17 +23,41 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
+      - name: Replace app icon (png -> ico)
+        shell: pwsh
+        run: |
+          choco install imagemagick -y --no-progress
+          Import-Module $env:ProgramData\chocolatey\helpers\chocolateyProfile.psm1
+          refreshenv
+          magick assets/app_icon.png -define icon:auto-resize=256,128,64,48,32,16 windows/runner/resources/app_icon.ico
+
       - name: Build Windows
         run: flutter build windows --release
 
-      - name: Package (zip)
+      - name: Package portable (zip)
         shell: pwsh
         run: |
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "稳讯收银-windows.zip"
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "WenXun-portable.zip"
 
-      - name: Upload artifact
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $ver = ((Get-Content pubspec.yaml | Select-String '^version:').Line -split '\+')[0] -replace 'version:\s*',''
+          Write-Host "AppVersion=$ver"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc /DAppVersion=$ver windows\packaging\setup.iss
+
+      - name: Upload portable zip
         uses: actions/upload-artifact@v4
         with:
-          name: wenxun-windows
-          path: 稳讯收银-windows.zip
+          name: wenxun-windows-portable
+          path: WenXun-portable.zip
+          retention-days: 30
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: wenxun-windows-installer
+          path: build/installer/*.exe
           retention-days: 30
