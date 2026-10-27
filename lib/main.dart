@@ -18,6 +18,7 @@ void main() async {
       center: true,
       minimumSize: Size(1180, 760),
       size: Size(1366, 860),
+      title: '稳讯收银',
       // macOS 隐藏标题栏（视觉更干净）；Windows 保留原生标题栏，确保有最小化/关闭按钮
       titleBarStyle: Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
     );
