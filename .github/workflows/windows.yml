@@ -1,0 +1,39 @@
+name: Windows Build
+
+on:
+  workflow_dispatch: # 支持在 Actions 页面手动触发
+  push:
+    tags:
+      - "v*" # 推送 v 开头的 tag 时自动构建
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Package (zip)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "稳讯收银-windows.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wenxun-windows
+          path: 稳讯收银-windows.zip
+          retention-days: 30
