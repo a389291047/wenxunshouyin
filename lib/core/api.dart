@@ -100,6 +100,31 @@ class Api {
     });
   }
 
+  /// 会员余额支付（零售收银台）：后端先扣会员余额（联拓富会员走联拓富真实扣款）
+  /// 再落订单，扣款失败不落单。POST /api/order/huiyuanzhifu
+  static Future<Map<String, dynamic>> memberPay({
+    required int wenxunId,
+    required int vipId,
+    required String phone,
+    required double total,
+    required double originalTotal,
+    required List<Map<String, dynamic>> cart,
+    int totalCount = 0,
+    double vipDiscount = 1.0,
+  }) async {
+    return post('/api/order/huiyuanzhifu', {
+      'id': wenxunId,
+      'vip_id': vipId,
+      'phone': phone,
+      'realTotal': total,
+      'total': originalTotal,
+      'totalCount': totalCount,
+      'vipDiscount': vipDiscount,
+      'paymentMethod': '会员支付',
+      'cart': cart,
+    });
+  }
+
   /// 收银端订单列表（店内+小程序混合，按 order_from 前端区分）
   static Future<List> ordersAll(int wenxunId) async {
     final r = await post('/shouyin/order/dingdanshouyinyuan', {
@@ -120,53 +145,131 @@ class Api {
     return (r['huiyuan'] ?? []) as List;
   }
 
+  /// 会员等级列表（与小程序添加会员页同源 v1.Vip/getLevelAndCount）
+  static Future<List> vipLevels(int wenxunId) async {
+    final r = await post('/api/v1.Vip/getLevelAndCount', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200' && r['list'] is List) return r['list'] as List;
+    throw ApiError('${r['msg'] ?? '获取会员等级失败'}');
+  }
+
+  /// 添加会员（与微信小程序 pages/vip/add 一致，走 v1.Vip/chushi2）
+  /// 服务端校验：phone 必填、xm（姓名）必填、lv_id 必填
   static Future<Map<String, dynamic>> vipAdd({
     required int wenxunId,
     required String phone,
-    String? name,
-    String amount = '0.00',
+    required String name,
+    required int lvId,
+    required String levelName,
+    String amount = '0',
     String score = '0',
+    String shika = '',
+    String chepai = '',
   }) async {
-    return post('/shouyin/vip/xcxadd', {
+    return post('/api/v1.Vip/chushi2', {
+      'wenxun_id': wenxunId,
       'vip_id': wenxunId,
+      'staff_id': Session.staffId,
+      'xm': name,
       'phone': phone,
-      if (name != null && name.isNotEmpty) 'name': name,
       'amount': amount,
       'score': score,
+      'chepai': chepai,
+      'shika': shika,
+      'lv_id': lvId,
+      'level_name': levelName,
     });
   }
 
-  static Future<Map<String, dynamic>> vipRecharge({
-    required int vipId,
-    required double czamount,
-    required double zengsong,
-    required String paymentMethod,
-  }) async {
-    return post('/shouyin/vip/chongzhi', {
-      'id': vipId,
-      'czamount': czamount,
-      'zengsong': zengsong,
-      'paymentMethod': paymentMethod,
-    });
+  /// 充值档次列表（与小程序充值页同源 viphuodong/lst）
+  static Future<List> vipRechargeTiers(int wenxunId) async {
+    final r = await post('/api/viphuodong/lst', {'wenxun_id': wenxunId}, withToken: false);
+    return (r['huodong'] ?? []) as List;
   }
 
-  static Future<Map<String, dynamic>> vipDeduct({
+  /// 会员充值 · 扫顾客付款码支付（与小程序充值页同源 payment/codePay，type=A 充值）
+  /// amount 单位元（两位小数字符串），code 为 18-30 位付款码
+  static Future<Map<String, dynamic>> rechargeCodePay({
     required int wenxunId,
-    required int vipId,
-    required double kcamount,
-    String beizhu = '',
+    required double amount,
+    required String code,
   }) async {
-    return post('/shouyin/vip/kouchu', {
-      'wenxun_id': wenxunId,
-      'id': vipId,
-      'kcamount': kcamount,
-      'beizhu': beizhu,
-    });
+    final amt = amount.toStringAsFixed(2);
+    final txamt = (amount * 100).round().toString();
+    return post('/api/payment/codePay', {
+      'denglu': wenxunId,
+      'amount': amt,
+      'txamt': txamt,
+      'code': code,
+      'type': 'A',
+    }, withToken: false);
   }
 
   static Future<List> vipOrders(int vipId) async {
     final r = await post('/shouyin/vip/dingdanshouyinyuan', {'vip_id': vipId});
     return (r['dingdan'] ?? []) as List;
+  }
+
+  // ==================== 订单配送（美团/京东秒送/淘宝闪购） ====================
+
+  /// 平台配置列表
+  static Future<List> deliveryConfigs(int wenxunId) async {
+    final r = await post('/api/delivery/configList', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') return (r['data']['platforms'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取平台配置失败'}');
+  }
+
+  /// 保存平台配置
+  static Future<void> deliveryConfigSave({
+    required int wenxunId,
+    required String platform,
+    required String appId,
+    required String appSecret,
+    String sourceId = '',
+    String env = 'prod',
+    required String storeId,
+    required String accessToken,
+    required bool enabled,
+  }) async {
+    final r = await post('/api/delivery/configSave', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'app_id': appId,
+      'app_secret': appSecret,
+      'source_id': sourceId,
+      'env': env,
+      'store_id': storeId,
+      'access_token': accessToken,
+      'enabled': enabled ? 1 : 0,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '保存失败'}');
+  }
+
+  /// 订单池列表（platform 空=全部平台，status 空=全部状态）
+  static Future<List> deliveryOrders(int wenxunId, {String platform = ''}) async {
+    final r = await post('/api/delivery/orders', {'wenxun_id': wenxunId, 'platform': platform});
+    if ('${r['code']}' == '200') return (r['data']['list'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取订单失败'}');
+  }
+
+  /// 从平台拉单
+  static Future<Map<String, dynamic>> deliveryPull(int wenxunId, String platform) async {
+    final r = await post('/api/delivery/pull', {'wenxun_id': wenxunId, 'platform': platform});
+    if ('${r['code']}' == '200') return r;
+    throw ApiError('${r['msg'] ?? '拉单失败'}');
+  }
+
+  /// 平台配置诊断：返回请求地址 / HTTP 状态 / 平台响应原文
+  static Future<Map<String, dynamic>> deliveryProbe(int wenxunId, String platform) async {
+    final r = await post('/api/delivery/probe', {'wenxun_id': wenxunId, 'platform': platform});
+    if ('${r['code']}' == '200') return (r['data'] ?? {}) as Map<String, dynamic>;
+    throw ApiError('${r['msg'] ?? '诊断失败'}');
+  }
+
+  /// 配送操作 action=accept|delivering|delivered|cancel
+  static Future<Map<String, dynamic>> deliveryOp(int wenxunId, int orderId, String action) async {
+    final r = await post('/api/delivery/ops', {'wenxun_id': wenxunId, 'order_id': orderId, 'action': action});
+    if ('${r['code']}' == '200') return r;
+    throw ApiError('${r['msg'] ?? '操作失败'}');
   }
 
   // ==================== 交班 / 打印 ====================
@@ -240,6 +343,36 @@ class Api {
     });
   }
 
+  /// 预约桌台（仅空闲桌可预约，桌台状态 0→1）
+  static Future<Map<String, dynamic>> tableBook({
+    required int wenxunId,
+    required int tableId,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/zhuotai/bookTable', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
+  /// 取消预约（仅已预定桌可取消，桌台状态 1→0）
+  static Future<Map<String, dynamic>> tableCancelBook({
+    required int wenxunId,
+    required int tableId,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/zhuotai/cancelBookTable', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
   /// 已点菜品（临时未结算明细）
   static Future<Map<String, dynamic>> tableBill({
     required int wenxunId,
@@ -264,6 +397,66 @@ class Api {
     });
   }
 
+  // ==================== 收银员预点餐 ====================
+
+  /// 保存预点单（全量替换；cart 空数组 = 仅预约不出菜）
+  static Future<Map<String, dynamic>> preorderSave({
+    required int wenxunId,
+    required int tableId,
+    required String remark,
+    required List<Map<String, dynamic>> cart,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/tableorder/preorderSave', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+      'remark': remark,
+      'cart': cart,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
+  /// 查询预点单（list/total/remark/status）
+  static Future<Map<String, dynamic>> preorderGet({
+    required int wenxunId,
+    required int tableId,
+  }) async {
+    return post('/api/tableorder/preorderGet', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+    });
+  }
+
+  /// 清空预点单（保留预约状态）
+  static Future<Map<String, dynamic>> preorderClear({
+    required int wenxunId,
+    required int tableId,
+  }) async {
+    return post('/api/tableorder/preorderClear', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+    });
+  }
+
+  /// 顾客到店：一键开台 + 预点菜品转入正式账单，返回 kaitai_id/items/remark
+  static Future<Map<String, dynamic>> preorderArrival({
+    required int wenxunId,
+    required int tableId,
+    required int peopleNum,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/tableorder/preorderArrival', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+      'people_num': peopleNum,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
   /// 堂食结算（先吃后付统一收款）
   static Future<Map<String, dynamic>> tableSettle({
     required int wenxunId,
@@ -279,6 +472,8 @@ class Api {
     required String pay1Type,
     required double pay1Money,
     required List<Map<String, dynamic>> cart,
+    int vipId = 0,
+    String phone = '',
   }) async {
     return post('/api/tableorder/add', {
       'wenxun_id': wenxunId,
@@ -294,6 +489,8 @@ class Api {
       'pay1_type': pay1Type,
       'pay1_money': pay1Money,
       'cart': cart,
+      if (vipId > 0) 'vip_id': vipId,
+      if (phone.isNotEmpty) 'phone': phone,
     });
   }
 

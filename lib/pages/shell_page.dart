@@ -9,6 +9,7 @@ import 'shared/shift_page.dart';
 import 'shared/settings_page.dart';
 import 'dining/dining_page.dart';
 import 'dining/dining_orders_page.dart';
+import 'delivery/delivery_page.dart';
 import 'login_page.dart';
 
 /// 主框架：深色侧边栏 + 内容区
@@ -29,6 +30,7 @@ class _ShellPageState extends State<ShellPage> {
         _NavItem(Icons.restaurant_menu, '点餐', _Retail.diningHome),
         _NavItem(Icons.badge_outlined, '会员', _Retail.member),
         _NavItem(Icons.receipt_long, '订单', _Retail.diningOrders),
+        _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
         _NavItem(Icons.swap_horiz, '交班', _Retail.shift),
         _NavItem(Icons.settings_outlined, '设置', _Retail.settings),
       ];
@@ -37,6 +39,7 @@ class _ShellPageState extends State<ShellPage> {
       _NavItem(Icons.point_of_sale, '收银', _Retail.cashier),
       _NavItem(Icons.badge_outlined, '会员', _Retail.member),
       _NavItem(Icons.receipt_long, '订单', _Retail.orders),
+      _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
       _NavItem(Icons.swap_horiz, '交班', _Retail.shift),
       _NavItem(Icons.settings_outlined, '设置', _Retail.settings),
     ];
@@ -48,7 +51,8 @@ class _ShellPageState extends State<ShellPage> {
         case 0: return const DiningPage();
         case 1: return const MemberPage(); // 餐饮版会员：复用零售会员界面
         case 2: return const DiningOrdersPage();
-        case 3: return const ShiftPage();
+        case 3: return const DeliveryPage();
+        case 4: return const ShiftPage();
         default: return const SettingsPage();
       }
     }
@@ -56,7 +60,8 @@ class _ShellPageState extends State<ShellPage> {
       case 0: return const RetailCashierPage();
       case 1: return const MemberPage();
       case 2: return const RetailOrdersPage();
-      case 3: return const ShiftPage();
+      case 3: return const DeliveryPage();
+      case 4: return const ShiftPage();
       default: return const SettingsPage();
     }
   }
@@ -181,4 +186,5 @@ class _Retail {
   static const settings = 'settings';
   static const diningHome = 'dining_home';
   static const diningOrders = 'dining_orders';
+  static const delivery = 'delivery';
 }

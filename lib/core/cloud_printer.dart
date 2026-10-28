@@ -26,6 +26,65 @@ class CloudPrinter {
     );
   }
 
+  /// 后厨小票：优先后厨类打印机（2热菜 3面点 4凉菜 5传菜），没有则回退任意可用
+  static Future<Map<String, dynamic>> printKitchen(String content) async {
+    final List all = await list();
+    final usable = all.where((p) =>
+        '${p['status']}' == '1' &&
+        '${p['machine_code']}'.isNotEmpty).toList();
+    if (usable.isEmpty) {
+      throw ApiError('没有启用中的云打印机，请到「设置 → 云打印」添加');
+    }
+    final kitchenTypes = {'2', '3', '4', '5'};
+    final p = usable.firstWhere((x) => kitchenTypes.contains('${x['print_type']}'),
+        orElse: () => usable.first);
+    return Api.cloudPrint(
+      wenxunId: Session.wenxunId,
+      machineCode: '${p['machine_code']}',
+      content: content,
+    );
+  }
+
+  /// 后厨小票模板（cart 聚合同名菜品；仅菜品名+数量，不带价格）
+  static String kitchenTicket({
+    required String tableTitle,
+    required String tableQuyu,
+    required List<Map<String, dynamic>> cart,
+    String remark = '',
+    String title = '后厨单',
+    bool isAdd = false,
+  }) {
+    // 同名菜品合并数量
+    final merged = <String, Map<String, dynamic>>{};
+    for (final g in cart) {
+      final name = '${g['goods_name'] ?? g['name'] ?? ''}';
+      final qty = int.tryParse('${g['quantity']}') ?? 0;
+      if (name.isEmpty || qty <= 0) continue;
+      if (merged.containsKey(name)) {
+        merged[name]!['quantity'] = (merged[name]!['quantity'] as int) + qty;
+      } else {
+        merged[name] = {'goods_name': name, 'quantity': qty};
+      }
+    }
+    final sb = StringBuffer();
+    sb.writeln('<CB>${isAdd ? '加菜单' : title}</CB>');
+    sb.writeln('--------------------------------');
+    sb.writeln('桌台: $tableTitle${tableQuyu.isNotEmpty ? ' ($tableQuyu)' : ''}');
+    if (remark.isNotEmpty) sb.writeln('备注: $remark');
+    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('点单: ${Session.staffName}');
+    sb.writeln('--------------------------------');
+    var count = 0;
+    merged.forEach((_, g) {
+      final qty = g['quantity'] as int;
+      count += qty;
+      sb.writeln('${g['goods_name']}  x$qty');
+    });
+    sb.writeln('--------------------------------');
+    sb.writeln('合计件数: $count');
+    return sb.toString();
+  }
+
   /// 组零售收银小票
   static String retailReceipt({
     required String orderNo,

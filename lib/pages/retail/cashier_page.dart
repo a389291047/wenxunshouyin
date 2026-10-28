@@ -3,6 +3,7 @@ import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
 /// 零售版 · 收银点单页（触摸屏优化版）
@@ -151,38 +152,59 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
     final t = total;
-    final methods = ['现金', '微信支付', '支付宝', '会员支付'];
+    // 未选会员时不出现「会员支付」，避免误点
+    final methods = ['现金', '微信支付', '支付宝', if (vip != null) '会员支付'];
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => _PayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
 
-    // 会员余额支付：校验余额并扣款
+    final cartPayload = cart.map((l) => {
+      'id': l.goods['id'],
+      'name': l.goods['title'],
+      'price': _price(l.goods),
+      'quantity': l.num,
+      'guige': '${l.goods['guige'] ?? ''}',
+      'image': _img(l.goods),
+    }).toList();
+
+    // 会员余额支付：校验余额 → 后端扣款（联拓富会员走联拓富真实扣款）+ 落单
     if (picked == '会员支付') {
-      if (vip == null) {
-        toast(context, '请先选择会员', error: true);
-        return;
-      }
-      final balance = double.tryParse('${vip!['amount']}') ?? 0;
-      if (balance < t) {
-        toast(context, '会员余额不足（余额 ¥${Fmt.money(balance)}）', error: true);
+      final bal = _vipBalance();
+      if (bal < t) {
+        toast(context, '会员余额不足（¥${Fmt.money(bal)}），请先充值', error: true);
         return;
       }
       loadingDialog(context, '会员扣款中…');
       try {
-        await Api.vipDeduct(
+        final r = await Api.memberPay(
           wenxunId: Session.wenxunId,
           vipId: int.tryParse('${vip!['id']}') ?? 0,
-          kcamount: t,
-          beizhu: '店内消费',
+          phone: '${vip!['phone'] ?? ''}',
+          total: t,
+          originalTotal: t,
+          cart: cartPayload,
+          totalCount: count,
         );
-        if (mounted) Navigator.pop(context);
+        if (!mounted) return;
+        Navigator.pop(context); // loading
+        if ('${r['code']}' != '200') {
+          toast(context, '${r['msg'] ?? '会员扣款失败'}', error: true);
+          return;
+        }
+        final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
+        CloudPrinter.print(CloudPrinter.retailReceipt(
+          orderNo: orderNo, payMethod: picked, total: t,
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+        )).catchError((_) => <String, dynamic>{});
+        _clearCart();
+        showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: picked));
       } on ApiError catch (e) {
         if (mounted) Navigator.pop(context);
         toast(context, e.message, error: true);
-        return;
       }
+      return;
     }
 
     loadingDialog(context, '创建订单…');
@@ -193,14 +215,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         total: t,
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
-        cart: cart.map((l) => {
-          'id': l.goods['id'],
-          'name': l.goods['title'],
-          'price': _price(l.goods),
-          'quantity': l.num,
-          'guige': '${l.goods['guige'] ?? ''}',
-          'image': _img(l.goods),
-        }).toList(),
+        cart: cartPayload,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -218,6 +233,42 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
+  }
+
+  /// 会员可用余额（现金余额 + 赠送余额）
+  double _vipBalance() {
+    if (vip == null) return 0;
+    final a = double.tryParse('${vip!['amount'] ?? 0}') ?? 0;
+    final g = double.tryParse('${vip!['gift_balance'] ?? 0}') ?? 0;
+    return a + g;
+  }
+
+  /// 充值后刷新会员余额（按手机号回查，保持余额/积分最新）
+  Future<void> _refreshVip() async {
+    if (vip == null) return;
+    final phone = '${vip!['phone'] ?? ''}';
+    if (phone.isEmpty) return;
+    try {
+      final list = await Api.vipSearch(Session.wenxunId, phone);
+      if (!mounted) return;
+      for (final v in list) {
+        if ('${v['id']}' == '${vip!['id']}') {
+          setState(() => vip = v as Map);
+          return;
+        }
+      }
+    } on ApiError {
+      // 查询失败不影响收银
+    }
+  }
+
+  /// 收银台给选中会员充值
+  Future<void> _rechargeVip() async {
+    if (vip == null) return;
+    final r = await showVipRechargeDialog(context, vip: vip!);
+    if (r == null || !mounted) return;
+    toast(context, '充值成功 ¥${Fmt.money(r['amount'])}（送 ¥${Fmt.money(r['gift'])}）');
+    await _refreshVip();
   }
 
   // ==================== 选会员 ====================
@@ -410,13 +461,27 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                           Text('余额 ¥${Fmt.money(vip!['amount'])}  积分 ${vip!['score'] ?? 0}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
                         ]),
                 ),
-                if (vip != null)
+                if (vip != null) ...[
+                  InkWell(
+                    onTap: _rechargeVip,
+                    borderRadius: BorderRadius.circular(9),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF2ED),
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
+                      ),
+                      child: const Text('充值', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
                   InkWell(
                     onTap: () => setState(() => vip = null),
                     borderRadius: BorderRadius.circular(16),
                     child: const SizedBox(width: 32, height: 32, child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
-                  )
-                else
+                  ),
+                ] else
                   const Icon(Icons.chevron_right, size: 22, color: PosTheme.textHint),
               ]),
             ),
@@ -532,6 +597,10 @@ class _PayDialogState extends State<_PayDialog> {
     '会员支付': PosTheme.accent,
   };
 
+  // 映射缺失时给个兜底，避免再有 null 断言把整个收款弹窗打崩
+  IconData _iconOf(String m) => icons[m] ?? Icons.payments_outlined;
+  Color _colorOf(String m) => colors[m] ?? PosTheme.textSub;
+
   double get receivedVal => double.tryParse(received) ?? 0;
   double get change => (receivedVal - widget.total).clamp(0, double.maxFinite);
 
@@ -628,12 +697,19 @@ class _PayDialogState extends State<_PayDialog> {
               padding: const EdgeInsets.symmetric(vertical: 30),
               alignment: Alignment.center,
               child: Column(children: [
-                Icon(icons[method], size: 56, color: colors[method]),
+                Icon(_iconOf(method!), size: 56, color: _colorOf(method!)),
                 const SizedBox(height: 12),
-                Text('请顾客使用${method == '会员支付' ? '会员余额' : method}扫码支付',
+                Text(method == '会员支付'
+                        ? '将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}'
+                        : '请顾客使用$method扫码支付',
+                    textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 16, color: PosTheme.textSub)),
                 const SizedBox(height: 6),
-                Text('确认到账后点击下方「确认收款」', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+                Text(
+                    method == '会员支付'
+                        ? '当前余额 ¥${Fmt.money((double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0) + (double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0))}'
+                        : '确认到账后点击下方「确认收款」',
+                    style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
               ]),
             ),
           ] else ...[
@@ -668,12 +744,12 @@ class _PayDialogState extends State<_PayDialog> {
       child: Container(
         height: 84,
         decoration: BoxDecoration(
-          color: on ? colors[m]!.withOpacity(0.1) : const Color(0xFFF7F8FA),
-          border: Border.all(color: on ? colors[m]! : Colors.transparent, width: 2),
+          color: on ? _colorOf(m).withOpacity(0.1) : const Color(0xFFF7F8FA),
+          border: Border.all(color: on ? _colorOf(m) : Colors.transparent, width: 2),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icons[m], size: 30, color: disabled ? PosTheme.textHint : colors[m]),
+          Icon(_iconOf(m), size: 30, color: disabled ? PosTheme.textHint : _colorOf(m)),
           const SizedBox(height: 6),
           Text(m + (disabled ? '（未选会员）' : ''),
               style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain)),
