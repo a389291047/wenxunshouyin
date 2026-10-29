@@ -119,7 +119,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     if (_hasSpecs(g)) {
       final sku = await showDialog<Map>(
         context: context,
-        builder: (_) => _SkuPickerDialog(goods: g, imgs: _imgUrls(g)),
+        builder: (_) => RetailSkuPickerDialog(goods: g, imgs: _imgUrls(g)),
       );
       if (sku == null || !mounted) return;
       _add({
@@ -156,7 +156,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     final methods = ['现金', '微信支付', '支付宝', if (vip != null) '会员支付'];
     final picked = await showDialog<String>(
       context: context,
-      builder: (_) => _PayDialog(total: t, vip: vip, methods: methods),
+      builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
 
@@ -273,7 +273,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   // ==================== 选会员 ====================
   Future<void> _pickVip() async {
-    final picked = await showDialog<Map>(context: context, builder: (_) => const _VipPickerDialog());
+    final picked = await showDialog<Map>(context: context, builder: (_) => const RetailVipPickerDialog());
     if (picked != null) setState(() => vip = picked);
   }
 
@@ -409,7 +409,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: _GoodsImage(urls: _imgUrls(g)),
+                    child: RetailGoodsImage(urls: _imgUrls(g)),
                   ),
                   if (_hasSpecs(g))
                     Positioned(
@@ -572,16 +572,16 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 }
 
 // ==================== 收款弹窗（大屏触摸版：支付方式大块 + 数字键盘） ====================
-class _PayDialog extends StatefulWidget {
+class RetailPayDialog extends StatefulWidget {
   final double total;
   final Map? vip;
   final List<String> methods;
-  const _PayDialog({required this.total, required this.methods, this.vip});
+  const RetailPayDialog({required this.total, required this.methods, this.vip});
   @override
-  State<_PayDialog> createState() => _PayDialogState();
+  State<RetailPayDialog> createState() => _PayDialogState();
 }
 
-class _PayDialogState extends State<_PayDialog> {
+class _PayDialogState extends State<RetailPayDialog> {
   String? method;
   String received = ''; // 现金实收（数字键盘输入）
   final icons = {
@@ -809,13 +809,13 @@ class _PayDialogState extends State<_PayDialog> {
 }
 
 // ==================== 选会员弹窗（大屏触摸版） ====================
-class _VipPickerDialog extends StatefulWidget {
-  const _VipPickerDialog();
+class RetailVipPickerDialog extends StatefulWidget {
+  const RetailVipPickerDialog();
   @override
-  State<_VipPickerDialog> createState() => _VipPickerDialogState();
+  State<RetailVipPickerDialog> createState() => _VipPickerDialogState();
 }
 
-class _VipPickerDialogState extends State<_VipPickerDialog> {
+class _VipPickerDialogState extends State<RetailVipPickerDialog> {
   List list = [];
   bool loading = true;
   String kw = '';
@@ -906,15 +906,15 @@ class _VipPickerDialogState extends State<_VipPickerDialog> {
 // ==================== 多规格 SKU 选择弹窗（大屏触摸版 · 规格自由组合） ====================
 /// 有规格分组（spec_groups）时：每个维度选一项，自动匹配 SKU，底部显示价格并加购；
 /// 分组缺失时退化为 SKU 列表平铺模式。
-class _SkuPickerDialog extends StatefulWidget {
+class RetailSkuPickerDialog extends StatefulWidget {
   final Map goods;
   final List<String> imgs;
-  const _SkuPickerDialog({required this.goods, required this.imgs});
+  const RetailSkuPickerDialog({required this.goods, required this.imgs});
   @override
-  State<_SkuPickerDialog> createState() => _SkuPickerDialogState();
+  State<RetailSkuPickerDialog> createState() => _SkuPickerDialogState();
 }
 
-class _SkuPickerDialogState extends State<_SkuPickerDialog> {
+class _SkuPickerDialogState extends State<RetailSkuPickerDialog> {
   final Map<int, int> selected = {}; // 维度id -> 规格值id
 
   List get _specs => (widget.goods['specs'] as List?) ?? [];
@@ -970,7 +970,7 @@ class _SkuPickerDialogState extends State<_SkuPickerDialog> {
         borderRadius: BorderRadius.circular(14),
         child: SizedBox(
           width: 88, height: 88,
-          child: _GoodsImage(urls: widget.imgs, iconSize: 36),
+          child: RetailGoodsImage(urls: widget.imgs, iconSize: 36),
         ),
       ),
       const SizedBox(width: 18),
@@ -1126,15 +1126,15 @@ class _SkuPickerDialogState extends State<_SkuPickerDialog> {
 }
 
 // ==================== 商品图片（多地址依次尝试，全失败显示占位） ====================
-class _GoodsImage extends StatefulWidget {
+class RetailGoodsImage extends StatefulWidget {
   final List<String> urls;
   final double iconSize;
-  const _GoodsImage({required this.urls, this.iconSize = 32});
+  const RetailGoodsImage({required this.urls, this.iconSize = 32});
   @override
-  State<_GoodsImage> createState() => _GoodsImageState();
+  State<RetailGoodsImage> createState() => _GoodsImageState();
 }
 
-class _GoodsImageState extends State<_GoodsImage> {
+class _GoodsImageState extends State<RetailGoodsImage> {
   int idx = 0;
 
   Widget _placeholder() => Container(

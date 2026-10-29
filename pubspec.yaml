@@ -1,5 +1,5 @@
 name: wenxun
-version: 3.3.39+3339
+version: 3.3.40+3340
 
 environment:
   sdk: '^3.13.0'
@@ -32,6 +32,7 @@ flutter:
     - assets/bj.png
     - assets/app_icon.png  # 你的图标
     - assets/avatar_default.png  # 会员默认头像
+    - assets/kefu_qr.png  # 微信客服二维码（企业微信客服）
 
 # ==========================================
 # ✅  flutter_launcher_icons 自动圆角图标
