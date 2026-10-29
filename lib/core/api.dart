@@ -56,6 +56,25 @@ class Api {
     }, withToken: false);
   }
 
+  /// 商家自助注册（一次建齐：商户 + 默认分类 + 会员等级 + 店长账号）
+  /// hangye: 1零售 2餐饮 3生鲜
+  static Future<Map<String, dynamic>> register({
+    required String name,
+    required String phone,
+    required String password,
+    required int hangye,
+    String model = 'desktop',
+  }) {
+    return post('/api/s1.reg/index', {
+      'name': name,
+      'phone': phone,
+      'password': password,
+      'confirm_password': password,
+      'hangye': hangye,
+      'model': model,
+    }, withToken: false);
+  }
+
   // ==================== 商品 ====================
 
   /// 分类 + 商品一次拉全（零售点单页用）

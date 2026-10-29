@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import 'register_page.dart';
 import 'shell_page.dart';
 
 /// 收银端登录页（触摸屏版）
@@ -134,7 +135,7 @@ class _LoginPageState extends State<LoginPage> {
           // 左侧品牌区（渐变 + 气泡上飘动画）
           const Expanded(
             flex: 5,
-            child: _BrandPanel(),
+            child: BrandPanel(),
           ),
           // 右侧登录区（触摸键盘）
           Expanded(
@@ -197,10 +198,30 @@ class _LoginPageState extends State<LoginPage> {
                               : const Text('登 录'),
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 14),
                       const Text('登录即代表已阅读并同意隐私保护指引',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                      const SizedBox(height: 4),
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () async {
+                                final phone = await Navigator.push<String>(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const RegisterPage()),
+                                );
+                                if (phone != null && phone.isNotEmpty && mounted) {
+                                  setState(() {
+                                    _phoneVal = phone;
+                                    _pwdVal = '';
+                                    _active = 1; // 手机号已填，键盘直接切到密码
+                                  });
+                                }
+                              },
+                        child: const Text('没有账号？注册商家',
+                            style: TextStyle(fontSize: 14, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+                      ),
                     ]),
                   ),
                 ),
@@ -386,14 +407,14 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-// ==================== 登录页左侧品牌面板：渐变底 + 气泡上飘动画 ====================
-class _BrandPanel extends StatefulWidget {
-  const _BrandPanel();
+// ==================== 登录页左侧品牌面板：渐变底 + 气泡上飘动画（注册页复用） ====================
+class BrandPanel extends StatefulWidget {
+  const BrandPanel({super.key});
   @override
-  State<_BrandPanel> createState() => _BrandPanelState();
+  State<BrandPanel> createState() => _BrandPanelState();
 }
 
-class _BrandPanelState extends State<_BrandPanel> with SingleTickerProviderStateMixin {
+class _BrandPanelState extends State<BrandPanel> with SingleTickerProviderStateMixin {
   late final AnimationController _c;
 
   /// 气泡参数（固定值，避免每次构建随机跳动）：
