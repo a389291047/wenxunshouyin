@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import '../ui/agreement.dart';
 import 'register_page.dart';
 import 'shell_page.dart';
 
@@ -21,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
   String _pwdVal = '';
   bool _showPwd = false;
   bool _busy = false;
+  bool _agree = false; // 必须勾选协议才能登录
   int _active = 0; // 0=手机号 1=密码（当前键盘作用对象）
   bool _shift = false; // 密码键盘大小写
 
@@ -33,6 +35,10 @@ class _LoginPageState extends State<LoginPage> {
     }
     if (pwd.length < 4) {
       _err('请输入登录密码');
+      return;
+    }
+    if (!_agree) {
+      _err('请先阅读并勾选同意《用户协议》和《隐私政策》');
       return;
     }
     setState(() => _busy = true);
@@ -181,7 +187,9 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 14),
                       _keyboard(),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 16),
+                      AgreementCheck(value: _agree, onChanged: (v) => setState(() => _agree = v)),
+                      const SizedBox(height: 14),
                       SizedBox(
                         height: 56,
                         child: ElevatedButton(
@@ -198,10 +206,6 @@ class _LoginPageState extends State<LoginPage> {
                               : const Text('登 录'),
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      const Text('登录即代表已阅读并同意隐私保护指引',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
                       const SizedBox(height: 4),
                       TextButton(
                         onPressed: _busy

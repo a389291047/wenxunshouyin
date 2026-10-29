@@ -1,5 +1,5 @@
 name: wenxun
-version: 3.3.40+3340
+version: 3.3.41+3341
 
 environment:
   sdk: '^3.13.0'
@@ -16,6 +16,7 @@ dependencies:
   provider: ^6.1.1
   shared_preferences: ^2.2.2
   window_manager: ^0.5.2
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

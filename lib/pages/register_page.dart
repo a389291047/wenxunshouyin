@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/theme.dart';
+import '../ui/agreement.dart';
 import 'login_page.dart' show BrandPanel;
 
 /// 商家自助注册页
@@ -142,25 +143,7 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: 14),
                       _field(label: '确认密码', controller: _pwd2, hint: '再输入一次密码', obscure: true, maxLength: 32),
                       const SizedBox(height: 12),
-                      InkWell(
-                        onTap: () => setState(() => _agree = !_agree),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(children: [
-                            SizedBox(
-                              width: 22, height: 22,
-                              child: Checkbox(value: _agree, onChanged: (v) => setState(() => _agree = v ?? false),
-                                  activeColor: PosTheme.accent, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text('我已阅读并同意《用户协议》和《隐私政策》',
-                                  style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                            ),
-                          ]),
-                        ),
-                      ),
+                      AgreementCheck(value: _agree, onChanged: (v) => setState(() => _agree = v)),
                       const SizedBox(height: 18),
                       SizedBox(
                         height: 56,
