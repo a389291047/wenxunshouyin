@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/session.dart';
@@ -9,6 +10,14 @@ import 'pages/shell_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Android（商米等收银机）：全屏沉浸 + 跟随设备横竖屏
+  if (Platform.isAndroid) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+    ));
+  }
 
   // 桌面端：runApp 必须放在 waitUntilReadyToShow 回调内（官方要求），
   // 否则窗口先于 Flutter 首帧显示，Metal 渲染层无内容 → 黑屏

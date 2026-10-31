@@ -58,7 +58,7 @@ class UsbPrinter {
 
   // ==================== 打印机枚举 ====================
 
-  /// 返回 [{id, name, kind, uri?}]，kind: win / queue / usb
+  /// 返回 [{id, name, kind, ...}]，kind: win / queue / usb / sunmi
   static Future<List<Map<String, dynamic>>> list() async {
     if (Platform.isWindows) return _listWindows();
     if (Platform.isMacOS) return _listMacos();
@@ -66,14 +66,17 @@ class UsbPrinter {
       final res = await _channel.invokeMethod<List<dynamic>>('list');
       return (res ?? [])
           .map((e) => Map<String, dynamic>.from(e as Map))
-          .map((m) => {
-                'id': '${m['vid']}:${m['pid']}',
-                'vid': m['vid'],
-                'pid': m['pid'],
-                'name': m['name'] ?? 'USB打印机',
-                'kind': 'usb',
-                'hasPermission': m['hasPermission'] == true,
-              })
+          .map((m) {
+            final kind = '${m['kind'] ?? 'usb'}';
+            return <String, dynamic>{
+              'id': kind == 'sunmi' ? 'sunmi' : '${m['vid']}:${m['pid']}',
+              'vid': m['vid'],
+              'pid': m['pid'],
+              'name': m['name'] ?? (kind == 'sunmi' ? '商米内置打印机' : 'USB打印机'),
+              'kind': kind,
+              'hasPermission': m['hasPermission'] == true,
+            };
+          })
           .toList();
     }
     return [];
@@ -91,6 +94,7 @@ class UsbPrinter {
       await _printMacos(printer, bytes);
     } else if (Platform.isAndroid) {
       await _channel.invokeMethod('print', {
+        'kind': '${printer['kind'] ?? 'usb'}',
         'vid': printer['vid'],
         'pid': printer['pid'],
         'bytes': Uint8List.fromList(bytes),
@@ -292,6 +296,7 @@ class UsbPrinter {
     if (!Platform.isAndroid) return true;
     try {
       return await _channel.invokeMethod<bool>('requestPermission', {
+            'kind': '${printer['kind'] ?? 'usb'}',
             'vid': printer['vid'],
             'pid': printer['pid'],
           }) ==

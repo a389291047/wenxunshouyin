@@ -2,15 +2,20 @@ package com.wenxunwxzf.shop
 
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.ServiceConnection
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.IBinder
+import woyou.aidlservice.jiuiv5.ICallback
+import woyou.aidlservice.jiuiv5.IWoyouService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -21,14 +26,103 @@ class MainActivity : FlutterActivity() {
 
     private val permAction = "com.wenxunwxzf.shop.USB_PERMISSION"
 
+    // ==================== 商米内置打印机（AIDL 打印服务） ====================
+
+    private var sunmiService: IWoyouService? = null
+    private var sunmiBound = false
+    private val sunmiLock = Object()
+
+    private val sunmiConn = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            synchronized(sunmiLock) {
+                sunmiService = IWoyouService.Stub.asInterface(service)
+                sunmiLock.notifyAll()
+            }
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            synchronized(sunmiLock) {
+                sunmiService = null
+                sunmiBound = false
+            }
+        }
+    }
+
+    /** 尝试绑定商米打印服务（V2/L2K/T2/D3 等机型均用 woyou.aidlservice.jiuiv5） */
+    private fun bindSunmi(): Boolean {
+        if (sunmiBound) return true
+        val intent = Intent("woyou.aidlservice.jiuiv5.IWoyouService")
+        intent.setPackage("woyou.aidlservice.jiuiv5")
+        val ok = runCatching { bindService(intent, sunmiConn, Context.BIND_AUTO_CREATE) }.getOrDefault(false)
+        if (ok) sunmiBound = true
+        return ok
+    }
+
+    /** 等待商米打印服务连接（最多 timeoutMs） */
+    private fun awaitSunmi(timeoutMs: Long): IWoyouService? {
+        if (!sunmiBound && !bindSunmi()) return null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        synchronized(sunmiLock) {
+            while (sunmiService == null) {
+                val remain = deadline - System.currentTimeMillis()
+                if (remain <= 0) return null
+                sunmiLock.wait(remain)
+            }
+            return sunmiService
+        }
+    }
+
+    private fun sunmiPrint(bytes: ByteArray) {
+        val svc = awaitSunmi(3000) ?: throw Exception("商米打印服务连接失败（确认是商米收银机且打印服务正常）")
+        val latch = CountDownLatch(1)
+        val okFlag = arrayOf(true)
+        val cb = object : ICallback.Stub() {
+            override fun onRunResult(isSuccess: Boolean) { okFlag[0] = isSuccess; latch.countDown() }
+            override fun onReturnString(result: String?) { latch.countDown() }
+            override fun onRaiseException(code: Int, msg: String?) {
+                okFlag[0] = false; latch.countDown()
+            }
+        }
+        // 分块发送，避免超长小票超出 Binder 缓冲区（1MB 限制）
+        var offset = 0
+        val chunk = 32768
+        while (offset < bytes.size) {
+            val len = minOf(chunk, bytes.size - offset)
+            val part = bytes.copyOfRange(offset, offset + len)
+            svc.sendRAWData(part, cb)
+            offset += len
+        }
+        // 等待最后一次回调确认打印完成
+        if (!latch.await(30, TimeUnit.SECONDS)) throw Exception("打印超时（请检查打印机纸张）")
+        if (!okFlag[0]) throw Exception("打印机执行失败（缺纸/过热/开盖）")
+    }
+
+    override fun onDestroy() {
+        if (sunmiBound) runCatching { unbindService(sunmiConn) }
+        super.onDestroy()
+    }
+
+    // ==================== Flutter MethodChannel ====================
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // 进页就开始绑商米打印服务（非商米设备 bind 失败无副作用）
+        bindSunmi()
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wenxun/usb_printer")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "list" -> {
                         try {
-                            result.success(listPrinters())
+                            val list = listPrinters().toMutableList()
+                            // 商米内置打印机：绑定成功即加入列表（排在最前）
+                            if (awaitSunmiNonBlocking(1500)) {
+                                list.add(0, mapOf(
+                                    "name" to "商米内置打印机",
+                                    "kind" to "sunmi",
+                                    "hasPermission" to true
+                                ))
+                            }
+                            result.success(list)
                         } catch (e: Exception) {
                             result.error("USB", e.message, null)
                         }
@@ -36,9 +130,14 @@ class MainActivity : FlutterActivity() {
                     "requestPermission" -> {
                         Thread {
                             try {
-                                val vid = call.argument<Int>("vid") ?: 0
-                                val pid = call.argument<Int>("pid") ?: 0
-                                ensurePermission(vid, pid)
+                                val kind = call.argument<String>("kind") ?: ""
+                                if (kind == "sunmi") {
+                                    if (awaitSunmi(5000) == null) throw Exception("商米打印服务连接失败")
+                                } else {
+                                    val vid = call.argument<Int>("vid") ?: 0
+                                    val pid = call.argument<Int>("pid") ?: 0
+                                    ensurePermission(vid, pid)
+                                }
                                 runOnUiThread { result.success(true) }
                             } catch (e: Exception) {
                                 runOnUiThread { result.error("USB", e.message, null) }
@@ -48,10 +147,15 @@ class MainActivity : FlutterActivity() {
                     "print" -> {
                         Thread {
                             try {
-                                val vid = call.argument<Int>("vid") ?: 0
-                                val pid = call.argument<Int>("pid") ?: 0
+                                val kind = call.argument<String>("kind") ?: ""
                                 val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
-                                usbPrint(vid, pid, bytes)
+                                if (kind == "sunmi") {
+                                    sunmiPrint(bytes)
+                                } else {
+                                    val vid = call.argument<Int>("vid") ?: 0
+                                    val pid = call.argument<Int>("pid") ?: 0
+                                    usbPrint(vid, pid, bytes)
+                                }
                                 runOnUiThread { result.success(true) }
                             } catch (e: Exception) {
                                 runOnUiThread { result.error("USB", e.message, null) }
@@ -61,6 +165,18 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /** 非阻塞探测商米服务（用于列表展示） */
+    private fun awaitSunmiNonBlocking(timeoutMs: Long): Boolean {
+        if (sunmiService != null) return true
+        if (!sunmiBound && !bindSunmi()) return false
+        return synchronized(sunmiLock) {
+            if (sunmiService == null) {
+                try { sunmiLock.wait(timeoutMs) } catch (_: InterruptedException) {}
+            }
+            sunmiService != null
+        }
     }
 
     private fun usbManager(): UsbManager = getSystemService(Context.USB_SERVICE) as UsbManager
@@ -95,6 +211,7 @@ class MainActivity : FlutterActivity() {
                 "name" to (it.productName ?: "USB打印机(VID ${it.vendorId})"),
                 "vid" to it.vendorId,
                 "pid" to it.productId,
+                "kind" to "usb",
                 "hasPermission" to usbManager().hasPermission(it)
             )
         }

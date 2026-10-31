@@ -26,6 +26,11 @@ android {
     namespace "com.wenxunwxzf.shop"
     compileSdkVersion 36
 
+    // 商米内置打印机 AIDL
+    buildFeatures {
+        aidl true
+    }
+
     defaultConfig {
         applicationId "com.wenxunwxzf.shop"
         // 修正：直接写死21，替代flutter.minSdkVersion（更明确）
