@@ -48,27 +48,27 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadRefundPwd() async {
     try {
-      final c = await Api.refundPasswordCustom(Session.wenxunId);
+      final c = await Api.refundPasswordCustom(Session.wenxunId, Session.staffId);
       if (mounted) setState(() => refundPwdCustom = c);
     } on ApiError {
       // 查询失败保持 null（显示未知）
     }
   }
 
-  /// 退款密码卡片：商户级，所有收银员共用；默认商户手机号后6位
+  /// 退款密码卡片：收银员级，每个收银员独自管理；默认本人手机号后6位
   Widget _refundPwdCard() {
     final statusText = refundPwdCustom == null
         ? '状态未知'
-        : (refundPwdCustom! ? '已自定义密码' : '默认：商户手机号后6位');
+        : (refundPwdCustom! ? '已自定义密码' : '默认：您的手机号后6位');
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _sectionTitle(Icons.lock_outline, '退款密码'),
       const SizedBox(height: 12),
       Row(children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('订单退款需输入退款密码（商户级，所有收银员共用）',
+          Text('当前收银员：${Session.staffName}（${Session.roleName}）',
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
           const SizedBox(height: 3),
-          Text('当前状态：$statusText。未自定义时使用商户手机号后6位，修改后所有收银端即时生效。',
+          Text('订单退款需输入退款密码，每个收银员独自管理自己的密码，互不影响。当前状态：$statusText。未自定义时使用本人手机号后6位。',
               style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
         ])),
         const SizedBox(width: 12),
@@ -100,7 +100,7 @@ class _SettingsPageState extends State<SettingsPage> {
               style: const TextStyle(fontSize: 17, letterSpacing: 5),
               decoration: InputDecoration(
                 counterText: '',
-                labelText: refundPwdCustom == false ? '当前密码（商户手机号后6位）' : '当前退款密码',
+                labelText: refundPwdCustom == false ? '当前密码（您的手机号后6位）' : '当前退款密码',
                 prefixIcon: const Icon(Icons.lock_outline, size: 20),
                 border: const OutlineInputBorder(),
                 isDense: true,
@@ -159,6 +159,7 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final r = await Api.setRefundPassword(
         wenxunId: Session.wenxunId,
+        staffId: Session.staffId,
         oldPassword: oldPwd,
         newPassword: newPwd,
       );

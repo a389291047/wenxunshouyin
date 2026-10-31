@@ -119,6 +119,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         wenxunId: Session.wenxunId,
         orderId: orderId,
         reason: '${r['reason']}',
+        operatorId: Session.staffId,
         operator: Session.staffName,
         password: '${r['password']}',
         amount: double.tryParse('${r['amount']}') ?? 0,
@@ -354,7 +355,7 @@ class _RefundDialogState extends State<_RefundDialog> {
       return;
     }
     if (pwd.length != 6 || int.tryParse(pwd) == null) {
-      toast(context, '请输入6位数字退款密码（默认商户手机号后6位）', error: true);
+      toast(context, '请输入6位数字退款密码（默认您的手机号后6位）', error: true);
       return;
     }
     Navigator.pop(context, {'reason': reason, 'amount': amount, 'password': pwd});
@@ -429,7 +430,7 @@ class _RefundDialogState extends State<_RefundDialog> {
             decoration: const InputDecoration(
               counterText: '',
               hintText: '退款密码（6位数字）',
-              helperText: '默认为商户手机号后6位，可在设置页修改',
+              helperText: '默认为您的手机号后6位，可在设置页修改',
               helperStyle: TextStyle(fontSize: 11.5),
               prefixIcon: Icon(Icons.lock_outline, size: 20),
               border: OutlineInputBorder(),
@@ -452,16 +453,16 @@ class _RefundDialogState extends State<_RefundDialog> {
   Widget _modeChip(String text, bool on, VoidCallback? onTap) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: BoxDecoration(
           color: on ? const Color(0xFFFDEEEE) : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(9),
-          border: Border.all(color: on ? PosTheme.red.withOpacity(0.5) : PosTheme.line),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: on ? PosTheme.red.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
         ),
         child: Text(text, style: TextStyle(
-          fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+          fontSize: 14.5, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
           color: on ? PosTheme.red : PosTheme.textSub,
         )),
       ),
@@ -477,56 +478,68 @@ class _RefundDialogState extends State<_RefundDialog> {
     ]);
   }
 
-  /// 部分退款：商品行步进选数量
+  /// 部分退款：商品行步进选数量（触屏大按钮，点击区 ≥ 48px）
   Widget _partialList() {
     return Container(
-      decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
+      decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(12)),
       child: Column(children: [
         for (var i = 0; i < widget.goods.length; i++) ...[
           if (i > 0) const Divider(height: 1, color: PosTheme.line),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             child: Row(children: [
               Expanded(
-                child: Text(_name(widget.goods[i]),
-                    style: const TextStyle(fontSize: 13.5),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(_name(widget.goods[i]),
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text('¥${Fmt.money(_price(widget.goods[i]))} ×${_qty(widget.goods[i])}',
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+                ]),
               ),
-              Text('¥${Fmt.money(_price(widget.goods[i]))} ×${_qty(widget.goods[i])}',
-                  style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
               const SizedBox(width: 10),
               // 步进器：0 .. 购买数量
               InkWell(
                 onTap: refundQty[i] > 0 ? () => setState(() => refundQty[i]--) : null,
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(10),
                 child: Container(
-                  width: 28, height: 28,
+                  width: 44, height: 44,
                   decoration: BoxDecoration(
                     color: refundQty[i] > 0 ? const Color(0xFFFDEEEE) : PosTheme.bg,
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.remove, size: 16,
+                  child: Icon(Icons.remove, size: 24,
                       color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint),
                 ),
               ),
               Container(
-                width: 40, alignment: Alignment.center,
+                width: 52, alignment: Alignment.center,
                 child: Text('${refundQty[i]}',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800,
+                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800,
                         color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
               ),
               InkWell(
                 onTap: refundQty[i] < _qty(widget.goods[i]) ? () => setState(() => refundQty[i]++) : null,
-                borderRadius: BorderRadius.circular(7),
+                borderRadius: BorderRadius.circular(10),
                 child: Container(
-                  width: 28, height: 28,
+                  width: 44, height: 44,
                   decoration: BoxDecoration(
                     color: refundQty[i] < _qty(widget.goods[i]) ? const Color(0xFFFDEEEE) : PosTheme.bg,
-                    borderRadius: BorderRadius.circular(7),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(Icons.add, size: 16,
+                  child: Icon(Icons.add, size: 24,
                       color: refundQty[i] < _qty(widget.goods[i]) ? PosTheme.red : PosTheme.textHint),
                 ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 78,
+                child: Text('¥${Fmt.money(_price(widget.goods[i]) * refundQty[i])}',
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                        fontSize: 14.5, fontWeight: FontWeight.w700,
+                        color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
               ),
             ]),
           ),
