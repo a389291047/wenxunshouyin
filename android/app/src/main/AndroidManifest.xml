@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 3. 允许应用获取WiFi状态（可选） -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- USB 小票打印机（USB Host 模式） -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-permission android:name="android.permission.RECORD_AUDIO"/> <!-- 部分TTS引擎依赖 -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/> <!-- 控制音频设置 -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY"/> <!-- 绕过静音模式 -->

@@ -1,12 +1,18 @@
+import 'dart:convert';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/usb_printer.dart';
 import '../../ui/widgets.dart';
 import '../login_page.dart';
 
-/// 设置页（零售/餐饮共用）：店铺信息、云打印、账号、关于
+/// 设置页（零售/餐饮共用）：店铺信息、云打印、USB打印、账号、关于
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
   @override
@@ -17,10 +23,99 @@ class _SettingsPageState extends State<SettingsPage> {
   List printers = [];
   bool loading = true;
 
+  // USB 打印机
+  bool usbLoading = false;
+  bool usbEnabled = false;
+  int usbPaper = 58;
+  Map<String, dynamic>? usbSelected;
+  List<Map<String, dynamic>> usbPrinters = [];
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadUsb();
+  }
+
+  Future<void> _loadUsb() async {
+    if (!UsbPrinter.supported) return;
+    final sp = await SharedPreferences.getInstance();
+    setState(() {
+      usbEnabled = sp.getBool(UsbPrinter.prefEnabled) ?? false;
+      usbPaper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
+      final raw = sp.getString(UsbPrinter.prefPrinter);
+      usbSelected = (raw == null || raw.isEmpty)
+          ? null
+          : () {
+              try {
+                return jsonDecode(raw) as Map<String, dynamic>;
+              } catch (_) {
+                return null;
+              }
+            }();
+    });
+    await _refreshUsb();
+  }
+
+  Future<void> _refreshUsb() async {
+    if (!UsbPrinter.supported) return;
+    setState(() => usbLoading = true);
+    try {
+      final list = await UsbPrinter.list();
+      if (!mounted) return;
+      setState(() {
+        usbPrinters = list;
+        usbLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => usbLoading = false);
+    }
+  }
+
+  Future<void> _saveUsbPrefs() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(UsbPrinter.prefEnabled, usbEnabled);
+    await sp.setInt(UsbPrinter.prefPaper, usbPaper);
+    await sp.setString(
+        UsbPrinter.prefPrinter, usbSelected == null ? '' : jsonEncode(usbSelected));
+  }
+
+  Future<void> _pickUsbPrinter(Map<String, dynamic> p) async {
+    // macOS 未建队列的 USB 设备先申请权限/建队列由打印时自动处理
+    setState(() => usbSelected = p);
+    await _saveUsbPrefs();
+    if (mounted) toast(context, '已选择：${p['name']}');
+  }
+
+  Future<void> _usbTest() async {
+    final sel = usbSelected;
+    if (sel == null) {
+      toast(context, '请先选择 USB 打印机', error: true);
+      return;
+    }
+    if (Platform.isAndroid && (sel['hasPermission'] == false)) {
+      final ok = await UsbPrinter.requestPermission(sel);
+      if (!ok && mounted) {
+        toast(context, '未获得 USB 权限', error: true);
+        return;
+      }
+    }
+    loadingDialog(context, '发送测试小票…');
+    try {
+      await UsbPrinter.printTicket(sel,
+          '<CB>测试小票</CB>\n--------------------------------\n稳讯收银桌面版\nUSB打印机：${sel['name']}\n纸张：${usbPaper}mm\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
+          paperWidth: usbPaper);
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '测试小票已发送，出纸即为打印成功');
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, '打印失败：$e', error: true);
+    }
   }
 
   Future<void> _load() async {
@@ -122,6 +217,9 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ])),
           const SizedBox(height: 14),
+          // USB 打印机
+          _usbCard(),
+          const SizedBox(height: 14),
           // 账号
           AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _sectionTitle(Icons.manage_accounts_outlined, '当前账号'),
@@ -156,6 +254,145 @@ class _SettingsPageState extends State<SettingsPage> {
         ]),
       ),
     ]);
+  }
+
+  Widget _usbCard() {
+    if (!UsbPrinter.supported) {
+      return const SizedBox.shrink();
+    }
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.usb_outlined, 'USB小票打印机'),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: _refreshUsb,
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('刷新'),
+        ),
+      ]),
+      const SizedBox(height: 4),
+      // 启用开关
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('启用 USB 直连打印', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('开启后收银 / 结账 / 后厨 / 交班小票直接发往本机打印机（无需联网云打印）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: usbEnabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => usbEnabled = v);
+              await _saveUsbPrefs();
+            },
+          ),
+        ]),
+      ),
+      // 打印机列表
+      if (usbLoading)
+        const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: PosTheme.accent)))
+      else if (usbPrinters.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Text(
+            Platform.isMacOS
+                ? '未发现打印机。请确认打印机已开机并用 USB 数据线连接；若仍为空，请在「系统设置 → 打印机与扫描仪」添加打印机后刷新。'
+                : '未发现打印机。请确认打印机已开机并用 USB 数据线连接后，点右上角「刷新」。',
+            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint),
+          ),
+        )
+      else
+        ...usbPrinters.map((p) {
+          final sel = usbSelected != null && '${usbSelected!['id']}' == '${p['id']}';
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: sel ? const Color(0xFFEFF7F0) : const Color(0xFFF7F8FA),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: sel ? PosTheme.accent : Colors.transparent),
+            ),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => _pickUsbPrinter(p),
+              child: Padding(
+                padding: const EdgeInsets.all(13),
+                child: Row(children: [
+                  Icon(sel ? Icons.radio_button_checked : Icons.radio_button_off,
+                      size: 19, color: sel ? PosTheme.accent : PosTheme.textHint),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('${p['name']}',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    if (Platform.isAndroid && p['hasPermission'] == false)
+                      const Text('尚未授权，打印时会弹出 USB 权限确认',
+                          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                  ])),
+                  TagChip(_usbKindName(p), color: PosTheme.blue),
+                ]),
+              ),
+            ),
+          );
+        }),
+      // 纸张宽度 + 测试
+      const SizedBox(height: 4),
+      Row(children: [
+        const Text('纸张宽度', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+        const SizedBox(width: 10),
+        _paperChip(58),
+        const SizedBox(width: 8),
+        _paperChip(80),
+        const Spacer(),
+        OutlinedButton.icon(
+          onPressed: usbSelected == null ? null : _usbTest,
+          style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+          icon: const Icon(Icons.local_printshop_outlined, size: 16),
+          label: const Text('测试打印'),
+        ),
+      ]),
+      const Padding(
+        padding: EdgeInsets.only(top: 4),
+        child: Text('提示：USB 打印需热敏小票机（ESC/POS 协议）。关闭开关时小票自动改走云打印机。',
+            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      ),
+    ]));
+  }
+
+  String _usbKindName(Map<String, dynamic> p) {
+    switch ('${p['kind']}') {
+      case 'win': return '系统打印机';
+      case 'queue': return '打印队列';
+      case 'usb': return Platform.isMacOS ? 'USB设备' : 'USB直连';
+      default: return 'USB';
+    }
+  }
+
+  Widget _paperChip(int w) {
+    final sel = usbPaper == w;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () async {
+        setState(() => usbPaper = w);
+        await _saveUsbPrefs();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: sel ? PosTheme.accent : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+        ),
+        child: Text('${w}mm',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
+      ),
+    );
   }
 
   String _printTypeName(dynamic t) {

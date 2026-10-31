@@ -1,5 +1,5 @@
 name: wenxun
-version: 3.3.41+3341
+version: 3.3.42+3342
 
 environment:
   sdk: '^3.13.0'
@@ -17,6 +17,8 @@ dependencies:
   shared_preferences: ^2.2.2
   window_manager: ^0.5.2
   url_launcher: ^6.3.1
+  ffi: ^2.1.3          # Windows winspool RAW 打印 FFI
+  fast_gbk: ^1.0.0     # 小票 GBK 编码（热敏打印机内置中文字库）
 
 dev_dependencies:
   flutter_test:

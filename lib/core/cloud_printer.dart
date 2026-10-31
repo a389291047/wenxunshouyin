@@ -1,14 +1,18 @@
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart' show Fmt;
+import 'usb_printer.dart';
 
-/// 云打印机（易联云协议，服务端 /shouyin/jiaoban/dayin 代理）
+/// 小票打印统一入口：设置了 USB 打印机并启用时走本地 USB 直连，
+/// 否则走云打印机（易联云协议，服务端 /shouyin/jiaoban/dayin 代理）。
 class CloudPrinter {
   /// 商户启用中的打印机列表
   /// [{id, machine_code, msign, name, status, print_type, is_online, has_paper}]
   static Future<List> list() => Api.printers(Session.wenxunId);
 
+  /// 收银/堂食结账小票（USB 优先，云打印兜底）
   static Future<Map<String, dynamic>> print(String content) async {
+    if (await UsbPrinter.tryPrint(content)) return {};
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
@@ -26,8 +30,9 @@ class CloudPrinter {
     );
   }
 
-  /// 后厨小票：优先后厨类打印机（2热菜 3面点 4凉菜 5传菜），没有则回退任意可用
+  /// 后厨小票（USB 优先，云打印兜底）
   static Future<Map<String, dynamic>> printKitchen(String content) async {
+    if (await UsbPrinter.tryPrint(content)) return {};
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
