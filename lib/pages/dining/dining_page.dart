@@ -3,6 +3,7 @@ import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import '../retail/cashier_page.dart' show RetailCashierPage;
@@ -731,32 +732,48 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
-  Future<void> _addDish(Map g) async {
+  Future<void> _addDish(Map g) => _pushDishes([{
+    'goods_id': g['id'],
+    'goods_name': g['title'],
+    'goods_image': g['goods_image'] ?? '',
+    'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
+    'quantity': 1,
+  }], label: '${g['title']}');
+
+  /// 无码菜品：手输名称/单价/数量，直接加到桌台账单
+  Future<void> _noCodeDish() async {
+    final r = await showDialog<Map>(
+      context: context,
+      builder: (_) => const NoCodeGoodsDialog(title: '无码菜品'),
+    );
+    if (r == null || !mounted) return;
+    await _pushDishes([{
+      'goods_id': 0, // 无码菜品没有商品 id，后端强转 int 为 0
+      'goods_name': r['name'],
+      'goods_image': '',
+      'unit_price': r['amount'],
+      'quantity': r['num'],
+    }], label: '${r['name']}×${r['num']}');
+  }
+
+  /// 统一加菜入口：请求后端 → 后厨小票 → 刷新账单
+  Future<void> _pushDishes(List<Map<String, dynamic>> cart, {required String label}) async {
     loadingDialog(context, '加菜中…');
     try {
       final r = await Api.tableAddDish(
         wenxunId: Session.wenxunId,
         kaitaiId: widget.kaitaiId,
-        cart: [{
-          'goods_id': g['id'],
-          'goods_name': g['title'],
-          'goods_image': g['goods_image'] ?? '',
-          'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
-          'quantity': 1,
-        }],
+        cart: cart,
       );
       if (!mounted) return;
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
-        toast(context, '已加：${g['title']}');
+        toast(context, '已加：$label');
         // 加菜同步打后厨小票（不阻塞）
         CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
           tableTitle: '${widget.table['title']}',
           tableQuyu: '${widget.table['quyu'] ?? ''}',
-          cart: [{
-            'goods_name': '${g['title']}',
-            'quantity': 1,
-          }],
+          cart: cart.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity']}).toList(),
           isAdd: true,
         )).catchError((_) => <String, dynamic>{});
         _loadBill();
@@ -1003,6 +1020,25 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                 ),
               ],
               const Spacer(),
+              // 无码菜品（临时菜/时价菜手动录入）
+              InkWell(
+                onTap: _noCodeDish,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF2ED),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.keyboard_outlined, size: 19, color: PosTheme.accent),
+                    SizedBox(width: 7),
+                    Text('无码菜品', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
               BigButton('结账收款', onTap: bill.isEmpty ? null : _settle, width: 180, height: 50),
             ]),
           ),

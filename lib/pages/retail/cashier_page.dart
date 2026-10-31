@@ -4,6 +4,7 @@ import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
+import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
@@ -147,6 +148,22 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   void _clearCart() {
     if (cart.isEmpty) return;
     setState(() { cart.clear(); vip = null; });
+  }
+
+  /// 无码商品：手输名称/单价/数量，直接加入购物车
+  Future<void> _noCodeGoods() async {
+    final r = await showDialog<Map>(
+      context: context,
+      builder: (_) => const NoCodeGoodsDialog(title: '无码商品'),
+    );
+    if (r == null || !mounted) return;
+    _add({
+      // 每次生成唯一 id：同名单价不同也各占一行，后端 goods_id 强转 int 得 0
+      'id': 'custom_${DateTime.now().millisecondsSinceEpoch}',
+      'title': r['name'],
+      'amount': r['amount'],
+      'guige': '',
+    });
   }
 
   // ==================== 结算收款 ====================
@@ -323,6 +340,25 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           ),
         ),
         const Spacer(),
+        // 无码商品（扫码枪扫不到的商品手动录入）
+        InkWell(
+          onTap: _noCodeGoods,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF2ED),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
+            ),
+            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.keyboard_outlined, size: 20, color: PosTheme.accent),
+              SizedBox(width: 8),
+              Text('无码商品', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 14),
         _clock(),
       ]),
     );
