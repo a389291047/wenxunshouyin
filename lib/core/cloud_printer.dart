@@ -210,14 +210,41 @@ class CloudPrinter {
   }
 
   /// 解析订单 goods_list（零售/会员支付/餐饮混合格式）
+  /// 兼容三种存储形态：数组 [{...}]、对象 {"0":{...},"1":{...}}（按数字键排序）、JSON 字符串
   static List<Map<String, dynamic>> parseGoods(Map o) {
     try {
       final raw = o['goods_list'];
-      final l = raw is List ? raw : ((jsonDecode('${raw ?? '[]'}') as List?) ?? []);
-      return l.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      List? l;
+      if (raw is List) {
+        l = raw;
+      } else if (raw is Map) {
+        l = _mapValues(raw);
+      } else if ('$raw'.isNotEmpty && '$raw' != 'null') {
+        final d = jsonDecode('$raw');
+        if (d is List) {
+          l = d;
+        } else if (d is Map) {
+          l = _mapValues(d);
+        }
+      }
+      return (l ?? const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     } catch (_) {
       return [];
     }
+  }
+
+  /// {"2":a,"0":c,"1":b} → [c,b,a]（按数字键升序；无数字键则保持原序）
+  static List _mapValues(Map m) {
+    final keys = m.keys.toList();
+    final allNumeric = keys.every((k) => int.tryParse('$k') != null);
+    if (allNumeric) {
+      keys.sort((a, b) =>
+          (int.tryParse('$a') ?? 0).compareTo(int.tryParse('$b') ?? 0));
+    }
+    return keys.map((k) => m[k]).toList();
   }
 }
 
