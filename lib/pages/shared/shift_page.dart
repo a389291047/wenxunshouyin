@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/usb_printer.dart';
 import '../../ui/widgets.dart';
 
 /// 交班页（零售/餐饮共用，主从布局）：
-/// 左卡 = 当班信息 + 营业数据 + 云打印机 + 打印交班单
+/// 左卡 = 当班信息 + 营业数据 + 云打印/USB打印交班单
 /// 右卡 = 当天退款数据（退款金额/笔数 + 退款明细）
 class ShiftPage extends StatefulWidget {
   const ShiftPage({super.key});
@@ -16,7 +19,6 @@ class ShiftPage extends StatefulWidget {
 
 class _ShiftPageState extends State<ShiftPage> {
   Map stats = {};
-  List printers = [];
   List refundOrders = []; // 当天已退款订单明细
   double refundAmount = 0;
   int refundCount = 0;
@@ -33,7 +35,6 @@ class _ShiftPageState extends State<ShiftPage> {
     setState(() { loading = true; error = null; });
     try {
       final s = await Api.shiftStats(Session.staffId);
-      final p = await CloudPrinter.list();
       // 当天退款统计与明细（客户端计算，避免后端改动）
       var ra = 0.0;
       var rc = 0;
@@ -58,7 +59,6 @@ class _ShiftPageState extends State<ShiftPage> {
       if (!mounted) return;
       setState(() {
         stats = s;
-        printers = p;
         refundOrders = ro;
         refundAmount = ra;
         refundCount = rc;
@@ -70,10 +70,7 @@ class _ShiftPageState extends State<ShiftPage> {
     }
   }
 
-  Future<void> _printShift() async {
-    loadingDialog(context, '发送交班单…');
-    try {
-      await CloudPrinter.print(CloudPrinter.shiftReceipt(
+  String get _shiftTicket => CloudPrinter.shiftReceipt(
         zongyingye: double.tryParse('${stats['zongyingye']}') ?? 0,
         bishu: double.tryParse('${stats['bishu']}') ?? 0,
         vip: double.tryParse('${stats['vip']}') ?? 0,
@@ -81,13 +78,54 @@ class _ShiftPageState extends State<ShiftPage> {
         saoma: double.tryParse('${stats['saoma']}') ?? 0,
         refundAmount: refundAmount,
         refundCount: refundCount,
-      ));
+      );
+
+  /// 云打印交班单（强制走云打印机，不做 USB 分流）
+  Future<void> _cloudPrintShift() async {
+    loadingDialog(context, '发送交班单到云打印机…');
+    try {
+      await CloudPrinter.printCloud(_shiftTicket);
       if (!mounted) return;
       Navigator.pop(context);
-      toast(context, '交班单已发送打印');
+      toast(context, '交班单已发送云打印');
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
-      toast(context, e.message, error: true);
+      if (mounted) toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, '云打印失败：$e', error: true);
+    }
+  }
+
+  /// USB 打印交班单（默认 USB 小票打印机）
+  Future<void> _usbPrintShift() async {
+    if (!UsbPrinter.supported) {
+      toast(context, '当前平台不支持 USB 打印', error: true);
+      return;
+    }
+    if (!await UsbPrinter.enabled()) {
+      toast(context, '请先到「设置 → USB小票打印机」启用并选择打印机', error: true);
+      return;
+    }
+    final p = await UsbPrinter.selectedPrinter();
+    if (p == null) {
+      toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
+      return;
+    }
+    final sp = await SharedPreferences.getInstance();
+    final paper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
+    loadingDialog(context, 'USB 打印交班单…');
+    try {
+      await UsbPrinter.printTicket(p, _shiftTicket, paperWidth: paper);
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '交班单已发送 USB 打印');
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, 'USB 打印失败：$e', error: true);
     }
   }
 
@@ -154,37 +192,13 @@ class _ShiftPageState extends State<ShiftPage> {
                               Expanded(child: StatTile(label: '现金收款', value: '¥${Fmt.money(stats['xianjin'])}', icon: Icons.payments_outlined, color: PosTheme.amber)),
                             ]),
                             const Divider(height: 24, color: PosTheme.line),
-                            // 云打印机
-                            Row(children: [
-                              const Icon(Icons.print_outlined, size: 18, color: PosTheme.textSub),
-                              const SizedBox(width: 8),
-                              const Text('云打印机', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-                              const Spacer(),
-                              Text('共 ${printers.length} 台', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-                            ]),
-                            const SizedBox(height: 6),
-                            if (printers.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8),
-                                child: Text('未绑定云打印机，请到「设置 → 云打印」配置',
-                                    style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
-                              )
-                            else
-                              ...printers.map((p) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
-                                child: Row(children: [
-                                  Container(width: 8, height: 8,
-                                      decoration: BoxDecoration(
-                                        color: '${p['is_online']}' == '1' ? PosTheme.green : PosTheme.textHint,
-                                        shape: BoxShape.circle)),
-                                  const SizedBox(width: 10),
-                                  Expanded(child: Text('${p['name']}（${p['machine_code']}）',
-                                      style: const TextStyle(fontSize: 13))),
-                                  TagChip('${p['is_online'] == 1 ? '在线' : '离线'}', color: '${p['is_online']}' == '1' ? PosTheme.green : PosTheme.textHint),
-                                ]),
-                              )),
-                            const SizedBox(height: 14),
-                            BigButton('打印交班单', onTap: _printShift, height: 50),
+                            // 打印按钮
+                            BigButton('云打印交班单', onTap: _cloudPrintShift, height: 50),
+                            if (UsbPrinter.supported) ...[
+                              const SizedBox(height: 9),
+                              BigButton('USB打印交班单', onTap: _usbPrintShift,
+                                  color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
+                            ],
                           ]),
                         ),
                       ),

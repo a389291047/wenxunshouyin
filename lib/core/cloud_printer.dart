@@ -12,9 +12,8 @@ class CloudPrinter {
   /// [{id, machine_code, msign, name, status, print_type, is_online, has_paper}]
   static Future<List> list() => Api.printers(Session.wenxunId);
 
-  /// 收银/堂食结账小票（USB 优先，云打印兜底）
-  static Future<Map<String, dynamic>> print(String content) async {
-    if (await UsbPrinter.tryPrint(content)) return {};
+  /// 强制走云打印机（不做 USB 分流，交班单「云打印」按钮等场景用）
+  static Future<Map<String, dynamic>> printCloud(String content) async {
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
@@ -30,6 +29,12 @@ class CloudPrinter {
       machineCode: '${p['machine_code']}',
       content: content,
     );
+  }
+
+  /// 收银/堂食结账小票（USB 优先，云打印兜底）
+  static Future<Map<String, dynamic>> print(String content) async {
+    if (await UsbPrinter.tryPrint(content)) return {};
+    return printCloud(content);
   }
 
   /// 后厨小票（USB 优先，云打印兜底）
