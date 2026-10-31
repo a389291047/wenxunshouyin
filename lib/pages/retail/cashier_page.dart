@@ -3,6 +3,7 @@ import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/voice.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
@@ -1159,13 +1160,28 @@ class _GoodsImageState extends State<RetailGoodsImage> {
 }
 
 // ==================== 收款成功弹窗（大屏触摸版） ====================
-class _SuccessDialog extends StatelessWidget {
+class _SuccessDialog extends StatefulWidget {
   final String orderNo;
   final double total;
   final String method;
   const _SuccessDialog({required this.orderNo, required this.total, required this.method});
   @override
+  State<_SuccessDialog> createState() => _SuccessDialogState();
+}
+
+class _SuccessDialogState extends State<_SuccessDialog> {
+  @override
+  void initState() {
+    super.initState();
+    // 语音播报收款成功（设置页可关闭）
+    VoiceService.instance.pay(widget.method, widget.total);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final orderNo = widget.orderNo;
+    final total = widget.total;
+    final method = widget.method;
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),

@@ -9,6 +9,7 @@ import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
+import '../../core/voice.dart';
 import '../../ui/widgets.dart';
 import '../login_page.dart';
 
@@ -30,11 +31,66 @@ class _SettingsPageState extends State<SettingsPage> {
   Map<String, dynamic>? usbSelected;
   List<Map<String, dynamic>> usbPrinters = [];
 
+  // 语音播报
+  bool voiceEnabled = true;
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadUsb();
+    _loadVoice();
+  }
+
+  Future<void> _loadVoice() async {
+    final v = await VoiceService.instance.enabled();
+    setState(() => voiceEnabled = v);
+  }
+
+  /// 语音播报卡片：收款成功时播报「微信收款X元Y角」
+  Widget _voiceCard() {
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle(Icons.volume_up_outlined, '语音播报'),
+      const SizedBox(height: 4),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('收款成功语音播报', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('开启后收款成功时自动播报支付方式和金额，如「微信收款，8元8角」（系统离线语音，无需联网）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: voiceEnabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => voiceEnabled = v);
+              await VoiceService.instance.setEnabled(v);
+              if (v) {
+                await VoiceService.instance.pay('微信', 8.80);
+              }
+            },
+          ),
+        ]),
+      ),
+      Align(
+        alignment: Alignment.centerRight,
+        child: OutlinedButton.icon(
+          onPressed: () async {
+            await VoiceService.instance.setEnabled(true);
+            await VoiceService.instance.pay('微信', 8.80);
+            if (!voiceEnabled) setState(() => voiceEnabled = true);
+          },
+          style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+          icon: const Icon(Icons.play_circle_outline, size: 16),
+          label: const Text('试听'),
+        ),
+      ),
+    ]));
   }
 
   Future<void> _loadUsb() async {
@@ -219,6 +275,9 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 14),
           // USB 打印机
           _usbCard(),
+          const SizedBox(height: 14),
+          // 语音播报
+          _voiceCard(),
           const SizedBox(height: 14),
           // 账号
           AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
