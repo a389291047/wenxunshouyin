@@ -105,13 +105,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 购物车行唯一键：商品 id + 规格 id（多规格同一商品多个 SKU 并存）
   String _cartKey(Map g) => '${g['id']}_${g['sku_id'] ?? ''}';
 
-  void _add(Map g) {
+  void _add(Map g, {int qty = 1}) {
     final key = _cartKey(g);
     final i = cart.indexWhere((l) => _cartKey(l.goods) == key);
     if (i > -1) {
-      cart[i].num++;
+      cart[i].num += qty;
     } else {
-      cart.add(_CartLine(g, 1));
+      cart.add(_CartLine(g, qty));
     }
     setState(() {});
   }
@@ -163,7 +163,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       'title': r['name'],
       'amount': r['amount'],
       'guige': '',
-    });
+    }, qty: r['num']);
   }
 
   // ==================== 结算收款 ====================

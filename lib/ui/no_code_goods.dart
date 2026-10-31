@@ -22,6 +22,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
   String price = ''; // 金额（数字键盘输入）
   String num = '1'; // 数量（默认 1）
   bool priceActive = true; // 当前键盘作用域：true=单价（默认第一个）
+  bool numTouched = false; // 数量是否被用户改过（改过则以输入为准，没改过视为 1）
 
   double get amount => double.tryParse(price) ?? 0;
   int get qty => (int.tryParse(num) ?? 0) < 1 ? 1 : int.tryParse(num)!;
@@ -35,6 +36,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
           price = '';
         } else {
           num = '';
+          numTouched = true;
         }
         return;
       }
@@ -51,7 +53,8 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
           }
         }
       } else if (k != '.') {
-        // 数量：纯整数，最多 3 位
+        // 数量：纯整数，最多 3 位，以输入的数字为准
+        numTouched = true;
         if (num.length < 3) num += k;
       }
     });
@@ -125,7 +128,11 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
               label: '数量',
               value: num.isEmpty ? '1' : num,
               active: !priceActive,
-              onTap: () => setState(() => priceActive = false),
+              // 首次切到数量框时清掉默认值 1：输入 6 就显示 6，而不是拼成 16
+              onTap: () => setState(() {
+                priceActive = false;
+                if (!numTouched) num = '';
+              }),
               valueColor: PosTheme.textMain,
             )),
           ]),
