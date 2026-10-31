@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart' show Fmt;
@@ -169,6 +171,53 @@ class CloudPrinter {
     sb.writeln('--------------------------------');
     sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');
     return sb.toString();
+  }
+
+  /// 订单重打小票（订单管理页 云打印/USB打印 共用）
+  static String orderTicket(Map o, {bool isRefund = false}) {
+    List goods = [];
+    try {
+      final raw = o['goods_list'];
+      goods = raw is List ? raw : ((jsonDecode('${raw ?? '[]'}') as List?) ?? []);
+    } catch (_) {}
+    final sb = StringBuffer();
+    sb.writeln('<CB>${isRefund ? '退款单' : '订单小票'}</CB>');
+    sb.writeln('--------------------------------');
+    sb.writeln('商户: ${Session.shopName}');
+    sb.writeln('单号: ${o['order_number'] ?? ''}');
+    sb.writeln('时间: ${Fmt.date(o['create_time'])}');
+    sb.writeln('收银: ${o['cashier_name'] ?? Session.staffName}');
+    if (isRefund) {
+      sb.writeln('操作: ${Session.staffName}');
+      sb.writeln('原因: ${o['refund_reason'] ?? '-'}');
+    }
+    sb.writeln('--------------------------------');
+    for (final g in goods) {
+      final name = '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
+      final price = double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
+      final qty = int.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+      sb.writeln(name);
+      sb.writeln('  ¥${Fmt.money(price)} x$qty   ¥${Fmt.money(price * qty)}');
+    }
+    sb.writeln('--------------------------------');
+    sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(o['refund_amount'] ?? o['total'])}');
+    sb.writeln('支付方式: ${o['payment_method'] ?? '-'}');
+    if (isRefund) {
+      sb.writeln('退款时间: ${DateTime.now().toString().substring(0, 19)}');
+    }
+    sb.writeln('谢谢惠顾，欢迎下次光临');
+    return sb.toString();
+  }
+
+  /// 解析订单 goods_list（零售/会员支付/餐饮混合格式）
+  static List<Map<String, dynamic>> parseGoods(Map o) {
+    try {
+      final raw = o['goods_list'];
+      final l = raw is List ? raw : ((jsonDecode('${raw ?? '[]'}') as List?) ?? []);
+      return l.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (_) {
+      return [];
+    }
   }
 }
 

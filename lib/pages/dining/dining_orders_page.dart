@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/order_card.dart';
 import '../../ui/widgets.dart';
 
 /// 餐饮版 · 订单页：堂食订单（分页）+ 小程序订单
@@ -216,21 +217,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       itemCount: xcxList.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) {
-        final o = xcxList[i];
-        return AppCard(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
-          child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${o['order_number'] ?? ''}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 4),
-              Text('${Fmt.date(o['create_time'])} · ${o['total_count'] ?? 0} 件 · ${o['payment_method'] ?? ''}',
-                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
-            ])),
-            Text('¥${Fmt.money(o['total'])}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-          ]),
-        );
-      },
+      itemBuilder: (_, i) => OrderCard(order: xcxList[i], onRefunded: _load),
     );
   }
 }

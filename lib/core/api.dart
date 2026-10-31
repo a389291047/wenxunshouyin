@@ -152,6 +152,21 @@ class Api {
     return (r['dingdan'] ?? []) as List;
   }
 
+  /// 订单退款（整单）：后端处理会员余额回补 / 线下退款登记
+  static Future<Map<String, dynamic>> orderRefund({
+    required int wenxunId,
+    required int orderId,
+    required String reason,
+    required String operator,
+  }) {
+    return post('/shouyin/order/refund', {
+      'wenxun_id': wenxunId,
+      'order_id': orderId,
+      'reason': reason,
+      'operator': operator,
+    });
+  }
+
   // ==================== 会员 ====================
 
   static Future<List> vipList(int wenxunId) async {
