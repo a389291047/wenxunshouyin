@@ -197,7 +197,7 @@ class _OrderCardState extends State<OrderCard> {
   @override
   Widget build(BuildContext context) {
     final shown = expanded ? goods : goods.take(_collapseCount).toList();
-    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
       // ---------- 左卡片：订单基础信息 ----------
       Expanded(
         flex: 4,
@@ -223,8 +223,7 @@ class _OrderCardState extends State<OrderCard> {
               _infoRow(Icons.undo, '退款 ¥${Fmt.money(o['refund_amount'] ?? total)} · ${o['refund_reason'] ?? ''}',
                   color: PosTheme.red),
             ],
-            const Spacer(),
-            const SizedBox(height: 8),
+            const SizedBox(height: 12),
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
               Text('¥${Fmt.money(total)}',
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
