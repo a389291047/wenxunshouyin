@@ -152,18 +152,44 @@ class Api {
     return (r['dingdan'] ?? []) as List;
   }
 
-  /// 订单退款（整单）：后端处理会员余额回补 / 线下退款登记
+  /// 订单退款（支持部分退款）：需退款密码（默认商户手机号后6位）
+  /// amount 传 0/null = 整单退；items 仅作前端展示记录
   static Future<Map<String, dynamic>> orderRefund({
     required int wenxunId,
     required int orderId,
     required String reason,
     required String operator,
+    required String password,
+    double amount = 0,
   }) {
     return post('/shouyin/order/refund', {
       'wenxun_id': wenxunId,
       'order_id': orderId,
       'reason': reason,
       'operator': operator,
+      'password': password,
+      if (amount > 0) 'refund_amount': amount,
+    });
+  }
+
+  /// 退款密码状态：custom=true 已自定义 / false 默认商户手机号后6位
+  static Future<bool> refundPasswordCustom(int wenxunId) async {
+    final r = await post('/shouyin/order/refundPasswordStatus', {
+      'wenxun_id': wenxunId,
+    });
+    return r['custom'] == true;
+  }
+
+  /// 修改退款密码（商户级，所有收银员共用）
+  static Future<Map<String, dynamic>> setRefundPassword({
+    required int wenxunId,
+    required String oldPassword,
+    required String newPassword,
+  }) {
+    return post('/shouyin/order/setRefundPassword', {
+      'wenxun_id': wenxunId,
+      'old_password': oldPassword,
+      'new_password': newPassword,
     });
   }
 
