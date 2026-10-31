@@ -22,7 +22,8 @@ class OrderCard extends StatefulWidget {
 class _OrderCardState extends State<OrderCard> {
   static const int _collapseCount = 5;
 
-  bool expanded = false;
+  bool open = false; // 是否展开右侧购物清单（点击左侧订单信息切换）
+  bool showAll = false; // 清单超5项时是否全部展开
   bool busy = false;
 
   Map get o => widget.order;
@@ -196,112 +197,144 @@ class _OrderCardState extends State<OrderCard> {
 
   @override
   Widget build(BuildContext context) {
-    final shown = expanded ? goods : goods.take(_collapseCount).toList();
+    final shown = showAll ? goods : goods.take(_collapseCount).toList();
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // ---------- 左卡片：订单基础信息 ----------
+      // ---------- 左卡片：订单基础信息（点击展开/收起购物清单） ----------
       Expanded(
         flex: 4,
         child: AppCard(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(
-                child: Text('${o['order_number'] ?? ''}',
-                    style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-              ),
-              if (!payOk) const TagChip('未支付', color: PosTheme.amber),
-              if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
-              if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
-            ]),
-            const SizedBox(height: 8),
-            _infoRow(Icons.schedule, Fmt.date(o['create_time'])),
-            const SizedBox(height: 5),
-            _infoRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}'),
-            if (refundSt == 2) ...[
-              const SizedBox(height: 5),
-              _infoRow(Icons.undo, '退款 ¥${Fmt.money(o['refund_amount'] ?? total)} · ${o['refund_reason'] ?? ''}',
-                  color: PosTheme.red),
-            ],
-            const SizedBox(height: 12),
-            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text('¥${Fmt.money(total)}',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-              const Spacer(),
-              Text('${goodsCount} 件',
-                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-            ]),
-          ]),
+          padding: EdgeInsets.zero,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() => open = !open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text('${o['order_number'] ?? ''}',
+                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  if (!payOk) const TagChip('未支付', color: PosTheme.amber),
+                  if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
+                  if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
+                ]),
+                const SizedBox(height: 8),
+                _infoRow(Icons.schedule, Fmt.date(o['create_time'])),
+                const SizedBox(height: 5),
+                _infoRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}'),
+                if (refundSt == 2) ...[
+                  const SizedBox(height: 5),
+                  _infoRow(Icons.undo, '退款 ¥${Fmt.money(o['refund_amount'] ?? total)} · ${o['refund_reason'] ?? ''}',
+                      color: PosTheme.red),
+                ],
+                const SizedBox(height: 12),
+                Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  Text('¥${Fmt.money(total)}',
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                  const Spacer(),
+                  Text('${goodsCount} 件',
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                  const SizedBox(width: 10),
+                  AnimatedRotation(
+                    turns: open ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(Icons.expand_more,
+                        size: 20, color: open ? PosTheme.accent : PosTheme.textHint),
+                  ),
+                ]),
+              ]),
+            ),
+          ),
         ),
       ),
       const SizedBox(width: 10),
-      // ---------- 右卡片：购物清单 + 操作 ----------
+      // ---------- 右卡片：购物清单 + 操作（点击左侧展开） ----------
       Expanded(
         flex: 8,
-        child: AppCard(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  const Text('购物清单',
-                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: PosTheme.accent.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(9),
-                    ),
-                    child: Text('${goods.length} 项',
-                        style: const TextStyle(fontSize: 11, color: PosTheme.accent, fontWeight: FontWeight.w600)),
-                  ),
-                ]),
-                const SizedBox(height: 7),
-                if (goods.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text('（无商品明细）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-                  )
-                else
-                  ...shown.asMap().entries.map((e) => _goodsRow(e.key + 1, e.value)),
-                if (goods.length > _collapseCount)
-                  Center(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(14),
-                      onTap: () => setState(() => expanded = !expanded),
-                      child: Container(
-                        margin: const EdgeInsets.only(top: 6),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: PosTheme.bg,
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: PosTheme.line),
+        child: open
+            ? AppCard(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        const Text('购物清单',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: PosTheme.accent.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(9),
+                          ),
+                          child: Text('${goods.length} 项',
+                              style: const TextStyle(fontSize: 11, color: PosTheme.accent, fontWeight: FontWeight.w600)),
                         ),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          Text(expanded ? '收起' : '展开其余 ${goods.length - _collapseCount} 项',
-                              style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
-                          Icon(expanded ? Icons.expand_less : Icons.expand_more,
-                              size: 16, color: PosTheme.textSub),
-                        ]),
-                      ),
-                    ),
+                      ]),
+                      const SizedBox(height: 7),
+                      if (goods.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text('（无商品明细）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                        )
+                      else
+                        ...shown.asMap().entries.map((e) => _goodsRow(e.key + 1, e.value)),
+                      if (goods.length > _collapseCount)
+                        Center(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => setState(() => showAll = !showAll),
+                            child: Container(
+                              margin: const EdgeInsets.only(top: 6),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: PosTheme.bg,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: PosTheme.line),
+                              ),
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                Text(showAll ? '收起' : '展开其余 ${goods.length - _collapseCount} 项',
+                                    style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
+                                Icon(showAll ? Icons.expand_less : Icons.expand_more,
+                                    size: 16, color: PosTheme.textSub),
+                              ]),
+                            ),
+                          ),
+                        ),
+                    ]),
                   ),
-              ]),
-            ),
-            const SizedBox(width: 10),
-            Column(children: [
-              _actBtn(Icons.print_outlined, '云打印', busy ? null : _cloudPrint),
-              const SizedBox(height: 6),
-              if (UsbPrinter.supported) ...[
-                _actBtn(Icons.usb_outlined, 'USB打印', busy ? null : _usbPrint),
-                const SizedBox(height: 6),
-              ],
-              _actBtn(Icons.undo_outlined, '退款',
-                  (busy || !canRefund) ? null : _refund, danger: true),
-            ]),
-          ]),
-        ),
+                  const SizedBox(width: 10),
+                  Column(children: [
+                    _actBtn(Icons.print_outlined, '云打印', busy ? null : _cloudPrint),
+                    const SizedBox(height: 6),
+                    if (UsbPrinter.supported) ...[
+                      _actBtn(Icons.usb_outlined, 'USB打印', busy ? null : _usbPrint),
+                      const SizedBox(height: 6),
+                    ],
+                    _actBtn(Icons.undo_outlined, '退款',
+                        (busy || !canRefund) ? null : _refund, danger: true),
+                  ]),
+                ]),
+              )
+            : AppCard(
+                padding: EdgeInsets.zero,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => setState(() => open = true),
+                  child: Center(
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(Icons.receipt_long_outlined, size: 17, color: PosTheme.textHint),
+                      const SizedBox(width: 7),
+                      Text('点击查看购物清单（${goods.length} 项）',
+                          style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+                      const SizedBox(width: 7),
+                      const Icon(Icons.touch_app_outlined, size: 15, color: PosTheme.textHint),
+                    ]),
+                  ),
+                ),
+              ),
       ),
     ]);
   }
