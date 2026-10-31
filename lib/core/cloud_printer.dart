@@ -155,6 +155,8 @@ class CloudPrinter {
     required double vip,
     required double xianjin,
     required double saoma,
+    double refundAmount = 0,
+    int refundCount = 0,
   }) {
     final sb = StringBuffer();
     sb.writeln('<CB>交班单</CB>');
@@ -168,6 +170,10 @@ class CloudPrinter {
     sb.writeln('会员支付: ¥${Fmt.money(vip)}');
     sb.writeln('现金收款: ¥${Fmt.money(xianjin)}');
     sb.writeln('扫码收款: ¥${Fmt.money(saoma)}');
+    if (refundCount > 0) {
+      sb.writeln('退款笔数: $refundCount');
+      sb.writeln('退款金额: ¥${Fmt.money(refundAmount)}');
+    }
     sb.writeln('--------------------------------');
     sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');
     return sb.toString();

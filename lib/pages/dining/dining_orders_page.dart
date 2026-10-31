@@ -21,7 +21,9 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   int? statusFilter; // null 全部
   bool loading = true;
   // 小程序
-  List xcxList = [];
+  List xcxAll = []; // order_from=1 全量
+  int xcxTimeTab = 0; // 0 今天 1 昨天 2 上周
+  Map? xcxSelected;
 
   @override
   void initState() {
@@ -45,9 +47,10 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         final all = await Api.ordersAll(Session.wenxunId);
         if (!mounted) return;
         setState(() {
-          xcxList = all.where((o) => '${o['order_from']}' == '1').toList();
+          xcxAll = all.where((o) => '${o['order_from']}' == '1').toList();
           loading = false;
         });
+        _ensureXcxSelected();
       }
     } on ApiError catch (e) {
       if (!mounted) return;
@@ -209,15 +212,166 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
     ));
   }
 
-  // ==================== 小程序 ====================
+  // ==================== 小程序（主从布局，与订单页一致） ====================
+
+  static String _day(DateTime t) =>
+      '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+
+  List get xcxFiltered {
+    Iterable l = xcxAll;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    switch (xcxTimeTab) {
+      case 0:
+        final s = _day(now);
+        l = l.where((o) => '${o['create_time']}'.startsWith(s));
+        break;
+      case 1:
+        final s = _day(today.subtract(const Duration(days: 1)));
+        l = l.where((o) => '${o['create_time']}'.startsWith(s));
+        break;
+      case 2:
+        final thisMonday = today.subtract(Duration(days: now.weekday - 1));
+        final ss = _day(thisMonday.subtract(const Duration(days: 7)));
+        final ee = _day(thisMonday.subtract(const Duration(days: 1)));
+        l = l.where((o) {
+          final t = '${o['create_time']}';
+          final dd = t.length >= 10 ? t.substring(0, 10) : t;
+          return dd.compareTo(ss) >= 0 && dd.compareTo(ee) <= 0;
+        });
+        break;
+    }
+    return l.toList();
+  }
+
+  void _ensureXcxSelected() {
+    final f = xcxFiltered;
+    if (f.isEmpty) {
+      xcxSelected = null;
+      return;
+    }
+    final curId = xcxSelected == null ? '' : '${xcxSelected!['id']}';
+    if (!f.any((o) => '${o['id']}' == curId)) xcxSelected = f.first;
+  }
+
+  void _switchXcx(void Function() fn) {
+    setState(fn);
+    setState(_ensureXcxSelected);
+  }
+
   Widget _xcxBody() {
-    if (loading) return const Center(child: CircularProgressIndicator(color: PosTheme.accent));
-    if (xcxList.isEmpty) return const EmptyView('暂无小程序订单');
-    return ListView.separated(
+    final f = xcxFiltered;
+    return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-      itemCount: xcxList.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => OrderCard(order: xcxList[i], onRefunded: _load),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // ---------- 左卡：时间筛选 + 订单列表 ----------
+        Expanded(
+          flex: 6,
+          child: AppCard(
+            padding: EdgeInsets.zero,
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+                child: Row(children: [
+                  _timeSeg('今天', 0),
+                  const SizedBox(width: 6),
+                  _timeSeg('昨天', 1),
+                  const SizedBox(width: 6),
+                  _timeSeg('上周', 2),
+                  const Spacer(),
+                  Text('共 ${f.length} 单',
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                ]),
+              ),
+              const Divider(height: 14, color: PosTheme.line),
+              Expanded(
+                child: loading
+                    ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
+                    : f.isEmpty
+                        ? const EmptyView('暂无小程序订单')
+                        : RefreshIndicator(
+                            onRefresh: _load,
+                            color: PosTheme.accent,
+                            child: ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              itemCount: f.length,
+                              itemBuilder: (_, i) => _xcxRow(f[i]),
+                            ),
+                          ),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 16),
+        // ---------- 右卡：订单详情 ----------
+        Expanded(
+          flex: 5,
+          child: xcxSelected == null
+              ? AppCard(child: EmptyView(loading ? '加载中…' : '选择订单查看详情'))
+              : OrderDetailPanel(
+                  key: ValueKey('${xcxSelected!['id']}'),
+                  order: xcxSelected!,
+                  onRefunded: _load,
+                ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _xcxRow(Map o) {
+    final on = xcxSelected != null && '${xcxSelected!['id']}' == '${o['id']}';
+    final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
+    final payOk = '${o['payment_status']}' == '1';
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => setState(() => xcxSelected = o),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(
+                child: Text('${o['order_number'] ?? ''}',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 6),
+              if (!payOk) const TagChip('未支付', color: PosTheme.amber),
+              if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
+              if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
+            ]),
+            const SizedBox(height: 3),
+            Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? '其他支付'}',
+                style: const TextStyle(fontSize: 12, color: PosTheme.textSub),
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+          ])),
+          const SizedBox(width: 8),
+          Text('¥${Fmt.money(o['total'])}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _timeSeg(String text, int v) {
+    final on = xcxTimeTab == v;
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => _switchXcx(() => xcxTimeTab = v),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6.5),
+        decoration: BoxDecoration(
+          color: on ? PosTheme.accent.withOpacity(0.1) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+        ),
+        child: Text(text,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? PosTheme.accent : PosTheme.textHint)),
+      ),
     );
   }
 }
