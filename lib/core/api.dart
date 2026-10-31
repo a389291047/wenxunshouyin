@@ -174,27 +174,20 @@ class Api {
     });
   }
 
-  /// 退款密码状态（当前收银员）：custom=true 已自定义 / false 默认本人手机号后6位
-  static Future<bool> refundPasswordCustom(int wenxunId, int staffId) async {
-    final r = await post('/shouyin/order/refundPasswordStatus', {
-      'wenxun_id': wenxunId,
-      'renyuan_id': staffId,
-    });
-    return r['custom'] == true;
+  /// 员工列表（商户管理用）：返回 [{id, renyuan, phone, role_name, has_quanxian, ...}]
+  static Future<List> staffList() async {
+    final r = await post('/api/shouyinyuan/lst', {});
+    return ((r['list'] ?? r['yuangong']) ?? []) as List;
   }
 
-  /// 修改退款密码（收银员级：每个收银员独自管理自己的密码）
-  static Future<Map<String, dynamic>> setRefundPassword({
-    required int wenxunId,
+  /// 设置员工权限密码（仅商户可操作；现金订单退款/现金充值用，6位数字）
+  static Future<Map<String, dynamic>> setStaffQuanxian({
     required int staffId,
-    required String oldPassword,
-    required String newPassword,
+    required String password,
   }) {
-    return post('/shouyin/order/setRefundPassword', {
-      'wenxun_id': wenxunId,
-      'renyuan_id': staffId,
-      'old_password': oldPassword,
-      'new_password': newPassword,
+    return post('/api/shouyinyuan/xiugai', {
+      'id': staffId,
+      'quanxian_password': password,
     });
   }
 

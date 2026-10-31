@@ -31,12 +31,14 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   int get refundSt => int.tryParse('${o['refund_status']}') ?? 0;
   double get total => double.tryParse('${o['total']}') ?? 0;
   double get refunded => double.tryParse('${o['refund_amount']}') ?? 0;
-  /// 剩余可退（支持多次部分退款）
+  /// 剩余未退金额（仅用于展示；一单仅可退款一次，退过即不可再退）
   double get refundable {
     final v = double.tryParse((total - refunded).toStringAsFixed(2)) ?? 0;
     return v < 0 ? 0 : v;
   }
-  bool get canRefund => payOk && refundSt != 1 && refundable > 0 && orderId > 0;
+
+  /// 一单仅可退款一次：只要退过（refund_status!=0 或已退金额>0）就不可再退
+  bool get canRefund => payOk && refundSt == 0 && refunded <= 0 && orderId > 0;
 
   List<Map<String, dynamic>> get goods => CloudPrinter.parseGoods(o);
   int get goodsCount => goods.fold(0, (s, g) => s + _qty(g));
@@ -246,10 +248,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         const SizedBox(height: 9),
         BigButton(
           canRefund
-              ? (refundable < total - 0.001
-                  ? '继续退款 · 剩余可退 ¥${Fmt.money(refundable)}'
-                  : '退款 ¥${Fmt.money(total)}')
-              : (refundSt == 1 ? '退款中…' : '已退款'),
+              ? '退款 ¥${Fmt.money(total)}'
+              : (refundSt == 1
+                  ? '退款中…'
+                  : (refunded > 0 && refundable > 0 ? '已部分退款 · 剩余不可再退' : '已退款')),
           onTap: (busy || !canRefund) ? null : _refund,
           color: const Color(0xFFFDEEEE), textColor: PosTheme.red, height: 46),
       ]),
@@ -355,7 +357,7 @@ class _RefundDialogState extends State<_RefundDialog> {
       return;
     }
     if (pwd.length != 6 || int.tryParse(pwd) == null) {
-      toast(context, '请输入6位数字退款密码（默认您的手机号后6位）', error: true);
+      toast(context, '请输入6位数字权限密码（由商户在设置页分配）', error: true);
       return;
     }
     Navigator.pop(context, {'reason': reason, 'amount': amount, 'password': pwd});
@@ -429,8 +431,8 @@ class _RefundDialogState extends State<_RefundDialog> {
             style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
             decoration: const InputDecoration(
               counterText: '',
-              hintText: '退款密码（6位数字）',
-              helperText: '默认为您的手机号后6位，可在设置页修改',
+              hintText: '权限密码（6位数字）',
+              helperText: '由商户在「设置 → 权限密码」中分配给收银员',
               helperStyle: TextStyle(fontSize: 11.5),
               prefixIcon: Icon(Icons.lock_outline, size: 20),
               border: OutlineInputBorder(),

@@ -34,8 +34,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // 语音播报
   bool voiceEnabled = true;
 
-  // 退款密码（null=查询中 / true=已自定义 / false=默认手机号后6位）
-  bool? refundPwdCustom;
+  // 权限密码管理（商户专属）：员工列表
+  List<Map<String, dynamic>> staffs = [];
+  bool staffLoading = false;
 
   @override
   void initState() {
@@ -43,94 +44,143 @@ class _SettingsPageState extends State<SettingsPage> {
     _load();
     _loadUsb();
     _loadVoice();
-    _loadRefundPwd();
+    _loadStaffs();
   }
 
-  Future<void> _loadRefundPwd() async {
+  Future<void> _loadStaffs() async {
+    if (Session.isCashierOnly) return; // 收银员登录不显示权限密码管理
+    setState(() => staffLoading = true);
     try {
-      final c = await Api.refundPasswordCustom(Session.wenxunId, Session.staffId);
-      if (mounted) setState(() => refundPwdCustom = c);
+      final list = await Api.staffList();
+      if (mounted) {
+        setState(() {
+          staffs = list.cast<Map<String, dynamic>>();
+          staffLoading = false;
+        });
+      }
     } on ApiError {
-      // 查询失败保持 null（显示未知）
+      if (mounted) setState(() => staffLoading = false);
     }
   }
 
-  /// 退款密码卡片：收银员级，每个收银员独自管理；默认本人手机号后6位
+  /// 权限密码卡片（仅商户登录可见）：
+  /// 为每个收银员分配 6 位数字权限密码（现金订单退款 / 现金充值时输入）
   Widget _refundPwdCard() {
-    final statusText = refundPwdCustom == null
-        ? '状态未知'
-        : (refundPwdCustom! ? '已自定义密码' : '默认：您的手机号后6位');
+    if (Session.isCashierOnly) return const SizedBox.shrink();
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _sectionTitle(Icons.lock_outline, '退款密码'),
+      _sectionTitle(Icons.lock_outline, '权限密码（退款 / 现金充值）'),
+      const SizedBox(height: 4),
+      Text('收银员执行「订单退款」或「现金充值」时需输入权限密码。由商户在此分配，收银员本人不可修改。',
+          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 12),
-      Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('当前收银员：${Session.staffName}（${Session.roleName}）',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 3),
-          Text('订单退款需输入退款密码，每个收银员独自管理自己的密码，互不影响。当前状态：$statusText。未自定义时使用本人手机号后6位。',
-              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-        ])),
-        const SizedBox(width: 12),
-        SizedBox(
-          width: 110,
-          child: BigButton('修改密码', onTap: _editRefundPwd,
-              color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 44),
-        ),
-      ]),
+      if (staffLoading)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 14),
+          child: Center(child: SizedBox(
+            width: 22, height: 22,
+            child: CircularProgressIndicator(strokeWidth: 2.4, color: PosTheme.accent),
+          )),
+        )
+      else if (staffs.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Text('暂无收银员，请先在「收银员管理」中添加',
+              style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        )
+      else
+        ...staffs.map(_staffPwdRow),
     ]));
   }
 
-  Future<void> _editRefundPwd() async {
-    final oldCtl = TextEditingController();
-    final newCtl = TextEditingController();
-    final new2Ctl = TextEditingController();
+  Widget _staffPwdRow(Map<String, dynamic> s) {
+    final set = s['has_quanxian'] == true;
+    final name = '${s['renyuan'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: PosTheme.bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: PosTheme.line),
+      ),
+      child: Row(children: [
+        Container(
+          width: 34, height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: PosTheme.accent.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(17),
+          ),
+          child: Text(name.isEmpty ? '?' : name.characters.first,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 1),
+          Text('${s['role_name'] ?? ''} · ${s['phone'] ?? ''}',
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        ])),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: set ? const Color(0xFFEAF7EE) : const Color(0xFFFDF3E7),
+            borderRadius: BorderRadius.circular(7),
+          ),
+          child: Text(set ? '已设置' : '未设置',
+              style: TextStyle(fontSize: 11,
+                  color: set ? const Color(0xFF2E9E5B) : const Color(0xFFD07B1F),
+                  fontWeight: FontWeight.w600)),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 92,
+          child: BigButton(set ? '修改' : '设置密码', onTap: () => _editStaffPwd(s),
+              color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 40),
+        ),
+      ]),
+    );
+  }
+
+  /// 设置/修改某收银员的权限密码（商户操作）
+  Future<void> _editStaffPwd(Map<String, dynamic> s) async {
+    final name = '${s['renyuan'] ?? ''}';
+    final pwdCtl = TextEditingController();
+    final pwd2Ctl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('修改退款密码', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        title: Text('设置权限密码 · $name', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
         content: SizedBox(
           width: 360,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('该收银员执行「订单退款」「现金充值」时需输入此密码。',
+                style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+            const SizedBox(height: 14),
             TextField(
-              controller: oldCtl,
+              controller: pwdCtl,
               obscureText: true,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              style: const TextStyle(fontSize: 17, letterSpacing: 5),
-              decoration: InputDecoration(
-                counterText: '',
-                labelText: refundPwdCustom == false ? '当前密码（您的手机号后6位）' : '当前退款密码',
-                prefixIcon: const Icon(Icons.lock_outline, size: 20),
-                border: const OutlineInputBorder(),
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: newCtl,
-              obscureText: true,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              style: const TextStyle(fontSize: 17, letterSpacing: 5),
+              style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
               decoration: const InputDecoration(
                 counterText: '',
-                labelText: '新密码（6位数字）',
-                prefixIcon: Icon(Icons.lock, size: 20),
+                labelText: '权限密码（6位数字）',
+                prefixIcon: Icon(Icons.lock_outline, size: 20),
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
             ),
             const SizedBox(height: 12),
             TextField(
-              controller: new2Ctl,
+              controller: pwd2Ctl,
               obscureText: true,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              style: const TextStyle(fontSize: 17, letterSpacing: 5),
+              style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
               decoration: const InputDecoration(
                 counterText: '',
-                labelText: '确认新密码',
+                labelText: '确认密码',
                 prefixIcon: Icon(Icons.lock, size: 20),
                 border: OutlineInputBorder(),
                 isDense: true,
@@ -140,36 +190,30 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('确认修改')),
+          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('确认设置')),
         ],
       ),
     );
     if (ok != true || !mounted) return;
-    final oldPwd = oldCtl.text.trim();
-    final newPwd = newCtl.text.trim();
-    if (oldPwd.length != 6 || newPwd.length != 6 || int.tryParse(newPwd) == null) {
-      toast(context, '密码须为6位数字', error: true);
+    final pwd = pwdCtl.text.trim();
+    if (pwd.length != 6 || int.tryParse(pwd) == null) {
+      toast(context, '权限密码须为6位数字', error: true);
       return;
     }
-    if (newPwd != new2Ctl.text.trim()) {
-      toast(context, '两次输入的新密码不一致', error: true);
+    if (pwd != pwd2Ctl.text.trim()) {
+      toast(context, '两次输入的密码不一致', error: true);
       return;
     }
     loadingDialog(context, '保存中…');
     try {
-      final r = await Api.setRefundPassword(
-        wenxunId: Session.wenxunId,
-        staffId: Session.staffId,
-        oldPassword: oldPwd,
-        newPassword: newPwd,
-      );
+      final r = await Api.setStaffQuanxian(staffId: int.tryParse('${s['id']}') ?? 0, password: pwd);
       if (!mounted) return;
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
-        toast(context, '${r['msg'] ?? '退款密码已更新'}');
-        setState(() => refundPwdCustom = true);
+        toast(context, '$name 的权限密码已更新');
+        _loadStaffs();
       } else {
-        toast(context, '${r['msg'] ?? '修改失败'}', error: true);
+        toast(context, '${r['msg'] ?? '保存失败'}', error: true);
       }
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
@@ -414,7 +458,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // 语音播报
           _voiceCard(),
           const SizedBox(height: 14),
-          // 退款密码
+          // 权限密码（商户专属：分配收银员退款/现金充值密码）
           _refundPwdCard(),
           const SizedBox(height: 14),
           // 账号
