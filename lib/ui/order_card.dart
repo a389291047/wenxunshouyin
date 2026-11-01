@@ -53,13 +53,21 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     if (s.isEmpty || s == 'null' || s == '{}') return const {};
     try {
       final d = raw is Map ? raw : jsonDecode(s);
-      if (d is! Map) return const {};
       final m = <int, int>{};
-      d.forEach((k, v) {
-        final i = int.tryParse('$k');
-        final q = int.tryParse('$v') ?? 0;
-        if (i != null && q > 0) m[i] = q;
-      });
+      if (d is Map) {
+        // 对象形态 {"0":1,"2":1}
+        d.forEach((k, v) {
+          final i = int.tryParse('$k');
+          final q = int.tryParse('$v') ?? 0;
+          if (i != null && q > 0) m[i] = q;
+        });
+      } else if (d is List) {
+        // 列表形态 [1,1]（历史数据：PHP json_encode 连续整数键产出），下标即行索引
+        for (var i = 0; i < d.length; i++) {
+          final q = int.tryParse('${d[i]}') ?? 0;
+          if (q > 0) m[i] = q;
+        }
+      }
       return m;
     } catch (_) {
       return const {};
