@@ -162,6 +162,7 @@ class Api {
     required String operator,
     required String password,
     double amount = 0,
+    List<Map<String, dynamic>> refundGoods = const [],
   }) {
     return post('/shouyin/order/refund', {
       'wenxun_id': wenxunId,
@@ -171,6 +172,7 @@ class Api {
       'operator': operator,
       'password': password,
       if (amount > 0) 'refund_amount': amount,
+      if (refundGoods.isNotEmpty) 'refund_goods': refundGoods,
     });
   }
 

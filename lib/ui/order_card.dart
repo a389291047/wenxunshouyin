@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -42,6 +44,27 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
 
   /// 退款中（refund_status=1）不可操作；其余只要还有剩余可退就能退
   bool get canRefund => payOk && refundSt != 1 && refundable > 0 && orderId > 0;
+
+  /// 已退商品明细：{行索引: 已退件数}（wx_order.refund_goods JSON）
+  Map<int, int> get refundedGoods {
+    final raw = o['refund_goods'];
+    if (raw == null) return const {};
+    final s = '$raw';
+    if (s.isEmpty || s == 'null' || s == '{}') return const {};
+    try {
+      final d = raw is Map ? raw : jsonDecode(s);
+      if (d is! Map) return const {};
+      final m = <int, int>{};
+      d.forEach((k, v) {
+        final i = int.tryParse('$k');
+        final q = int.tryParse('$v') ?? 0;
+        if (i != null && q > 0) m[i] = q;
+      });
+      return m;
+    } catch (_) {
+      return const {};
+    }
+  }
 
   List<Map<String, dynamic>> get goods => CloudPrinter.parseGoods(o);
   int get goodsCount => goods.fold(0, (s, g) => s + _qty(g));
@@ -114,6 +137,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         goods: goods,
         total: total,
         refundable: refundable,
+        refundedGoods: refundedGoods,
       ),
     );
     if (r == null || !mounted) return;
@@ -128,15 +152,31 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         operator: Session.staffName,
         password: '${r['password']}',
         amount: double.tryParse('${r['amount']}') ?? 0,
+        refundGoods: (r['goods'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? const [],
       );
       if (!mounted) return;
       Navigator.pop(context);
       if ('${r2['code']}' == '200') {
         toast(context, '${r2['msg'] ?? '退款成功'}');
+        // 本地同步：累计退款金额 + 已退商品明细（父级列表随后会刷新覆盖）
+        setState(() {
+          final newRefunded = double.tryParse((refunded + (double.tryParse('${r['amount']}') ?? 0)).toStringAsFixed(2)) ?? 0;
+          o['refund_amount'] = newRefunded;
+          o['refund_reason'] = r['reason'];
+          final merged = Map<int, int>.from(refundedGoods);
+          for (final e in (r['goods'] as List? ?? const [])) {
+            if (e is! Map) continue;
+            final i = int.tryParse('${e['index']}');
+            final q = int.tryParse('${e['qty']}') ?? 0;
+            if (i != null && q > 0) merged[i] = (merged[i] ?? 0) + q;
+          }
+          if (merged.isNotEmpty) {
+            o['refund_goods'] = jsonEncode(merged.map((k, v) => MapEntry('$k', v)));
+          }
+          if (newRefunded >= total - 0.001) o['refund_status'] = 2;
+        });
         try {
           final oo = Map<String, dynamic>.from(o);
-          oo['refund_reason'] = r['reason'];
-          oo['refund_amount'] = r['amount'];
           await CloudPrinter.print(CloudPrinter.orderTicket(oo, isRefund: true));
         } catch (_) {}
         widget.onRefunded();
@@ -275,6 +315,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   }
 
   Widget _goodsRow(int idx, Map g) {
+    final totalQty = _qty(g);
+    final refundedQty = refundedGoods[idx] ?? 0;
+    final fully = refundedQty >= totalQty && totalQty > 0;
+    final partly = refundedQty > 0 && !fully;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3.5),
       child: Row(children: [
@@ -282,26 +326,62 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
           width: 18, height: 18,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: PosTheme.bg,
+            color: fully ? const Color(0xFFFDEEEE) : PosTheme.bg,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Text('$idx', style: const TextStyle(fontSize: 10.5, color: PosTheme.textHint)),
+          child: Text('$idx', style: TextStyle(
+              fontSize: 10.5,
+              color: fully ? PosTheme.red : PosTheme.textHint)),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(_name(g),
-              style: const TextStyle(fontSize: 13.5),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
+          child: Row(children: [
+            Flexible(
+              child: Text(_name(g),
+                  style: TextStyle(
+                      fontSize: 13.5,
+                      color: fully ? PosTheme.textHint : null,
+                      decoration: fully ? TextDecoration.lineThrough : null,
+                      decorationColor: PosTheme.red,
+                      decorationThickness: 2),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            if (fully) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDEEEE),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text('已退款',
+                    style: TextStyle(fontSize: 10, color: PosTheme.red)),
+              ),
+            ] else if (partly) ...[
+              const SizedBox(width: 6),
+              Text('已退$refundedQty件',
+                  style: const TextStyle(fontSize: 10.5, color: PosTheme.red)),
+            ],
+          ]),
         ),
         const SizedBox(width: 8),
-        Text('¥${Fmt.money(_price(g))} ×${_qty(g)}',
-            style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+        Text('¥${Fmt.money(_price(g))} ×$totalQty',
+            style: TextStyle(
+                fontSize: 12.5,
+                color: fully ? PosTheme.textHint : PosTheme.textSub,
+                decoration: fully ? TextDecoration.lineThrough : null,
+                decorationColor: PosTheme.red)),
         const SizedBox(width: 10),
         SizedBox(
           width: 66,
-          child: Text('¥${Fmt.money(_price(g) * _qty(g))}',
+          child: Text('¥${Fmt.money(_price(g) * totalQty)}',
               textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: fully ? PosTheme.textHint : null,
+                  decoration: fully ? TextDecoration.lineThrough : null,
+                  decorationColor: PosTheme.red)),
         ),
       ]),
     );
@@ -315,13 +395,14 @@ class _RefundDialog extends StatefulWidget {
   final List<Map<String, dynamic>> goods;
   final double total;
   final double refundable;
-  const _RefundDialog({required this.order, required this.goods, required this.total, required this.refundable});
+  final Map<int, int> refundedGoods; // {行索引: 已退件数}
+  const _RefundDialog({required this.order, required this.goods, required this.total, required this.refundable, this.refundedGoods = const {}});
   @override
   State<_RefundDialog> createState() => _RefundDialogState();
 }
 
 class _RefundDialogState extends State<_RefundDialog> {
-  late final List<int> refundQty; // 部分退款时每行退几件
+  late final List<int> refundQty; // 部分退款时每行退几件（上限=剩余件数）
   bool partial = false; // false=整单退款（默认退剩余可退全部）
   String reason = ''; // 退款原因（触摸屏选项）
   String pwd = ''; // 权限密码（9宫格数字键盘输入）
@@ -330,6 +411,12 @@ class _RefundDialogState extends State<_RefundDialog> {
   String _name(Map g) => '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
   double _price(Map g) => double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
   int _qty(Map g) => int.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+
+  /// 第 i 行剩余可退件数（已退的不能选）
+  int _remaining(int i) {
+    final v = _qty(widget.goods[i]) - (widget.refundedGoods[i] ?? 0);
+    return v < 0 ? 0 : v;
+  }
 
   double get pickAmount {
     var s = 0.0;
@@ -343,6 +430,16 @@ class _RefundDialogState extends State<_RefundDialog> {
 
   double get amount => partial ? pickAmount : widget.refundable;
   bool get amountValid => partial ? (pickAmount > 0 && pickAmount <= widget.refundable + 0.001) : true;
+
+  /// 本次退款商品明细：整单=全部剩余件数；部分=勾选行
+  List<Map<String, dynamic>> get goodsPayload {
+    final l = <Map<String, dynamic>>[];
+    for (var i = 0; i < widget.goods.length; i++) {
+      final q = partial ? refundQty[i] : _remaining(i);
+      if (q > 0) l.add({'index': i, 'qty': q});
+    }
+    return l;
+  }
 
   @override
   void initState() {
@@ -363,7 +460,7 @@ class _RefundDialogState extends State<_RefundDialog> {
       toast(context, '请输入6位数字权限密码（由商户在设置页分配）', error: true);
       return;
     }
-    Navigator.pop(context, {'reason': reason, 'amount': amount, 'password': pwd});
+    Navigator.pop(context, {'reason': reason, 'amount': amount, 'password': pwd, 'goods': goodsPayload});
   }
 
   /// 数字键盘按键：数字 / C 清空 / ⌫ 退格
@@ -598,70 +695,14 @@ class _RefundDialogState extends State<_RefundDialog> {
   }
 
   /// 部分退款：商品行步进选数量（触屏大按钮，点击区 ≥ 48px）
+  /// 已退完的行禁用置灰并打「已退款」标，不可再选
   Widget _partialList() {
     return Container(
       decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(12)),
       child: Column(children: [
         for (var i = 0; i < widget.goods.length; i++) ...[
           if (i > 0) const Divider(height: 1, color: PosTheme.line),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            child: Row(children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(_name(widget.goods[i]),
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text('¥${Fmt.money(_price(widget.goods[i]))} ×${_qty(widget.goods[i])}',
-                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
-                ]),
-              ),
-              const SizedBox(width: 10),
-              // 步进器：0 .. 购买数量
-              InkWell(
-                onTap: refundQty[i] > 0 ? () => setState(() => refundQty[i]--) : null,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  width: 44, height: 44,
-                  decoration: BoxDecoration(
-                    color: refundQty[i] > 0 ? const Color(0xFFFDEEEE) : PosTheme.bg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.remove, size: 24,
-                      color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint),
-                ),
-              ),
-              Container(
-                width: 52, alignment: Alignment.center,
-                child: Text('${refundQty[i]}',
-                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800,
-                        color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
-              ),
-              InkWell(
-                onTap: refundQty[i] < _qty(widget.goods[i]) ? () => setState(() => refundQty[i]++) : null,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  width: 44, height: 44,
-                  decoration: BoxDecoration(
-                    color: refundQty[i] < _qty(widget.goods[i]) ? const Color(0xFFFDEEEE) : PosTheme.bg,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.add, size: 24,
-                      color: refundQty[i] < _qty(widget.goods[i]) ? PosTheme.red : PosTheme.textHint),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 78,
-                child: Text('¥${Fmt.money(_price(widget.goods[i]) * refundQty[i])}',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontSize: 14.5, fontWeight: FontWeight.w700,
-                        color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
-              ),
-            ]),
-          ),
+          _partialRow(i),
         ],
         if (!amountValid)
           Container(
@@ -671,6 +712,107 @@ class _RefundDialogState extends State<_RefundDialog> {
             child: Text('所选商品合计 ¥${Fmt.money(pickAmount)} 超出剩余可退 ¥${Fmt.money(widget.refundable)}，请调整',
                 style: const TextStyle(fontSize: 12, color: PosTheme.red)),
           ),
+      ]),
+    );
+  }
+
+  Widget _partialRow(int i) {
+    final g = widget.goods[i];
+    final remaining = _remaining(i);
+    final disabled = remaining <= 0;
+    return Container(
+      color: disabled ? const Color(0xFFFAFAFA) : null,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(
+                child: Text(_name(g),
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: disabled ? PosTheme.textHint : null,
+                        decoration: disabled ? TextDecoration.lineThrough : null,
+                        decorationColor: PosTheme.red,
+                        decorationThickness: 2),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+              ),
+              if (disabled) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDEEEE),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: const Text('已退款',
+                      style: TextStyle(fontSize: 11, color: PosTheme.red)),
+                ),
+              ],
+            ]),
+            const SizedBox(height: 2),
+            Text(
+                disabled
+                    ? '¥${Fmt.money(_price(g))} ×${_qty(g)} · 已全部退款'
+                    : '¥${Fmt.money(_price(g))} ×${_qty(g)}${(widget.refundedGoods[i] ?? 0) > 0 ? ' · 已退${widget.refundedGoods[i]}件' : ''}',
+                style: TextStyle(fontSize: 12.5, color: disabled ? PosTheme.textHint : PosTheme.textSub)),
+          ]),
+        ),
+        const SizedBox(width: 10),
+        if (disabled) ...[
+          const SizedBox(width: 88 + 52 + 8), // 与步进器占位对齐
+          SizedBox(
+            width: 78,
+            child: Text('¥${Fmt.money(_price(g) * _qty(g))}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
+          ),
+        ] else ...[
+          // 步进器：0 .. 剩余件数
+          InkWell(
+            onTap: refundQty[i] > 0 ? () => setState(() => refundQty[i]--) : null,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: refundQty[i] > 0 ? const Color(0xFFFDEEEE) : PosTheme.bg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.remove, size: 24,
+                  color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint),
+            ),
+          ),
+          Container(
+            width: 52, alignment: Alignment.center,
+            child: Text('${refundQty[i]}/${remaining}',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800,
+                    color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
+          ),
+          InkWell(
+            onTap: refundQty[i] < remaining ? () => setState(() => refundQty[i]++) : null,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                color: refundQty[i] < remaining ? const Color(0xFFFDEEEE) : PosTheme.bg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.add, size: 24,
+                  color: refundQty[i] < remaining ? PosTheme.red : PosTheme.textHint),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 78,
+            child: Text('¥${Fmt.money(_price(g) * refundQty[i])}',
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    fontSize: 14.5, fontWeight: FontWeight.w700,
+                    color: refundQty[i] > 0 ? PosTheme.red : PosTheme.textHint)),
+          ),
+        ],
       ]),
     );
   }
