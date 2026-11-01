@@ -31,14 +31,17 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   int get refundSt => int.tryParse('${o['refund_status']}') ?? 0;
   double get total => double.tryParse('${o['total']}') ?? 0;
   double get refunded => double.tryParse('${o['refund_amount']}') ?? 0;
-  /// 剩余未退金额（仅用于展示；一单仅可退款一次，退过即不可再退）
+  /// 剩余可退（部分退款可多次发起，直到退完）
   double get refundable {
     final v = double.tryParse((total - refunded).toStringAsFixed(2)) ?? 0;
     return v < 0 ? 0 : v;
   }
 
-  /// 一单仅可退款一次：只要退过（refund_status!=0 或已退金额>0）就不可再退
-  bool get canRefund => payOk && refundSt == 0 && refunded <= 0 && orderId > 0;
+  /// 已部分退款（退过一部分但未退完，refund_status 保持 0）
+  bool get partialRefunded => refunded > 0 && refundable > 0;
+
+  /// 退款中（refund_status=1）不可操作；其余只要还有剩余可退就能退
+  bool get canRefund => payOk && refundSt != 1 && refundable > 0 && orderId > 0;
 
   List<Map<String, dynamic>> get goods => CloudPrinter.parseGoods(o);
   int get goodsCount => goods.fold(0, (s, g) => s + _qty(g));
@@ -169,6 +172,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
           if (!payOk) const TagChip('未支付', color: PosTheme.amber),
           if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
           if (refundSt == 2) TagChip(refundable > 0 ? '部分退款' : '已退款', color: PosTheme.red),
+          if (refundSt == 0 && partialRefunded) const TagChip('部分退款', color: PosTheme.red),
         ]),
         const SizedBox(height: 8),
         _kvRow(Icons.schedule, Fmt.date(o['create_time'])),
@@ -248,10 +252,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         const SizedBox(height: 9),
         BigButton(
           canRefund
-              ? '退款 ¥${Fmt.money(total)}'
-              : (refundSt == 1
-                  ? '退款中…'
-                  : (refunded > 0 && refundable > 0 ? '已部分退款 · 剩余不可再退' : '已退款')),
+              ? (refunded > 0
+                  ? '继续退款 · 剩余可退 ¥${Fmt.money(refundable)}'
+                  : '退款 ¥${Fmt.money(total)}')
+              : (refundSt == 1 ? '退款中…' : '已退款'),
           onTap: (busy || !canRefund) ? null : _refund,
           color: const Color(0xFFFDEEEE), textColor: PosTheme.red, height: 46),
       ]),
@@ -319,8 +323,9 @@ class _RefundDialog extends StatefulWidget {
 class _RefundDialogState extends State<_RefundDialog> {
   late final List<int> refundQty; // 部分退款时每行退几件
   bool partial = false; // false=整单退款（默认退剩余可退全部）
-  final reasonCtl = TextEditingController();
-  final pwdCtl = TextEditingController();
+  String reason = ''; // 退款原因（触摸屏选项）
+  String pwd = ''; // 权限密码（9宫格数字键盘输入）
+  static const List<String> _reasons = ['反结账', '顾客退款', '其他'];
 
   String _name(Map g) => '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
   double _price(Map g) => double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
@@ -346,21 +351,32 @@ class _RefundDialogState extends State<_RefundDialog> {
   }
 
   void _confirm() {
-    final reason = reasonCtl.text.trim();
-    final pwd = pwdCtl.text.trim();
     if (reason.isEmpty) {
-      toast(context, '请填写退款原因', error: true);
+      toast(context, '请选择退款原因', error: true);
       return;
     }
     if (!amountValid || amount <= 0) {
       toast(context, partial ? '请选择要退的商品数量' : '退款金额无效', error: true);
       return;
     }
-    if (pwd.length != 6 || int.tryParse(pwd) == null) {
+    if (pwd.length != 6) {
       toast(context, '请输入6位数字权限密码（由商户在设置页分配）', error: true);
       return;
     }
     Navigator.pop(context, {'reason': reason, 'amount': amount, 'password': pwd});
+  }
+
+  /// 数字键盘按键：数字 / C 清空 / ⌫ 退格
+  void _key(String k) {
+    setState(() {
+      if (k == 'C') {
+        pwd = '';
+      } else if (k == '<') {
+        if (pwd.isNotEmpty) pwd = pwd.substring(0, pwd.length - 1);
+      } else if (pwd.length < 6) {
+        pwd += k;
+      }
+    });
   }
 
   @override
@@ -407,40 +423,25 @@ class _RefundDialogState extends State<_RefundDialog> {
             ),
           ),
           const SizedBox(height: 14),
-          // 退款原因
-          TextField(
-            controller: reasonCtl,
-            maxLines: 2,
-            maxLength: 120,
-            style: const TextStyle(fontSize: 14),
-            decoration: const InputDecoration(
-              counterText: '',
-              hintText: '退款原因（必填，如：顾客退货）',
-              border: OutlineInputBorder(),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          // 退款原因（触摸屏选择）
+          Row(children: [
+            const Text('退款原因', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Row(children: [
+                for (var i = 0; i < _reasons.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  Expanded(child: _reasonChip(_reasons[i])),
+                ],
+              ]),
             ),
-          ),
+          ]),
           const SizedBox(height: 12),
-          // 退款密码
-          TextField(
-            controller: pwdCtl,
-            obscureText: true,
-            keyboardType: TextInputType.number,
-            maxLength: 6,
-            style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
-            decoration: const InputDecoration(
-              counterText: '',
-              hintText: '权限密码（6位数字）',
-              helperText: '由商户在「设置 → 权限密码」中分配给收银员',
-              helperStyle: TextStyle(fontSize: 11.5),
-              prefixIcon: Icon(Icons.lock_outline, size: 20),
-              border: OutlineInputBorder(),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            ),
-          ),
-          const SizedBox(height: 18),
+          // 权限密码（显示框 + 9宫格数字键盘）
+          _pwdBox(),
+          const SizedBox(height: 10),
+          _pwdPad(),
+          const SizedBox(height: 16),
           BigButton(
             '确认退款 ¥${Fmt.money(amount)}',
             onTap: _confirm,
@@ -450,6 +451,122 @@ class _RefundDialogState extends State<_RefundDialog> {
         ]),
       ),
     );
+  }
+
+  /// 退款原因选项（触摸屏大按钮）
+  Widget _reasonChip(String text) {
+    final on = reason == text;
+    return InkWell(
+      onTap: () => setState(() => reason = text),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: 46,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFFFDEEEE) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: on ? PosTheme.red.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
+        ),
+        child: Text(text, style: TextStyle(
+          fontSize: 14.5, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+          color: on ? PosTheme.red : PosTheme.textSub,
+        )),
+      ),
+    );
+  }
+
+  /// 权限密码显示框：6 位圆点
+  Widget _pwdBox() {
+    return Container(
+      height: 54,
+      decoration: BoxDecoration(
+        color: PosTheme.bg,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: PosTheme.line),
+      ),
+      child: Row(children: [
+        const SizedBox(width: 12),
+        const Icon(Icons.lock_outline, size: 20, color: PosTheme.textHint),
+        const SizedBox(width: 12),
+        Expanded(
+          child: pwd.isEmpty
+              ? const Text('请输入权限密码（6位数字，由商户分配）',
+                  style: TextStyle(fontSize: 13, color: PosTheme.textHint))
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    for (var i = 0; i < 6; i++) ...[
+                      if (i > 0) const SizedBox(width: 10),
+                      Container(
+                        width: 12, height: 12,
+                        decoration: BoxDecoration(
+                          color: i < pwd.length ? PosTheme.textMain : Colors.transparent,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: PosTheme.textHint, width: 1.2),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+        if (pwd.isNotEmpty)
+          InkWell(
+            onTap: () => _key('C'),
+            borderRadius: BorderRadius.circular(8),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Text('清空', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            ),
+          ),
+        const SizedBox(width: 8),
+      ]),
+    );
+  }
+
+  /// 9宫格数字键盘（触摸屏）：1-9 / 清空 0 退格
+  Widget _pwdPad() {
+    Widget keyBtn(String label, {VoidCallback? onTap, Color? color, IconData? icon}) {
+      final enabled = onTap != null;
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: 58,
+          decoration: BoxDecoration(
+            color: enabled ? (color ?? Colors.white) : PosTheme.bg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: PosTheme.line),
+          ),
+          alignment: Alignment.center,
+          child: icon != null
+              ? Icon(icon, size: 24, color: enabled ? PosTheme.textMain : PosTheme.textHint)
+              : Text(label, style: TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.w700,
+                  color: enabled ? (color ?? PosTheme.textMain) : PosTheme.textHint)),
+        ),
+      );
+    }
+
+    return Column(children: [
+      for (var row = 0; row < 4; row++) ...[
+        if (row > 0) const SizedBox(height: 8),
+        Row(children: [
+          for (var col = 0; col < 3; col++) ...[
+            if (col > 0) const SizedBox(width: 8),
+            Expanded(
+              child: row < 3
+                  ? keyBtn('${row * 3 + col + 1}', onTap: () => _key('${row * 3 + col + 1}'))
+                  : (col == 0
+                      ? keyBtn('清空', onTap: pwd.isEmpty ? null : () => _key('C'), color: const Color(0xFFF2F3F7))
+                      : (col == 1
+                          ? keyBtn('0', onTap: () => _key('0'))
+                          : keyBtn('退格', onTap: pwd.isEmpty ? null : () => _key('<'),
+                              icon: Icons.backspace_outlined))),
+            ),
+          ],
+        ]),
+      ],
+    ]);
   }
 
   Widget _modeChip(String text, bool on, VoidCallback? onTap) {

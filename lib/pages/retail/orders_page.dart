@@ -172,6 +172,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
   Widget _orderRow(Map o) {
     final on = selected != null && '${selected!['id']}' == '${o['id']}';
     final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
+    final refundedAmt = double.tryParse('${o['refund_amount']}') ?? 0;
     final payOk = '${o['payment_status']}' == '1';
     return InkWell(
       borderRadius: BorderRadius.circular(10),
@@ -194,6 +195,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
               if (!payOk) const TagChip('未支付', color: PosTheme.amber),
               if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
               if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
+              if (refundSt == 0 && refundedAmt > 0) const TagChip('部分退款', color: PosTheme.red),
             ]),
             const SizedBox(height: 3),
             Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? '其他支付'}',
