@@ -240,18 +240,50 @@ class Api {
     });
   }
 
-  /// 充值档次列表（与小程序充值页同源 viphuodong/lst）
+  /// 充值档次列表（与小程序充值页同源 v1.vip/huodonglst；wx_vip_huodong）
   static Future<List> vipRechargeTiers(int wenxunId) async {
-    final r = await post('/api/viphuodong/lst', {'wenxun_id': wenxunId}, withToken: false);
-    return (r['huodong'] ?? []) as List;
+    final r = await post('/api/v1.vip/huodonglst', {'wenxun_id': wenxunId}, withToken: false);
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '获取充值活动失败'}');
+    final l = ((r['huodong'] ?? []) as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+    l.sort((a, b) => (double.tryParse('${a['amount']}') ?? 0)
+        .compareTo(double.tryParse('${b['amount']}') ?? 0));
+    return l;
+  }
+
+  /// 会员充值提交（收银端 shouyin/vip/chongzhi，现金+付款码统一入口）
+  /// 现金：需权限密码；付款码：传 codePay 成功流水号 orderNo（免密）
+  static Future<Map<String, dynamic>> vipRechargeSubmit({
+    required int vipId,
+    required int wenxunId,
+    required double amount,
+    required double gift,
+    required String method, // '现金' | '付款码'
+    int operatorId = 0,
+    String password = '',
+    String orderNo = '',
+  }) {
+    return post('/shouyin/vip/chongzhi', {
+      'id': vipId,
+      'wenxun_id': wenxunId,
+      'czamount': amount.toStringAsFixed(2),
+      'zengsong': gift.toStringAsFixed(2),
+      'paymentMethod': method,
+      if (operatorId > 0) 'operator_id': operatorId,
+      if (password.isNotEmpty) 'password': password,
+      if (orderNo.isNotEmpty) 'order_no': orderNo,
+    });
   }
 
   /// 会员充值 · 扫顾客付款码支付（与小程序充值页同源 payment/codePay，type=A 充值）
-  /// amount 单位元（两位小数字符串），code 为 18-30 位付款码
+  /// amount 单位元（两位小数字符串），code 为 18-30 位付款码；orderNo 客户端生成便于对账入账
   static Future<Map<String, dynamic>> rechargeCodePay({
     required int wenxunId,
     required double amount,
     required String code,
+    String? orderNo,
   }) async {
     final amt = amount.toStringAsFixed(2);
     final txamt = (amount * 100).round().toString();
@@ -261,6 +293,7 @@ class Api {
       'txamt': txamt,
       'code': code,
       'type': 'A',
+      if (orderNo != null && orderNo.isNotEmpty) 'orderNo': orderNo,
     }, withToken: false);
   }
 
