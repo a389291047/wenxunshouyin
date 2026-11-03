@@ -14,7 +14,7 @@ class KefuPage extends StatelessWidget {
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const _KefuCard(),
+            const KefuCard(),
             const SizedBox(height: 18),
             Text('工作时间 9:00 - 22:00，扫码后由企业微信客服一对一解答',
                 style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
@@ -25,8 +25,10 @@ class KefuPage extends StatelessWidget {
   }
 }
 
-class _KefuCard extends StatelessWidget {
-  const _KefuCard();
+/// 微信客服卡片（v3.3.81 从侧边栏移入设置页；KefuPage 保留兼容）
+/// 企业微信客服二维码：美化卡片展示，扫码即达人工客服
+class KefuCard extends StatelessWidget {
+  const KefuCard({super.key});
 
   @override
   Widget build(BuildContext context) {

@@ -15,6 +15,7 @@ import '../../core/voice.dart';
 import '../../ui/update_dialog.dart';
 import '../../ui/widgets.dart';
 import '../login_page.dart';
+import 'kefu_page.dart';
 
 /// 设置页（零售/餐饮共用）：店铺信息、云打印、USB打印、账号、关于
 class SettingsPage extends StatefulWidget {
@@ -589,6 +590,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
     {'key': 'account',  'icon': Icons.manage_accounts_outlined, 'label': '当前账号'},
+    {'key': 'kefu',     'icon': Icons.support_agent,        'label': '联系客服'},
     {'key': 'about',    'icon': Icons.info_outline,         'label': '关于'},
   ];
 
@@ -611,6 +613,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();
       case 'account': return _accountCard();
+      case 'kefu':    return _kefuCard();
       case 'about':   return _aboutCard();
       case 'store':
       default:        return _storeCard();
@@ -769,6 +772,16 @@ class _SettingsPageState extends State<SettingsPage> {
         }, color: PosTheme.red, height: 46),
       ),
     ]));
+  }
+
+  Widget _kefuCard() {
+    // v3.3.81：客服从左侧栏移入设置页（KefuCard 抽为公开组件）
+    return Column(children: [
+      const KefuCard(),
+      const SizedBox(height: 18),
+      const Text('工作时间 9:00 - 22:00，扫码后由企业微信客服一对一解答',
+          style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
+    ]);
   }
 
   Widget _aboutCard() {
