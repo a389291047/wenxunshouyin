@@ -115,8 +115,6 @@ class _DiningPageState extends State<DiningPage> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 6),
       child: Row(children: [
-        const Text('点餐', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-        const SizedBox(width: 20),
         _seg('桌台模式', 0),
         const SizedBox(width: 8),
         _seg('快捷模式（外带/快餐）', 1),
@@ -139,16 +137,13 @@ class _DiningPageState extends State<DiningPage> {
     );
   }
 
-  // ==================== 点餐方式条（8 种模式，与小程序截图一致） ====================
+  // ==================== 点餐方式条（点餐码功能已移除，后期接入商户微信公众号） ====================
 
   static const List<Map<String, dynamic>> _orderModes = [
     {'label': '开台点餐', 'color': PosTheme.red},
-    {'label': '不开台点餐', 'color': PosTheme.blue},
     {'label': '自助点餐', 'color': Color(0xFFFF7A45)},
-    {'label': '扫码点餐', 'color': PosTheme.green},
     {'label': '外卖点餐', 'color': Color(0xFF7B61FF)},
-    {'label': '排队点餐', 'color': PosTheme.blue},
-    {'label': '预约点餐', 'color': Color(0xFF7B61FF)},
+    {'label': '排队取号', 'color': PosTheme.blue},
     {'label': '挂账点餐', 'color': PosTheme.red},
   ];
 
@@ -197,29 +192,15 @@ class _DiningPageState extends State<DiningPage> {
       case '开台点餐':
         toast(context, '请在下方选择空闲桌台进行开台点餐');
         break;
-      case '不开台点餐':
-        await showDialog(context: context, builder: (_) => const DirectOrderDialog());
-        break;
       case '自助点餐':
-      case '扫码点餐':
-        if (tables.isEmpty) { toast(context, '暂无桌台，请先到后台添加', error: true); break; }
-        final t = await showDialog<Map>(
-          context: context,
-          builder: (_) => TablePickDialog(tables: tables, title: '$label · 选桌出码'),
-        );
-        if (t != null && mounted) _showQrCode(t);
+        // 点餐码功能已移除，后期接入商户微信公众号自助点餐
+        toast(context, '自助点餐即将接入微信公众号，敬请期待');
         break;
       case '外卖点餐':
         await showDialog(context: context, builder: (_) => const WaimaiDialog());
         break;
-      case '排队点餐':
+      case '排队取号':
         await showDialog(context: context, builder: (_) => const PaihaoDialog());
-        break;
-      case '预约点餐':
-        await showDialog(
-          context: context,
-          builder: (_) => BookListDialog(tables: tables, onArrival: _arrivalFlow, onCancelBook: _cancelBook),
-        );
         break;
       case '挂账点餐':
         await showDialog(context: context, builder: (_) => const GuazhangDialog());
@@ -365,8 +346,6 @@ class _DiningPageState extends State<DiningPage> {
               const SizedBox(height: 6),
               Row(children: [
                 _cardAction('预点餐', onTap: () => _openPreorder(t)),
-                const SizedBox(width: 8),
-                _cardAction('点餐码', onTap: () => _showQrCode(t)),
               ]),
             ],
           ]),
@@ -470,8 +449,6 @@ class _DiningPageState extends State<DiningPage> {
             const SizedBox(width: 10),
             Expanded(child: BigButton('取消开台', onTap: () { Navigator.pop(context); _cancelOpen(t, kaitaiId); }, color: const Color(0xFFFFF1F0), textColor: PosTheme.red, height: 46)),
           ]),
-          const SizedBox(height: 10),
-          BigButton('顾客点餐码（扫码加菜）', onTap: () { Navigator.pop(context); _showQrCode(t); }, color: const Color(0xFFF0F5FF), textColor: PosTheme.blue, height: 46),
         ]),
       )),
     );
@@ -516,11 +493,7 @@ class _DiningPageState extends State<DiningPage> {
           const SizedBox(height: 16),
           BigButton('顾客到店 · 开台并出后厨票', onTap: () { Navigator.pop(context); _arrivalFlow(t); }, height: 50),
           const SizedBox(height: 10),
-          Row(children: [
-            Expanded(child: BigButton('预点餐 / 改菜', onTap: () { Navigator.pop(context); _openPreorder(t); }, color: const Color(0xFFFFF8EC), textColor: PosTheme.amber, height: 46)),
-            const SizedBox(width: 10),
-            Expanded(child: BigButton('点餐码', onTap: () { Navigator.pop(context); _showQrCode(t); }, color: const Color(0xFFF0F5FF), textColor: PosTheme.blue, height: 46)),
-          ]),
+          BigButton('预点餐 / 改菜', onTap: () { Navigator.pop(context); _openPreorder(t); }, color: const Color(0xFFFFF8EC), textColor: PosTheme.amber, height: 46),
           const SizedBox(height: 10),
           BigButton('取消预定', onTap: () { Navigator.pop(context); _cancelBook(t); }, color: const Color(0xFFFFF1F0), textColor: PosTheme.red, height: 46),
         ]),
@@ -629,11 +602,6 @@ class _DiningPageState extends State<DiningPage> {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
-  }
-
-  // ==================== 扫码点餐 · 桌台二维码 ====================
-  Future<void> _showQrCode(Map t) async {
-    await showDialog(context: context, builder: (_) => _TableQrDialog(table: t));
   }
 
   // ==================== 点菜 / 账单面板 ====================
@@ -1357,86 +1325,6 @@ class _DiningPayDialogState extends State<_DiningPayDialog> {
           child: const Text('确认收款', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
         ),
       ],
-    );
-  }
-}
-
-// ==================== 桌台点餐码弹窗 ====================
-/// 展示某桌的扫码点餐二维码（后端 api/zhuotai/diancan 生成，
-/// 二维码内容含 wenxun_id + table_id，顾客扫码自动关联本桌）
-class _TableQrDialog extends StatefulWidget {
-  final Map table;
-  const _TableQrDialog({required this.table});
-  @override
-  State<_TableQrDialog> createState() => _TableQrDialogState();
-}
-
-class _TableQrDialogState extends State<_TableQrDialog> {
-  int _reloadKey = 0;
-
-  String get _qrUrl =>
-      'https://shop.wx-zf.com/shouyin/zhuotai/diancan?table_id=${widget.table['id']}&wenxun_id=${Session.wenxunId}&t=$_reloadKey';
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 360,
-        padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            const Expanded(
-              child: Text('扫码点餐', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-            ),
-            IconButton(
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close, size: 20),
-              tooltip: '关闭',
-            ),
-          ]),
-          Text('${widget.table['title']} · ${widget.table['quyu'] ?? ''}',
-              style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-          const SizedBox(height: 16),
-          Container(
-            width: 264,
-            height: 264,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: PosTheme.line),
-            ),
-            child: Image.network(
-              _qrUrl,
-              fit: BoxFit.contain,
-              loadingBuilder: (_, child, progress) {
-                if (progress == null) return child;
-                return const Center(child: CircularProgressIndicator(color: PosTheme.accent));
-              },
-              errorBuilder: (_, __, ___) => Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(Icons.qr_code_2, size: 44, color: PosTheme.textHint),
-                  SizedBox(height: 8),
-                  Text('二维码加载失败', style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            '顾客用微信扫码即可进入点餐页，\n下单自动关联本桌，无需手动选桌号',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12.5, color: PosTheme.textHint, height: 1.6),
-          ),
-          const SizedBox(height: 14),
-          Row(children: [
-            Expanded(child: BigButton('刷新', onTap: () => setState(() => _reloadKey++), color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 44)),
-            const SizedBox(width: 10),
-            Expanded(child: BigButton('完成', onTap: () => Navigator.pop(context), height: 44)),
-          ]),
-        ]),
-      ),
     );
   }
 }
