@@ -550,7 +550,7 @@ class Api {
     });
   }
 
-  /// 堂食结算（先吃后付统一收款）
+  /// 堂食结算（先吃后付统一收款；pay1Type 传 '挂账' 时登记挂账台账，稍后核销）
   static Future<Map<String, dynamic>> tableSettle({
     required int wenxunId,
     required String kaitaiId,
@@ -567,6 +567,8 @@ class Api {
     required List<Map<String, dynamic>> cart,
     int vipId = 0,
     String phone = '',
+    String guazhangName = '',
+    String guazhangPhone = '',
   }) async {
     return post('/api/tableorder/add', {
       'wenxun_id': wenxunId,
@@ -584,6 +586,107 @@ class Api {
       'cart': cart,
       if (vipId > 0) 'vip_id': vipId,
       if (phone.isNotEmpty) 'phone': phone,
+      if (guazhangName.isNotEmpty) 'guazhang_name': guazhangName,
+      if (guazhangPhone.isNotEmpty) 'guazhang_phone': guazhangPhone,
+    });
+  }
+
+  // ==================== 餐饮点餐方式（不开台 / 外卖 / 排队 / 挂账，v3.3.63） ====================
+
+  /// 不开台点餐结算（快餐/外带，无桌台，即点即收）
+  static Future<Map<String, dynamic>> directSettle({
+    required int wenxunId,
+    required int operatorId,
+    required String operatorName,
+    required double goodsTotal,
+    required double finalTotal,
+    required String pay1Type,
+    required double pay1Money,
+    required List<Map<String, dynamic>> cart,
+    int peopleNum = 1,
+    int vipId = 0,
+    String phone = '',
+  }) async {
+    return post('/api/tableorder/add', {
+      'direct': 1,
+      'wenxun_id': wenxunId,
+      'people_num': peopleNum,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+      'goods_total': goodsTotal,
+      'final_total': finalTotal,
+      'pay1_type': pay1Type,
+      'pay1_money': pay1Money,
+      'cart': cart,
+      if (vipId > 0) 'vip_id': vipId,
+      if (phone.isNotEmpty) 'phone': phone,
+    });
+  }
+
+  /// 外卖流水登记（只记金额+备注）
+  static Future<Map<String, dynamic>> waimaiAdd({
+    required double amount,
+    String beizhu = '',
+  }) {
+    return post('/shouyin/canyin/waimaiAdd', {
+      'wenxun_id': Session.wenxunId,
+      'amount': amount,
+      'beizhu': beizhu,
+      'operator_id': Session.staffId,
+      'operator_name': Session.staffName,
+    });
+  }
+
+  /// 外卖流水列表（当天 + 合计）
+  static Future<Map<String, dynamic>> waimaiLst() {
+    return post('/shouyin/canyin/waimaiLst', {'wenxun_id': Session.wenxunId});
+  }
+
+  /// 排队取号（persons 用餐人数）
+  static Future<Map<String, dynamic>> paihaoAdd({required int persons}) {
+    return post('/shouyin/canyin/paihaoAdd', {
+      'wenxun_id': Session.wenxunId,
+      'persons': persons,
+      'operator_id': Session.staffId,
+      'operator_name': Session.staffName,
+    });
+  }
+
+  /// 排队队列（当天）
+  static Future<Map<String, dynamic>> paihaoLst() {
+    return post('/shouyin/canyin/paihaoLst', {'wenxun_id': Session.wenxunId});
+  }
+
+  /// 排队叫号
+  static Future<Map<String, dynamic>> paihaoCall({required int id}) {
+    return post('/shouyin/canyin/paihaoCall',
+        {'wenxun_id': Session.wenxunId, 'id': id});
+  }
+
+  /// 排队标记（status: 2-完成 3-过号）
+  static Future<Map<String, dynamic>> paihaoMark(
+      {required int id, required int status}) {
+    return post('/shouyin/canyin/paihaoMark',
+        {'wenxun_id': Session.wenxunId, 'id': id, 'status': status});
+  }
+
+  /// 挂账台账列表（status 空=全部，0=未结 1=已结）
+  static Future<Map<String, dynamic>> guazhangLst({int? status}) {
+    return post('/shouyin/canyin/guazhangLst', {
+      'wenxun_id': Session.wenxunId,
+      if (status != null) 'status': status,
+    });
+  }
+
+  /// 挂账核销收款
+  static Future<Map<String, dynamic>> guazhangSettle(
+      {required int id, required String payType}) {
+    return post('/shouyin/canyin/guazhangSettle', {
+      'wenxun_id': Session.wenxunId,
+      'id': id,
+      'pay_type': payType,
+      'operator_id': Session.staffId,
+      'operator_name': Session.staffName,
     });
   }
 

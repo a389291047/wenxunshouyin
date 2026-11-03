@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
+import 'dining_modes.dart';
 import '../retail/cashier_page.dart' show RetailCashierPage;
 
 /// 餐饮版 · 点餐主页（中餐 / 面馆 / 快餐通用）
@@ -76,7 +77,8 @@ class _DiningPageState extends State<DiningPage> {
     }
     return Column(children: [
       _modeBar(),
-      _regionBar(),
+      if (mode == 0) _orderModeBar(),
+      if (mode == 0) _regionBar(),
       Expanded(
         child: loading
             ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
@@ -135,6 +137,94 @@ class _DiningPageState extends State<DiningPage> {
         ],
       ]),
     );
+  }
+
+  // ==================== 点餐方式条（8 种模式，与小程序截图一致） ====================
+
+  static const List<Map<String, dynamic>> _orderModes = [
+    {'label': '开台点餐', 'color': PosTheme.red},
+    {'label': '不开台点餐', 'color': PosTheme.blue},
+    {'label': '自助点餐', 'color': Color(0xFFFF7A45)},
+    {'label': '扫码点餐', 'color': PosTheme.green},
+    {'label': '外卖点餐', 'color': Color(0xFF7B61FF)},
+    {'label': '排队点餐', 'color': PosTheme.blue},
+    {'label': '预约点餐', 'color': Color(0xFF7B61FF)},
+    {'label': '挂账点餐', 'color': PosTheme.red},
+  ];
+
+  Widget _orderModeBar() {
+    return Container(
+      height: 44,
+      margin: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+      child: Row(children: [
+        const Text('点餐方式', style: TextStyle(fontSize: 13.5, color: PosTheme.textHint)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [for (final m in _orderModes) _orderModeChip(m)],
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _orderModeChip(Map<String, dynamic> m) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => _openOrderMode('${m['label']}'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: PosTheme.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 9, height: 9, decoration: BoxDecoration(color: m['color'] as Color, shape: BoxShape.circle)),
+            const SizedBox(width: 6),
+            Text('${m['label']}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openOrderMode(String label) async {
+    switch (label) {
+      case '开台点餐':
+        toast(context, '请在下方选择空闲桌台进行开台点餐');
+        break;
+      case '不开台点餐':
+        await showDialog(context: context, builder: (_) => const DirectOrderDialog());
+        break;
+      case '自助点餐':
+      case '扫码点餐':
+        if (tables.isEmpty) { toast(context, '暂无桌台，请先到后台添加', error: true); break; }
+        final t = await showDialog<Map>(
+          context: context,
+          builder: (_) => TablePickDialog(tables: tables, title: '$label · 选桌出码'),
+        );
+        if (t != null && mounted) _showQrCode(t);
+        break;
+      case '外卖点餐':
+        await showDialog(context: context, builder: (_) => const WaimaiDialog());
+        break;
+      case '排队点餐':
+        await showDialog(context: context, builder: (_) => const PaihaoDialog());
+        break;
+      case '预约点餐':
+        await showDialog(
+          context: context,
+          builder: (_) => BookListDialog(tables: tables, onArrival: _arrivalFlow, onCancelBook: _cancelBook),
+        );
+        break;
+      case '挂账点餐':
+        await showDialog(context: context, builder: (_) => const GuazhangDialog());
+        break;
+    }
   }
 
   Widget _seg(String text, int v) {
@@ -792,7 +882,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       toast(context, '该桌还没有点菜品', error: true);
       return;
     }
-    final methods = ['现金', '微信支付', '支付宝', if (vip != null) '会员余额'];
+    final methods = ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => _DiningPayDialog(total: billTotal, methods: methods, vip: vip),
@@ -809,7 +899,15 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         return;
       }
     }
-    loadingDialog(context, '结算中…');
+    String gzName = '';
+    String gzPhone = '';
+    if (picked == '挂账') {
+      final gz = await showGuazhangInfoDialog(context);
+      if (gz == null || !mounted) return;
+      gzName = gz['name'] ?? '';
+      gzPhone = gz['phone'] ?? '';
+    }
+    loadingDialog(context, picked == '挂账' ? '挂账中…' : '结算中…');
     try {
       final r = await Api.tableSettle(
         wenxunId: Session.wenxunId,
@@ -827,6 +925,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         cart: settleCart,
         vipId: picked == '会员余额' ? (int.tryParse('${vip!['id']}') ?? 0) : 0,
         phone: picked == '会员余额' ? '${vip!['phone'] ?? ''}' : '',
+        guazhangName: gzName,
+        guazhangPhone: gzPhone,
       );
       if (!mounted) return;
       // 先捕获 Navigator 和要用的数据：后面 pop 掉本弹窗后 State 会被销毁，
@@ -1180,8 +1280,8 @@ class _DiningPayDialog extends StatefulWidget {
 
 class _DiningPayDialogState extends State<_DiningPayDialog> {
   String? method;
-  final icons = {'现金': Icons.payments_outlined, '微信支付': Icons.chat, '支付宝': Icons.account_balance_wallet_outlined, '会员余额': Icons.badge_outlined};
-  final colors = {'现金': PosTheme.green, '微信支付': PosTheme.green, '支付宝': PosTheme.blue, '会员余额': PosTheme.accent};
+  final icons = {'现金': Icons.payments_outlined, '微信支付': Icons.chat, '支付宝': Icons.account_balance_wallet_outlined, '会员余额': Icons.badge_outlined, '挂账': Icons.receipt_long_outlined};
+  final colors = {'现金': PosTheme.green, '微信支付': PosTheme.green, '支付宝': PosTheme.blue, '会员余额': PosTheme.accent, '挂账': PosTheme.red};
 
   IconData _iconOf(String m) => icons[m] ?? Icons.payments_outlined;
   Color _colorOf(String m) => colors[m] ?? PosTheme.textSub;
@@ -1233,6 +1333,18 @@ class _DiningPayDialogState extends State<_DiningPayDialog> {
             child: Text(
               '会员「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额 ¥${Fmt.money(_balance)}　扣款后 ¥${Fmt.money((_balance - widget.total).clamp(0, double.maxFinite))}',
               style: const TextStyle(fontSize: 13, color: PosTheme.accent),
+            ),
+          ),
+        ],
+        if (method == '挂账') ...[
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(10)),
+            child: const Text(
+              '挂账不收款，桌台释放；账款进入「挂账台账」，稍后在餐饮页 → 点餐方式 → 挂账点餐 中核销收款',
+              style: TextStyle(fontSize: 13, color: PosTheme.red),
             ),
           ),
         ],
