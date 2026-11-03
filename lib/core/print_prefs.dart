@@ -8,7 +8,9 @@ class PrintPrefs {
   static const List<Map<String, String>> items = [
     {'key': 'retail',  'label': '零售收银小票',  'desc': '收银台收款成功后自动打印', 'scope': 'retail'},
     {'key': 'dining',  'label': '堂食结账单',    'desc': '桌台结账 / 直连点餐 / 挂账结清小票', 'scope': 'dining'},
-    {'key': 'kitchen', 'label': '后厨单 / 加菜单', 'desc': '点菜与加菜自动传后厨', 'scope': 'dining'},
+    {'key': 'kitchen', 'label': '后厨单 / 加菜单', 'desc': '点菜与加菜自动传后厨（按「打印机分配」路由）', 'scope': 'dining'},
+    {'key': 'front',   'label': '前台单',        'desc': '点单完成后自动发往前台（整单/分单在「打印机分配」设置）', 'scope': 'dining'},
+    {'key': 'prebill', 'label': '预结单',        'desc': '账单「预结单」按钮，先出单后正式结算', 'scope': 'dining'},
     {'key': 'retreat', 'label': '退菜单',        'desc': '退菜时自动通知后厨', 'scope': 'dining'},
     {'key': 'urge',    'label': '催菜单',        'desc': '催菜时自动通知后厨', 'scope': 'dining'},
     {'key': 'reprint', 'label': '传后厨重打单',   'desc': '账单「传后厨」按钮重打', 'scope': 'dining'},

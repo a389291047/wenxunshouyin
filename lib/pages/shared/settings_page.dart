@@ -7,11 +7,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/print_prefs.dart';
+import '../../core/printer_route.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
 import '../../core/updater.dart';
 import '../../core/voice.dart';
+import '../../ui/receipt_preview.dart';
 import '../../ui/update_dialog.dart';
 import '../../ui/widgets.dart';
 import '../login_page.dart';
@@ -45,6 +47,13 @@ class _SettingsPageState extends State<SettingsPage> {
   List<Map<String, dynamic>> staffs = [];
   bool staffLoading = false;
 
+  // 打印机分配（v3.3.82，餐饮版）：前台单模式/前台打印机/后厨分类路由
+  String frontMode = 'whole'; // whole=整单打印 split=分单打印
+  String frontPrinterCode = ''; // ''=自动（收银小票优先）
+  Map<String, List<String>> routeMap = {}; // machine_code → [cat_id]
+  List cats = []; // 商品分类
+  bool routeLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +62,33 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadVoice();
     _loadPrintPrefs();
     _loadStaffs();
+    _loadRoute();
+  }
+
+  Future<void> _loadRoute() async {
+    if (Session.hangye != 2) return;
+    final wid = '${Session.wenxunId}';
+    final mode = await PrinterRoute.frontMode(wid);
+    final fp = await PrinterRoute.frontPrinter(wid);
+    final r = await PrinterRoute.routes(wid);
+    if (!mounted) return;
+    setState(() {
+      frontMode = mode;
+      frontPrinterCode = fp;
+      routeMap = r;
+    });
+    // 商品分类（后厨分单选择用）
+    try {
+      final c = await Api.goodsCats(Session.wenxunId);
+      if (mounted) setState(() => cats = c);
+    } on ApiError {
+      // 分类加载失败不阻塞，仅提示无法分配
+    }
+  }
+
+  Future<void> _saveRouteMap(Map<String, List<String>> r) async {
+    setState(() => routeMap = r);
+    await PrinterRoute.setRoutes('${Session.wenxunId}', r);
   }
 
   Future<void> _loadPrintPrefs() async {
@@ -151,6 +187,17 @@ class _SettingsPageState extends State<SettingsPage> {
           {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '米饭', 'quantity': 4},
         ]);
+      case 'front':
+        return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅', cart: [
+          {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
+          {'goods_name': '清蒸鲈鱼', 'quantity': 1},
+          {'goods_name': '米饭', 'quantity': 4},
+        ], title: '前台单');
+      case 'prebill':
+        return CloudPrinter.prebillTicket(tableTitle: '大厅8', peopleNum: 4, goodsTotal: 128.00, cart: [
+          {'goods_name': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
+          {'goods_name': '米饭', 'unit_price': '2.00', 'quantity': 4},
+        ], extraLines: ['茶位费: ¥4.00']);
       case 'retreat':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
           cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单');
@@ -189,7 +236,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _previewTicket(String key, String label) async {
     final content = _sampleTicket(key);
     if (content.isEmpty) return;
-    await showDialog(context: context, builder: (_) => _ReceiptPreviewDialog(title: label, content: content));
+    await showDialog(context: context, builder: (_) => ReceiptPreviewDialog(title: label, content: content));
   }
 
   Future<void> _loadStaffs() async {
@@ -364,6 +411,157 @@ class _SettingsPageState extends State<SettingsPage> {
       if (mounted) Navigator.pop(context);
       if (mounted) toast(context, e.message, error: true);
     }
+  }
+
+  /// 打印机分配卡片（v3.3.82，仅餐饮版）：
+  /// 前台单模式（整单/分单）+ 前台打印机指定 + 后厨打印机按商品分类分单
+  List get _kitchenPrinters => printers
+      .where((p) => ['2', '3', '4', '5'].contains('${p['print_type']}') && '${p['status']}' == '1')
+      .toList();
+
+  Widget _printerRouteCard() {
+    final wid = '${Session.wenxunId}';
+    final frontPrinters = printers
+        .where((p) => '${p['status']}' == '1' && '${p['machine_code']}'.isNotEmpty)
+        .toList();
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle(Icons.alt_route, '打印机分配'),
+      const SizedBox(height: 4),
+      const Text('多台云打印机时由商户自定义：点单完成后前台出票方式，以及哪些分类的菜由哪台后厨打印机出。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 14),
+
+      // ===== 前台单模式 =====
+      const Text('前台单打印模式（点单完成后发往前台）',
+          style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 8),
+      Row(children: [
+        _modeChip('whole', '整单打印', '整桌全部商品条目打在一张小票上'),
+        const SizedBox(width: 10),
+        _modeChip('split', '分单打印', '每道商品各打一张小票'),
+      ]),
+      const SizedBox(height: 14),
+
+      // ===== 前台打印机 =====
+      const Text('前台打印机', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 8),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: DropdownButtonHideUnderline(child: DropdownButton<String>(
+          value: frontPrinters.any((p) => '${p['machine_code']}' == frontPrinterCode) ? frontPrinterCode : '',
+          isExpanded: true,
+          items: [
+            const DropdownMenuItem(value: '', child: Text('自动（优先收银小票类型打印机）', style: TextStyle(fontSize: 13.5))),
+            ...frontPrinters.map((p) => DropdownMenuItem(
+              value: '${p['machine_code']}',
+              child: Text('${p['name']}（${_printTypeName(p['print_type'])}）', style: const TextStyle(fontSize: 13.5)),
+            )),
+          ],
+          onChanged: (v) async {
+            setState(() => frontPrinterCode = v ?? '');
+            await PrinterRoute.setFrontPrinter(wid, frontPrinterCode);
+          },
+        )),
+      ),
+      const SizedBox(height: 14),
+
+      // ===== 后厨分单：打印机 × 商品分类 =====
+      const Text('后厨分单（哪些打印机出哪些菜）', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 4),
+      const Text('勾选每台后厨打印机负责的商品分类；点菜/加菜时该分类的菜自动发到对应打印机。未勾选分类的菜走默认后厨打印机。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 8),
+      if (cats.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text('暂无商品分类，无法分配（请先在商品管理中创建分类）',
+              style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        )
+      else if (_kitchenPrinters.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text('暂无后厨类型云打印机（打印类型 2/3/4/5），可在商户后台添加',
+              style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        )
+      else
+        ..._kitchenPrinters.map((p) {
+          final code = '${p['machine_code']}';
+          final assigned = routeMap[code] ?? <String>[];
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Container(width: 8, height: 8, decoration: BoxDecoration(
+                    color: '${p['is_online']}' == '1' ? PosTheme.green : PosTheme.textHint, shape: BoxShape.circle)),
+                const SizedBox(width: 8),
+                Text('${p['name']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 8),
+                TagChip(_printTypeName(p['print_type']), color: PosTheme.blue),
+                const Spacer(),
+                Text(assigned.isEmpty ? '未分配（走默认）' : '已分配 ${assigned.length} 个分类',
+                    style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: cats.map((c) {
+                final cid = '${c['id']}';
+                final sel = assigned.contains(cid);
+                return FilterChip(
+                  label: Text('${c['title'] ?? c['name'] ?? cid}', style: TextStyle(fontSize: 12.5, color: sel ? Colors.white : PosTheme.textSub)),
+                  selected: sel,
+                  selectedColor: PosTheme.accent,
+                  checkmarkColor: Colors.white,
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: sel ? PosTheme.accent : PosTheme.line),
+                  showCheckmark: false,
+                  onSelected: (v) {
+                    final next = Map<String, List<String>>.from(routeMap);
+                    final list = List<String>.from(next[code] ?? const <String>[]);
+                    if (v) {
+                      list.add(cid);
+                    } else {
+                      list.remove(cid);
+                    }
+                    next[code] = list;
+                    _saveRouteMap(next);
+                  },
+                );
+              }).toList()),
+            ]),
+          );
+        }),
+    ]));
+  }
+
+  Widget _modeChip(String value, String label, String desc) {
+    final sel = frontMode == value;
+    return Expanded(child: InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () async {
+        setState(() => frontMode = value);
+        await PrinterRoute.setFrontMode('${Session.wenxunId}', value);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: sel ? PosTheme.accent.withOpacity(0.08) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.line, width: sel ? 1.5 : 1),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(sel ? Icons.radio_button_checked : Icons.radio_button_off,
+                size: 17, color: sel ? PosTheme.accent : PosTheme.textHint),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: sel ? PosTheme.accent : PosTheme.textMain)),
+          ]),
+          const SizedBox(height: 3),
+          Text(desc, style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+        ]),
+      ),
+    ));
   }
 
   Future<void> _loadVoice() async {
@@ -587,6 +785,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
+    {'key': 'route',    'icon': Icons.alt_route,            'label': '打印机分配'},
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
     {'key': 'account',  'icon': Icons.manage_accounts_outlined, 'label': '当前账号'},
@@ -599,6 +798,7 @@ class _SettingsPageState extends State<SettingsPage> {
     for (final it in _navDefs) {
       if (it['key'] == 'password' && Session.isCashierOnly) continue; // 收银员不显示权限密码
       if (it['key'] == 'usb' && !UsbPrinter.supported) continue;      // 不支持 USB 的设备不显示
+      if (it['key'] == 'route' && Session.hangye != 2) continue;      // 打印机分配仅餐饮版
       list.add(it);
     }
     return list;
@@ -610,6 +810,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'cloud':   return _cloudCard();
       case 'usb':     return _usbCard();
       case 'receipt': return _printPrefsCard();
+      case 'route':   return _printerRouteCard();
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();
       case 'account': return _accountCard();
@@ -967,87 +1168,5 @@ class _SettingsPageState extends State<SettingsPage> {
         Text(v.isEmpty ? '-' : v, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
       ]),
     ));
-  }
-}
-
-// ==================== 小票预览弹窗（v3.3.77） ====================
-class _ReceiptPreviewDialog extends StatefulWidget {
-  final String title;
-  final String content;
-  const _ReceiptPreviewDialog({required this.title, required this.content});
-  @override
-  State<_ReceiptPreviewDialog> createState() => _ReceiptPreviewDialogState();
-}
-
-class _ReceiptPreviewDialogState extends State<_ReceiptPreviewDialog> {
-  bool printing = false;
-
-  Future<void> _testPrint() async {
-    if (printing) return;
-    setState(() => printing = true);
-    try {
-      await CloudPrinter.print(widget.content);
-      if (!mounted) return;
-      toast(context, '测试小票已发送');
-    } on ApiError catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    } catch (e) {
-      if (mounted) toast(context, '打印失败：$e', error: true);
-    }
-    if (mounted) setState(() => printing = false);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Container(
-        width: 380,
-        padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            const Icon(Icons.receipt_long_outlined, size: 19, color: PosTheme.accent),
-            const SizedBox(width: 8),
-            Expanded(child: Text('小票预览 · ${widget.title}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-            InkWell(
-              onTap: () => Navigator.pop(context),
-              borderRadius: BorderRadius.circular(16),
-              child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          // 纸张效果预览
-          Container(
-            constraints: const BoxConstraints(maxHeight: 430),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFFEF9),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: PosTheme.line),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
-            ),
-            child: SingleChildScrollView(
-              child: Text(
-                widget.content,
-                style: const TextStyle(
-                  fontFamily: 'Menlo',
-                  fontFamilyFallback: ['Menlo', 'Courier New', 'monospace'],
-                  fontSize: 12.5,
-                  height: 1.55,
-                  color: PosTheme.textMain,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(children: [
-            Expanded(child: BigButton('关闭', onTap: () => Navigator.pop(context), color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 44)),
-            const SizedBox(width: 10),
-            Expanded(child: BigButton('发送测试打印', onTap: printing ? null : _testPrint, height: 44)),
-          ]),
-        ]),
-      ),
-    );
   }
 }

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/print_prefs.dart';
+import '../../core/printer_route.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/no_code_goods.dart';
+import '../../ui/receipt_preview.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import 'dining_modes.dart';
@@ -863,6 +865,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     'goods_image': g['goods_image'] ?? '',
     'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
     'quantity': 1,
+    'cat_id': g['cat_id'] ?? '', // 后厨分单路由用（v3.3.82）
     if (note.isNotEmpty) 'remark': note,
   }], label: note.isEmpty ? '${g['title']}' : '${g['title']}($note)');
 
@@ -885,12 +888,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       return;
     }
     try {
-      await CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-        tableTitle: '${widget.table['title']}',
-        tableQuyu: '${widget.table['quyu'] ?? ''}',
-        cart: [{'goods_name': b['goods_title'], 'quantity': remain, 'remark': b['remark'] ?? ''}],
-        title: '催菜单',
-      ));
+      await _printKitchenRouted([{
+        'goods_name': b['goods_title'],
+        'quantity': remain,
+        'remark': b['remark'] ?? '',
+        'cat_id': _catOf(b['goods_id']),
+      }], isAdd: false, title: '催菜单');
       if (mounted) toast(context, '已催菜：${b['goods_title']}');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
@@ -970,7 +973,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }], label: '${r['name']}×${r['num']}');
   }
 
-  /// 统一加菜入口：请求后端 → 后厨小票 → 刷新账单
+  /// 统一加菜入口：请求后端 → 后厨小票（按分类路由）+ 前台单 → 刷新账单
   Future<void> _pushDishes(List<Map<String, dynamic>> cart, {required String label}) async {
     loadingDialog(context, '加菜中…');
     try {
@@ -983,15 +986,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
         toast(context, '已加：$label');
-        // 加菜同步打后厨小票（不阻塞；带做法备注）
+        // 加菜同步打后厨小票（不阻塞；按「打印机分配」路由，v3.3.82）
         if (await PrintPrefs.on('kitchen')) {
-          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-            tableTitle: '${widget.table['title']}',
-            tableQuyu: '${widget.table['quyu'] ?? ''}',
-            cart: cart.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity'], 'remark': c['remark'] ?? ''}).toList(),
-            isAdd: true,
-          )).catchError((_) => <String, dynamic>{});
+          _printKitchenRouted(cart, isAdd: true).catchError((_) => <String, dynamic>{});
         }
+        // 前台单：整单/分单由设置决定（不阻塞）
+        _printFront(cart);
         _loadBill();
       } else {
         toast(context, '${r['msg'] ?? '加菜失败'}', error: true);
@@ -999,6 +999,91 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
+    }
+  }
+
+  // ==================== 打印路由（v3.3.82：多台云打印机分配） ====================
+
+  /// 商品所属分类 id（从全量/当前分类商品缓存中查；查不到返回空 = 走默认后厨机）
+  String _catOf(dynamic goodsId) {
+    for (final src in [allGoods, dishes]) {
+      for (final g in src) {
+        if ('${g['id']}' == '$goodsId') return '${g['cat_id'] ?? catId}';
+      }
+    }
+    return '';
+  }
+
+  /// 按分类路由打后厨小票：设置了「打印机分配」的分类发到指定打印机，
+  /// 未分配的菜品合并走默认后厨打印机（原行为兜底）
+  Future<void> _printKitchenRouted(List<Map<String, dynamic>> items, {bool isAdd = true, String title = '后厨单'}) async {
+    if (items.isEmpty) return;
+    final routes = await PrinterRoute.routes('${Session.wenxunId}');
+    final byPrinter = <String, List<Map<String, dynamic>>>{};
+    final fallback = <Map<String, dynamic>>[];
+    for (final it in items) {
+      final catId = '${it['cat_id'] ?? ''}';
+      String? target;
+      if (catId.isNotEmpty && catId != 'null') {
+        for (final e in routes.entries) {
+          if (e.value.contains(catId)) { target = e.key; break; }
+        }
+      }
+      if (target != null) {
+        byPrinter.putIfAbsent(target, () => []).add(it);
+      } else {
+        fallback.add(it);
+      }
+    }
+    final futures = <Future<Map<String, dynamic>>>[];
+    byPrinter.forEach((code, list) {
+      futures.add(CloudPrinter.printTo(code, CloudPrinter.kitchenTicket(
+        tableTitle: '${widget.table['title']}',
+        tableQuyu: '${widget.table['quyu'] ?? ''}',
+        cart: list,
+        isAdd: isAdd,
+        title: title,
+      )));
+    });
+    if (fallback.isNotEmpty) {
+      futures.add(CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+        tableTitle: '${widget.table['title']}',
+        tableQuyu: '${widget.table['quyu'] ?? ''}',
+        cart: fallback,
+        isAdd: isAdd,
+        title: title,
+      )));
+    }
+    await Future.wait(futures);
+  }
+
+  /// 前台单（点单完成后发往前台）：
+  /// 整单打印 = 整桌全部商品条目打一张；分单打印 = 每道商品各打一张
+  Future<void> _printFront(List<Map<String, dynamic>> items) async {
+    if (items.isEmpty || !await PrintPrefs.on('front')) return;
+    try {
+      final wid = '${Session.wenxunId}';
+      final mode = await PrinterRoute.frontMode(wid);
+      final code = await PrinterRoute.frontPrinter(wid);
+      if (mode == PrinterRoute.modeSplit) {
+        for (final it in items) {
+          await CloudPrinter.printFront(CloudPrinter.kitchenTicket(
+            tableTitle: '${widget.table['title']}',
+            tableQuyu: '${widget.table['quyu'] ?? ''}',
+            cart: [it],
+            title: '前台单',
+          ), machineCode: code);
+        }
+      } else {
+        await CloudPrinter.printFront(CloudPrinter.kitchenTicket(
+          tableTitle: '${widget.table['title']}',
+          tableQuyu: '${widget.table['quyu'] ?? ''}',
+          cart: items,
+          title: '前台单',
+        ), machineCode: code);
+      }
+    } catch (_) {
+      // 前台单失败不阻塞点菜流程
     }
   }
 
@@ -1100,7 +1185,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
-  /// 重打后厨票：把当前账单未退菜品再传一次后厨云打印机
+  /// 重打后厨票：把当前账单未退菜品再传一次后厨云打印机（按分类路由，v3.3.82）
   Future<void> _reprintKitchen() async {
     final items = settleCart; // 已剔除退完、按剩余件数
     if (items.isEmpty) {
@@ -1112,17 +1197,43 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       return;
     }
     try {
-      final r = await CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-        tableTitle: '${widget.table['title']}',
-        tableQuyu: '${widget.table['quyu'] ?? ''}',
-        cart: items.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity']}).toList(),
-        title: '后厨单重打',
-      ));
+      final routed = items.map((c) => {...c, 'cat_id': _catOf(c['goods_id'])}).toList();
+      await _printKitchenRouted(routed, isAdd: false, title: '后厨单重打');
       if (!mounted) return;
-      toast(context, '${'${r['code']}' == '200' ? '已传后厨打印机（${items.length} 项）' : '打印失败：${r['msg'] ?? '请检查云打印机'}'}', error: '${r['code']}' != '200');
+      toast(context, '已传后厨打印机（${items.length} 项）');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
     }
+  }
+
+  /// 预结单（v3.3.82）：预览当前账单 → 确认后发往前台打印机（先出单核对，非正式结算）
+  Future<void> _prebill() async {
+    if (bill.isEmpty) {
+      toast(context, '该桌还没有点菜品', error: true);
+      return;
+    }
+    if (!await PrintPrefs.on('prebill')) {
+      toast(context, '预结单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    final items = settleCart;
+    if (items.isEmpty) {
+      toast(context, '当前没有未退菜品', error: true);
+      return;
+    }
+    final content = CloudPrinter.prebillTicket(
+      tableTitle: '${widget.table['title']}',
+      peopleNum: int.tryParse('${widget.table['people_num']}') ?? 1,
+      goodsTotal: billTotal,
+      cart: items,
+      extraLines: [if (orderRemark.isNotEmpty) '备注: $orderRemark'],
+    );
+    final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (_) => ReceiptPreviewDialog(title: '预结单', content: content, machineCode: code),
+    );
   }
 
   // ==================== 结账 ====================
@@ -1695,6 +1806,25 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                     Icon(Icons.done_all, size: 19, color: PosTheme.green),
                     SizedBox(width: 7),
                     Text('全部划菜', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.green)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // 预结单（v3.3.82）：预览并打印当前账单（先出单核对，非正式结算）
+              InkWell(
+                onTap: bill.isEmpty ? null : _prebill,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F0FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.4)),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.receipt, size: 19, color: Color(0xFF8B5CF6)),
+                    SizedBox(width: 7),
+                    Text('预结单', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF8B5CF6))),
                   ]),
                 ),
               ),

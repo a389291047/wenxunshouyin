@@ -57,6 +57,22 @@ class CloudPrinter {
     );
   }
 
+  /// 指定云打印机打印（v3.3.82：前台单/后厨分单按商户配置路由）
+  static Future<Map<String, dynamic>> printTo(String machineCode, String content) {
+    return Api.cloudPrint(
+      wenxunId: Session.wenxunId,
+      machineCode: machineCode,
+      content: content,
+    );
+  }
+
+  /// 前台单打印（v3.3.82）：指定了前台打印机走指定机，否则自动选收银小票类型
+  static Future<Map<String, dynamic>> printFront(String content, {String? machineCode}) async {
+    final code = (machineCode == null || machineCode.isEmpty) ? '' : machineCode;
+    if (code.isNotEmpty) return printTo(code, content);
+    return printCloud(content); // printCloud 内部已按 print_type=1 优先
+  }
+
   /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
   static String kitchenTicket({
     required String tableTitle,
@@ -98,6 +114,39 @@ class CloudPrinter {
     });
     sb.writeln('--------------------------------');
     sb.writeln('合计件数: $count');
+    return sb.toString();
+  }
+
+  /// 预结单模板（v3.3.82）：先出单给顾客核对，非正式结算凭证
+  static String prebillTicket({
+    required String tableTitle,
+    required int peopleNum,
+    required double goodsTotal,
+    required List<Map<String, dynamic>> cart,
+    List<String> extraLines = const [],
+  }) {
+    final sb = StringBuffer();
+    sb.writeln('<CB>预结单</CB>');
+    sb.writeln('--------------------------------');
+    sb.writeln('桌台: $tableTitle   人数: $peopleNum');
+    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('收银: ${Session.staffName}');
+    sb.writeln('--------------------------------');
+    var count = 0;
+    for (final g in cart) {
+      final note = '${g['remark'] ?? ''}'.trim();
+      final qty = int.tryParse('${g['quantity']}') ?? 0;
+      count += qty;
+      sb.writeln('${g['goods_name']}');
+      sb.writeln('  ¥${Fmt.money(g['unit_price'])} x$qty   ¥${Fmt.money((double.tryParse('${g['unit_price']}') ?? 0) * qty)}');
+      if (note.isNotEmpty) sb.writeln('  做法: $note');
+    }
+    sb.writeln('--------------------------------');
+    sb.writeln('共 $count 项  菜品合计: ¥${Fmt.money(goodsTotal)}');
+    for (final line in extraLines) {
+      sb.writeln(line);
+    }
+    sb.writeln('※ 预结单仅供核对，非结算凭证 ※');
     return sb.toString();
   }
 
