@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/vip_recharge.dart';
@@ -225,11 +226,13 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     }
   }
 
-  void _afterPaid(String orderNo, String method, double t) {
-    CloudPrinter.print(CloudPrinter.retailReceipt(
-      orderNo: orderNo, payMethod: method, total: t,
-      cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
-    )).catchError((_) => <String, dynamic>{});
+  Future<void> _afterPaid(String orderNo, String method, double t) async {
+    if (await PrintPrefs.on('retail')) {
+      CloudPrinter.print(CloudPrinter.retailReceipt(
+        orderNo: orderNo, payMethod: method, total: t,
+        cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+      )).catchError((_) => <String, dynamic>{});
+    }
     _clearCart();
     showDialog(context: context, builder: (_) => _FreshSuccessDialog(orderNo: orderNo, total: t, method: method));
   }

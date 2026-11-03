@@ -21,6 +21,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 SetupIconFile=..\runner\resources\app_icon.ico
 UninstallDisplayIcon={app}\WenXun.exe
 PrivilegesRequiredOverridesAllowed=dialog
+; 在线更新支持（v3.3.79）：升级时自动关闭运行中的旧版，避免文件占用导致覆盖失败
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
@@ -36,4 +39,5 @@ Name: "{group}\{#AppName}"; Filename: "{app}\WenXun.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\WenXun.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\WenXun.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; 不要加 skipifsilent：/VERYSILENT 静默升级时 postinstall 默认执行 → 装完自动启动新版本
+Filename: "{app}\WenXun.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall

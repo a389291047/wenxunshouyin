@@ -3,10 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
-import '../../core/session.dart';
-import '../../core/theme.dart';
+import '../../core/print_prefs.dart';
+import '../../core/session.dart';import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
 import '../../ui/widgets.dart';
+import '../dining/dining_page.dart' show DiningJiaobanDialog;
 
 /// 交班页（零售/餐饮共用，主从布局）：
 /// 左卡 = 当班信息 + 营业数据 + 云打印/USB打印交班单
@@ -82,6 +83,10 @@ class _ShiftPageState extends State<ShiftPage> {
 
   /// 云打印交班单（强制走云打印机，不做 USB 分流）
   Future<void> _cloudPrintShift() async {
+    if (!await PrintPrefs.on('shift')) {
+      toast(context, '交班单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
     loadingDialog(context, '发送交班单到云打印机…');
     try {
       await CloudPrinter.printCloud(_shiftTicket);
@@ -99,6 +104,10 @@ class _ShiftPageState extends State<ShiftPage> {
 
   /// USB 打印交班单（默认 USB 小票打印机）
   Future<void> _usbPrintShift() async {
+    if (!await PrintPrefs.on('shift')) {
+      toast(context, '交班单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
     if (!UsbPrinter.supported) {
       toast(context, '当前平台不支持 USB 打印', error: true);
       return;
@@ -198,6 +207,12 @@ class _ShiftPageState extends State<ShiftPage> {
                               const SizedBox(height: 9),
                               BigButton('USB打印交班单', onTap: _usbPrintShift,
                                   color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
+                            ],
+                            // 餐饮版：餐饮交班对账（v3.3.77 从点餐页顶栏移入）
+                            if (Session.hangye == 2) ...[
+                              const SizedBox(height: 9),
+                              BigButton('餐饮交班对账（今日堂食）', onTap: () => showDialog(context: context, builder: (_) => const DiningJiaobanDialog()),
+                                  color: const Color(0xFFEDFFF5), textColor: PosTheme.green, height: 46),
                             ],
                           ]),
                         ),

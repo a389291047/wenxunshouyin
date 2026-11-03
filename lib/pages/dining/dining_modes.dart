@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/widgets.dart';
@@ -125,15 +126,17 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
         final items = cart.map((c) => {'goods_name': c['goods_name'], 'unit_price': c['unit_price'], 'quantity': c['quantity']}).toList();
         final amt = total;
         Navigator.pop(context, {'amount': amt}); // 关闭本弹窗
-        CloudPrinter.print(CloudPrinter.diningReceipt(
-          orderSn: orderSn,
-          tableTitle: '不开台（外带/快餐）',
-          peopleNum: 1,
-          payMethod: payMethod,
-          goodsTotal: amt,
-          finalTotal: amt,
-          cart: items,
-        )).catchError((_) => <String, dynamic>{});
+        if (await PrintPrefs.on('dining')) {
+          CloudPrinter.print(CloudPrinter.diningReceipt(
+            orderSn: orderSn,
+            tableTitle: '不开台（外带/快餐）',
+            peopleNum: 1,
+            payMethod: payMethod,
+            goodsTotal: amt,
+            finalTotal: amt,
+            cart: items,
+          )).catchError((_) => <String, dynamic>{});
+        }
       } else {
         toast(context, '${r['msg'] ?? '收款失败'}', error: true);
       }
@@ -579,7 +582,9 @@ class _PaihaoDialogState extends State<PaihaoDialog> {
         sb.writeln('$p 位 · 前方 $waiting 桌');
         sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
         sb.writeln('请留意叫号，过号重排');
-        CloudPrinter.print(sb.toString()).catchError((_) => <String, dynamic>{});
+        if (await PrintPrefs.on('queue')) {
+          CloudPrinter.print(sb.toString()).catchError((_) => <String, dynamic>{});
+        }
         _load();
       } else {
         toast(context, '${r['msg'] ?? '取号失败'}', error: true);
@@ -850,7 +855,8 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
         toast(context, '核销成功 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)}');
         // 打印结清小票
         final d = (r['data'] ?? {}) as Map;
-        CloudPrinter.print(CloudPrinter.diningReceipt(
+        if (await PrintPrefs.on('dining')) {
+          CloudPrinter.print(CloudPrinter.diningReceipt(
           orderSn: '${d['order_sn'] ?? row['order_sn'] ?? ''}',
           tableTitle: '${row['table_title'] ?? ''}（挂账结清）',
           peopleNum: 1,
@@ -858,7 +864,8 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
           goodsTotal: double.tryParse('${row['amount']}') ?? 0,
           finalTotal: double.tryParse('${row['amount']}') ?? 0,
           cart: const [],
-        )).catchError((_) => <String, dynamic>{});
+          )).catchError((_) => <String, dynamic>{});
+        }
         _load();
       } else {
         toast(context, '${r['msg'] ?? '核销失败'}', error: true);
@@ -1054,4 +1061,172 @@ Future<Map<String, String>?> showGuazhangInfoDialog(BuildContext context) async 
       ],
     ),
   );
+}
+
+// ==================== 开台点餐 · 人数数字键盘弹窗（v3.3.67） ====================
+/// 收银员点桌台图 → 弹窗显示该桌台名称 → 数字键盘输人数 → 确认开台
+/// 仅屏上数字键盘录入（1-9 / 0 / 00 / 清空），无文本框、不响应物理键盘
+
+class KaitaiKeypadDialog extends StatefulWidget {
+  final Map table; // 开台的桌台（点桌台图传入）
+  final Future<void> Function(Map table, String kaitaiId) onOpened;
+  const KaitaiKeypadDialog({super.key, required this.table, required this.onOpened});
+  @override
+  State<KaitaiKeypadDialog> createState() => _KaitaiKeypadDialogState();
+}
+
+class _KaitaiKeypadDialogState extends State<KaitaiKeypadDialog> {
+  String people = '';
+
+  Map get table => widget.table;
+  int get _peopleNum => int.tryParse(people) ?? 0;
+  bool get _canOpen => _peopleNum >= 1;
+
+  void _key(String k) {
+    if (k == 'C') {
+      setState(() => people = '');
+      return;
+    }
+    if (people.length >= 3) return;
+    // 禁止 0 / 00 开头（0、00、01 等无效人数，10、20 等正常输入不受影响）
+    if (people.isEmpty && k.startsWith('0')) return;
+    setState(() => people = people + k);
+  }
+
+  Future<void> _open() async {
+    if (!_canOpen) return;
+    loadingDialog(context, '开台中…');
+    try {
+      final r = await Api.tableOpen(
+        wenxunId: Session.wenxunId,
+        tableId: int.tryParse('${table['id']}') ?? 0,
+        peopleNum: _peopleNum,
+        operatorId: Session.staffId,
+        operatorName: Session.staffName,
+      );
+      if (!mounted) return;
+      Navigator.pop(context); // loading
+      if ('${r['code']}' == '200') {
+        final kaitaiId = '${r['data']?['kaitai_id'] ?? ''}';
+        Navigator.pop(context); // 本弹窗
+        widget.onOpened(table, kaitaiId.isEmpty ? '${table['kaitai_id'] ?? ''}' : kaitaiId);
+      } else {
+        toast(context, '${r['msg'] ?? '开台失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Container(
+        width: 520,
+        padding: const EdgeInsets.fromLTRB(26, 22, 26, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // 头部：标题居中
+          SizedBox(
+            height: 34,
+            child: Stack(children: [
+              Align(
+                alignment: Alignment.center,
+                child: Text('开台点餐 · ${table['title']}', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: InkWell(
+                  onTap: () => Navigator.pop(context),
+                  borderRadius: BorderRadius.circular(18),
+                  child: const Padding(padding: EdgeInsets.all(6), child: Icon(Icons.close, size: 24, color: PosTheme.textHint)),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          // 显示区：人数大字
+          _display(),
+          const SizedBox(height: 14),
+          // 数字键盘 1-9 / 清空 / 0 / 00
+          _keypad(),
+          const SizedBox(height: 16),
+          // 底部大按钮
+          _actionButton(),
+        ]),
+      ),
+    );
+  }
+
+  // ==================== 显示区（桌名已在标题显示，此处只显人数） ====================
+  Widget _display() {
+    return Container(
+      height: 110,
+      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(16)),
+      child: Center(
+        child: people.isEmpty
+            ? const Text('请输入人数', style: TextStyle(fontSize: 18, color: PosTheme.textHint, fontWeight: FontWeight.w600))
+            : Text('$people 人', style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+      ),
+    );
+  }
+
+  // ==================== 数字键盘 ====================
+  Widget _keypad() {
+    Widget key(String label, {bool isClear = false}) {
+      return Expanded(
+        child: Material(
+          color: isClear ? const Color(0xFFFFF1F0) : const Color(0xFFF5F6FA),
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _key(isClear ? 'C' : label),
+            child: Container(
+              height: 62,
+              alignment: Alignment.center,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: isClear ? PosTheme.red : PosTheme.textMain,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    Widget gap() => const SizedBox(width: 10);
+    Widget rowGap() => const SizedBox(height: 10);
+    return Column(children: [
+      Row(children: [key('1'), gap(), key('2'), gap(), key('3')]),
+      rowGap(),
+      Row(children: [key('4'), gap(), key('5'), gap(), key('6')]),
+      rowGap(),
+      Row(children: [key('7'), gap(), key('8'), gap(), key('9')]),
+      rowGap(),
+      Row(children: [key('清空', isClear: true), gap(), key('0'), gap(), key('00')]),
+    ]);
+  }
+
+  // ==================== 底部按钮 ====================
+  Widget _actionButton() {
+    return SizedBox(
+      height: 56,
+      child: ElevatedButton(
+        onPressed: _canOpen ? _open : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: PosTheme.accent,
+          foregroundColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFFE8E9EF),
+          disabledForegroundColor: PosTheme.textHint,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+        child: const Text('确认开台'),
+      ),
+    );
+  }
 }

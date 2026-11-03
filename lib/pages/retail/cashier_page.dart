@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
@@ -62,7 +63,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       g = g.where((x) => '${x['cat_id']}' == '$selectedCat');
     }
     if (keyword.isNotEmpty) {
-      g = g.where((x) => '${x['title']}'.contains(keyword));
+      // 名称 + 简拼（jianpin 首字母字段，忽略大小写）双匹配（v3.3.65）
+      final kw = keyword.toLowerCase();
+      g = g.where((x) =>
+          '${x['title']}'.contains(keyword) ||
+          '${x['jianpin'] ?? ''}'.toLowerCase().contains(kw));
     }
     return g.toList();
   }
@@ -212,10 +217,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           return;
         }
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
-        CloudPrinter.print(CloudPrinter.retailReceipt(
-          orderNo: orderNo, payMethod: picked, total: t,
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
-        )).catchError((_) => <String, dynamic>{});
+        if (await PrintPrefs.on('retail')) {
+          CloudPrinter.print(CloudPrinter.retailReceipt(
+            orderNo: orderNo, payMethod: picked, total: t,
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+          )).catchError((_) => <String, dynamic>{});
+        }
         _clearCart();
         showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: picked));
       } on ApiError catch (e) {
@@ -239,11 +246,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
 
-      // 云打印（异步，不阻塞收银）
-      CloudPrinter.print(CloudPrinter.retailReceipt(
-        orderNo: orderNo, payMethod: picked, total: t,
-        cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
-      )).catchError((_) => <String, dynamic>{});
+      // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
+      if (await PrintPrefs.on('retail')) {
+        CloudPrinter.print(CloudPrinter.retailReceipt(
+          orderNo: orderNo, payMethod: picked, total: t,
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+        )).catchError((_) => <String, dynamic>{});
+      }
 
       _clearCart();
       showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: picked));
@@ -330,7 +339,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             decoration: InputDecoration(
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              hintText: '搜索商品名称',
+              hintText: '搜索商品名称 / 简拼',
               prefixIcon: const Icon(Icons.search, size: 22),
               suffixIcon: keyword.isEmpty ? null : GestureDetector(
                 onTap: () => setState(() => keyword = ''),

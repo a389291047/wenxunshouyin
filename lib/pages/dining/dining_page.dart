@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import 'dining_modes.dart';
-import '../retail/cashier_page.dart' show RetailCashierPage;
+import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 
 /// 餐饮版 · 点餐主页（中餐 / 面馆 / 快餐通用）
 /// 桌台模式：桌台图 → 开台 → 点菜/加菜 → 结账 → 云打印
@@ -69,16 +70,15 @@ class _DiningPageState extends State<DiningPage> {
   @override
   Widget build(BuildContext context) {
     if (mode == 1) {
-      // 快捷模式：直接复用零售收银（点单→收款→POS 单）
+      // 堂食模式（原快捷模式）：直接复用零售收银（点单→收款→POS 单）
       return Column(children: [
-        _modeBar(),
+        _topBar(),
         const Expanded(child: RetailCashierPage()),
       ]);
     }
     return Column(children: [
-      _modeBar(),
-      if (mode == 0) _orderModeBar(),
-      if (mode == 0) _regionBar(),
+      _topBar(),
+      _regionBar(),
       Expanded(
         child: loading
             ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
@@ -110,22 +110,38 @@ class _DiningPageState extends State<DiningPage> {
     ]);
   }
 
-  Widget _modeBar() {
-    final isTable = mode == 0;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 6),
+  // ==================== 顶栏（v3.3.65：模式切换合并进点餐方式一行，去掉独立按钮） ====================
+
+  static const List<Map<String, dynamic>> _orderModes = [
+    {'label': '开台点餐', 'color': PosTheme.red},
+    {'label': '堂食模式', 'color': Color(0xFFFF7A45)},
+    {'label': '外卖点餐', 'color': Color(0xFF7B61FF)},
+    {'label': '排队取号', 'color': PosTheme.blue},
+    {'label': '挂账点餐', 'color': PosTheme.red},
+  ];
+
+  Widget _topBar() {
+    return Container(
+      height: 48,
+      margin: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       child: Row(children: [
-        _seg('桌台模式', 0),
-        const SizedBox(width: 8),
-        _seg('快捷模式（外带/快餐）', 1),
-        if (isTable) ...[
-          const Spacer(),
+        const Text('点餐方式', style: TextStyle(fontSize: 13.5, color: PosTheme.textHint)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: [for (final m in _orderModes) _orderModeChip(m)],
+          ),
+        ),
+        if (mode == 0) ...[
+          const SizedBox(width: 12),
           _legend('空闲 $idleCount', PosTheme.green),
           const SizedBox(width: 12),
           _legend('就餐中 $busyCount', PosTheme.accent),
           const SizedBox(width: 12),
           _legend('已预定 ${tables.where((t) => '${t['status']}' == '1').length}', PosTheme.amber),
           const SizedBox(width: 14),
+          // 餐饮交班对账入口已移到「交班页」（v3.3.77）
           OutlinedButton.icon(
             onPressed: _load,
             style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14), foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
@@ -137,50 +153,27 @@ class _DiningPageState extends State<DiningPage> {
     );
   }
 
-  // ==================== 点餐方式条（点餐码功能已移除，后期接入商户微信公众号） ====================
-
-  static const List<Map<String, dynamic>> _orderModes = [
-    {'label': '开台点餐', 'color': PosTheme.red},
-    {'label': '自助点餐', 'color': Color(0xFFFF7A45)},
-    {'label': '外卖点餐', 'color': Color(0xFF7B61FF)},
-    {'label': '排队取号', 'color': PosTheme.blue},
-    {'label': '挂账点餐', 'color': PosTheme.red},
-  ];
-
-  Widget _orderModeBar() {
-    return Container(
-      height: 44,
-      margin: const EdgeInsets.fromLTRB(24, 6, 24, 0),
-      child: Row(children: [
-        const Text('点餐方式', style: TextStyle(fontSize: 13.5, color: PosTheme.textHint)),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            children: [for (final m in _orderModes) _orderModeChip(m)],
-          ),
-        ),
-      ]),
-    );
-  }
-
   Widget _orderModeChip(Map<String, dynamic> m) {
+    final label = '${m['label']}';
+    final c = m['color'] as Color;
+    // 开台点餐 / 堂食模式 是当前生效模式时高亮
+    final on = (label == '开台点餐' && mode == 0) || (label == '堂食模式' && mode == 1);
     return Padding(
       padding: const EdgeInsets.only(right: 10),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => _openOrderMode('${m['label']}'),
+        onTap: () => _openOrderMode(label),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: on ? c : Colors.white,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: PosTheme.line),
+            border: Border.all(color: on ? c : PosTheme.line),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 9, height: 9, decoration: BoxDecoration(color: m['color'] as Color, shape: BoxShape.circle)),
+            Container(width: 9, height: 9, decoration: BoxDecoration(color: on ? Colors.white : c, shape: BoxShape.circle)),
             const SizedBox(width: 6),
-            Text('${m['label']}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+            Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
           ]),
         ),
       ),
@@ -190,11 +183,11 @@ class _DiningPageState extends State<DiningPage> {
   Future<void> _openOrderMode(String label) async {
     switch (label) {
       case '开台点餐':
-        toast(context, '请在下方选择空闲桌台进行开台点餐');
+        // 只切回桌台视图，开台需先点桌台卡片再弹人数弹窗（v3.3.66）
+        setState(() => mode = 0);
         break;
-      case '自助点餐':
-        // 点餐码功能已移除，后期接入商户微信公众号自助点餐
-        toast(context, '自助点餐即将接入微信公众号，敬请期待');
+      case '堂食模式':
+        setState(() => mode = 1);
         break;
       case '外卖点餐':
         await showDialog(context: context, builder: (_) => const WaimaiDialog());
@@ -206,23 +199,6 @@ class _DiningPageState extends State<DiningPage> {
         await showDialog(context: context, builder: (_) => const GuazhangDialog());
         break;
     }
-  }
-
-  Widget _seg(String text, int v) {
-    final on = mode == v;
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => setState(() => mode = v),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-        decoration: BoxDecoration(
-          color: on ? PosTheme.accent : Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
-        ),
-        child: Text(text, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
-      ),
-    );
   }
 
   Widget _legend(String text, Color c) {
@@ -371,64 +347,21 @@ class _DiningPageState extends State<DiningPage> {
     );
   }
 
-  // ==================== 开台 ====================
+  // ==================== 开台（点桌台图 → 人数数字键盘弹窗，v3.3.67） ====================
   Future<void> _openTableDialog(Map t) async {
-    int people = 1;
-    final ok = await showDialog<bool>(
+    await showDialog(
       context: context,
-      builder: (_) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-        title: Text('开台 · ${t['title']}'),
-        content: SizedBox(width: 340, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('${t['quyu'] ?? ''} · ${t['renshu'] ?? '-'} 人桌', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-          const SizedBox(height: 16),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            IconButton.outlined(onPressed: () => setD(() { if (people > 1) people--; }), icon: const Icon(Icons.remove)),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 18),
-              child: Text('$people', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-            ),
-            IconButton.outlined(onPressed: () => setD(() { if (people < 99) people++; }), icon: const Icon(Icons.add)),
-          ]),
-          const SizedBox(height: 8),
-          const Text('用餐人数', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认开台'),
-          ),
-        ],
-      )),
+      barrierDismissible: false,
+      builder: (_) => KaitaiKeypadDialog(
+        table: t,
+        onOpened: (t2, kaitaiId) async {
+          await _load();
+          if (!mounted) return;
+          final nt = tables.firstWhere((x) => '${x['id']}' == '${t2['id']}', orElse: () => t2);
+          _dishPanel(nt, kaitaiId);
+        },
+      ),
     );
-    if (ok != true || !mounted) return;
-    loadingDialog(context, '开台中…');
-    try {
-      final r = await Api.tableOpen(
-        wenxunId: Session.wenxunId,
-        tableId: int.tryParse('${t['id']}') ?? 0,
-        peopleNum: people,
-        operatorId: Session.staffId,
-        operatorName: Session.staffName,
-      );
-      if (!mounted) return;
-      Navigator.pop(context);
-      if ('${r['code']}' == '200') {
-        final kaitaiId = '${r['data']?['kaitai_id'] ?? ''}';
-        toast(context, '开台成功');
-        await _load();
-        if (!mounted) return;
-        // 直接进入点菜
-        final nt = tables.firstWhere((x) => '${x['id']}' == '${t['id']}', orElse: () => t);
-        _dishPanel(nt, kaitaiId.isEmpty ? '${nt['kaitai_id']}' : kaitaiId);
-      } else {
-        toast(context, '${r['msg'] ?? '开台失败'}', error: true);
-      }
-    } on ApiError catch (e) {
-      if (mounted) Navigator.pop(context);
-      toast(context, e.message, error: true);
-    }
   }
 
   // ==================== 就餐中桌台操作 ====================
@@ -446,6 +379,8 @@ class _DiningPageState extends State<DiningPage> {
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: BigButton('转台', onTap: () { Navigator.pop(context); _changeTable(t); }, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46)),
+            const SizedBox(width: 10),
+            Expanded(child: BigButton('并台', onTap: () { Navigator.pop(context); _mergeTable(t); }, color: const Color(0xFFF0F6FF), textColor: PosTheme.blue, height: 46)),
             const SizedBox(width: 10),
             Expanded(child: BigButton('取消开台', onTap: () { Navigator.pop(context); _cancelOpen(t, kaitaiId); }, color: const Color(0xFFFFF1F0), textColor: PosTheme.red, height: 46)),
           ]),
@@ -557,13 +492,15 @@ class _DiningPageState extends State<DiningPage> {
         final remark = '${r['data']?['remark'] ?? ''}';
         toast(context, items.isEmpty ? '开台成功（该桌无预点菜品）' : '开台成功，正在向后厨打印 ${items.length} 项预点菜品');
         // 后厨小票（不阻塞后续流程）
-        CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-          tableTitle: '${t['title']}',
-          tableQuyu: '${t['quyu'] ?? ''}',
-          cart: items.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList(),
-          remark: remark,
-          title: '预点出菜单',
-        )).catchError((_) => <String, dynamic>{});
+        if (await PrintPrefs.on('kitchen')) {
+          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+            tableTitle: '${t['title']}',
+            tableQuyu: '${t['quyu'] ?? ''}',
+            cart: items.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList(),
+            remark: remark,
+            title: '预点出菜单',
+          )).catchError((_) => <String, dynamic>{});
+        }
         await _load();
         if (!mounted) return;
         // 进账单面板（可继续加菜/结账）
@@ -656,6 +593,58 @@ class _DiningPageState extends State<DiningPage> {
     }
   }
 
+  // ==================== 并台（v3.3.71）：本桌菜品并入其他就餐中桌台 ====================
+  Future<void> _mergeTable(Map t) async {
+    final kaitaiId = '${t['kaitai_id'] ?? ''}';
+    if (kaitaiId.isEmpty) return;
+    // 目标：其他就餐中桌台
+    final candidates = tables.where((x) => '${x['status']}' == '2' && '${x['id']}' != '${t['id']}' && '${x['kaitai_id'] ?? ''}'.isNotEmpty).toList();
+    if (candidates.isEmpty) {
+      toast(context, '没有其他就餐中的桌台可并', error: true);
+      return;
+    }
+    final target = await showDialog<Map>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text('并台 · ${t['title']} 并入'),
+        content: SizedBox(width: 380, height: 360, child: GridView.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 110, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 1.1),
+          itemCount: candidates.length,
+          itemBuilder: (_, i) => InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => Navigator.pop(context, candidates[i]),
+            child: Container(
+              decoration: BoxDecoration(color: const Color(0xFFF0F6FF), borderRadius: BorderRadius.circular(10), border: Border.all(color: PosTheme.blue.withOpacity(0.4))),
+              child: Center(child: Text('${candidates[i]['title']}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600))),
+            ),
+          ),
+        )),
+      ),
+    );
+    if (target == null || !mounted) return;
+    final ok = await confirm(context, '确认并台', '「${t['title']}」的全部菜品将并入「${target['title']}」账单，本桌恢复空闲。确定？');
+    if (!ok || !mounted) return;
+    loadingDialog(context, '并台中…');
+    try {
+      final r = await Api.tableMerge(
+        wenxunId: Session.wenxunId,
+        sourceKaitaiId: kaitaiId,
+        targetKaitaiId: '${target['kaitai_id'] ?? ''}',
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      if ('${r['code']}' == '200') {
+        toast(context, '已并入 ${r['data']?['target_table_title'] ?? target['title']}');
+        _load();
+      } else {
+        toast(context, '${r['msg'] ?? '并台失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    }
+  }
+
   // ==================== 取消开台 ====================
   Future<void> _cancelOpen(Map t, String kaitaiId) async {
     final ok = await confirm(context, '取消开台', '「${t['title']}」未结算菜品将被清空，桌台恢复空闲，确定？');
@@ -699,6 +688,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   List dishes = [];
   int catId = -1;
   Map? vip; // 结账选中的会员（会员余额支付用）
+  String orderRemark = ''; // 整单备注（v3.3.71）
+  // 商品搜索（名称/简拼，v3.3.75）
+  final searchCtrl = TextEditingController();
+  String keyword = '';
+  List allGoods = []; // 全部商品缓存（首次搜索时拉取）
+  bool allGoodsLoading = false;
 
   /// 会员可用余额（现金余额 + 赠送余额）
   double _vipBalance() {
@@ -736,14 +731,23 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
-  // 结账中转：加菜后的菜品也进 bill
-  List<Map<String, dynamic>> get settleCart => bill.map((b) => {
-    'goods_id': b['goods_id'],
-    'goods_name': b['goods_title'],
-    'goods_image': b['goods_image'] ?? '',
-    'unit_price': b['unit_price'],
-    'quantity': b['quantity'],
-  }).toList();
+  // 结账中转：加菜后的菜品也进 bill（已退/部分退按剩余件数，退完的行剔除，v3.3.70）
+  List<Map<String, dynamic>> get settleCart {
+    final out = <Map<String, dynamic>>[];
+    for (final b in bill) {
+      final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
+      if (remain <= 0) continue;
+      out.add({
+        'goods_id': b['goods_id'],
+        'goods_name': b['goods_title'],
+        'goods_image': b['goods_image'] ?? '',
+        'unit_price': b['unit_price'],
+        'quantity': remain,
+        'remark': b['remark'] ?? '',
+      });
+    }
+    return out;
+  }
 
   @override
   void initState() {
@@ -757,7 +761,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       final r = await Api.tableBill(wenxunId: Session.wenxunId, kaitaiId: widget.kaitaiId);
       if (!mounted) return;
       setState(() {
-        bill = (r['list'] ?? []) as List;
+        bill = _mergeBill((r['list'] ?? []) as List);
         billTotal = double.tryParse('${r['total']}') ?? 0;
         loading = false;
       });
@@ -765,6 +769,41 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       if (!mounted) return;
       setState(() => loading = false);
     }
+  }
+
+  /// 同菜合并累计（v3.3.74）：goods_id+单价+做法 相同的明细行合并为一条，
+  /// 并按下单时间分成「点菜」（开台后 10 分钟内）与「加菜」（之后）两组分别显示。
+  /// 合并行保留 _items 原始明细，退菜/划菜按明细行逐条操作。
+  List<Map<String, dynamic>> _mergeBill(List raw) {
+    if (raw.isEmpty) return [];
+    DateTime? first;
+    for (final it in raw) {
+      final t = DateTime.tryParse('${it['create_time']}'.replaceAll(' ', 'T'));
+      if (t != null && (first == null || t.isBefore(first))) first = t;
+    }
+    final map = <String, Map<String, dynamic>>{};
+    final order = <String>[];
+    for (final row in raw) {
+      final it = row as Map;
+      final t = DateTime.tryParse('${it['create_time']}'.replaceAll(' ', 'T'));
+      final isAdd = first != null && t != null && t.difference(first).inMinutes >= 10;
+      final key = '${it['goods_id']}|${it['goods_title']}|${it['unit_price']}|${it['remark'] ?? ''}|$isAdd';
+      if (!map.containsKey(key)) {
+        final m = Map<String, dynamic>.from(it);
+        m['_items'] = [it];
+        m['is_add'] = isAdd;
+        map[key] = m;
+        order.add(key);
+      } else {
+        final m = map[key]!;
+        (m['_items'] as List).add(it);
+        m['quantity'] = (int.tryParse('${m['quantity']}') ?? 0) + (int.tryParse('${it['quantity']}') ?? 0);
+        m['refund_num'] = (int.tryParse('${m['refund_num']}') ?? 0) + (int.tryParse('${it['refund_num']}') ?? 0);
+        m['sub_total'] = ((double.tryParse('${m['sub_total']}') ?? 0) + (double.tryParse('${it['sub_total']}') ?? 0)).toStringAsFixed(2);
+        if ('${it['is_chu']}' != '1') m['is_chu'] = 0; // 全部已出才算已出
+      }
+    }
+    return order.map((k) => map[k]!).toList();
   }
 
   Future<void> _loadCats() async {
@@ -790,13 +829,130 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
-  Future<void> _addDish(Map g) => _pushDishes([{
+  /// 搜索输入：首次搜索时拉全量商品（含 jianpin），按名称/简拼过滤（v3.3.75）
+  Future<void> _onSearch(String v) async {
+    setState(() => keyword = v);
+    if (allGoods.isEmpty && !allGoodsLoading) {
+      allGoodsLoading = true;
+      try {
+        final r = await Api.goodsAll(Session.wenxunId);
+        if (!mounted) return;
+        setState(() => allGoods = (r['goods'] ?? []) as List);
+      } on ApiError {
+        // 拉取失败则搜索只作用于当前分类商品
+      }
+      allGoodsLoading = false;
+    }
+  }
+
+  /// 网格展示的商品：搜索模式=全量过滤（名称/简拼，忽略大小写），否则=当前分类
+  List get _gridGoods {
+    final kw = keyword.trim().toLowerCase();
+    if (kw.isEmpty) return dishes;
+    final pool = allGoods.isNotEmpty ? allGoods : dishes;
+    return pool.where((g) {
+      final title = '${g['title'] ?? ''}'.toLowerCase();
+      final jp = '${g['jianpin'] ?? ''}'.toLowerCase();
+      return title.contains(kw) || (jp.isNotEmpty && jp.contains(kw));
+    }).toList();
+  }
+
+  Future<void> _addDish(Map g, {String note = ''}) => _pushDishes([{
     'goods_id': g['id'],
     'goods_name': g['title'],
     'goods_image': g['goods_image'] ?? '',
     'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
     'quantity': 1,
-  }], label: '${g['title']}');
+    if (note.isNotEmpty) 'remark': note,
+  }], label: note.isEmpty ? '${g['title']}' : '${g['title']}($note)');
+
+  /// 做法备注点菜：长按商品 → 选常用做法（免辣/少辣等）+ 自定义 → 带备注加入（v3.3.71）
+  Future<void> _addDishWithNote(Map g) async {
+    final note = await showDialog<String>(
+      context: context,
+      builder: (_) => _DishNoteDialog(title: '${g['title']}'),
+    );
+    if (note == null || !mounted) return; // note 为空串=不带备注直接加
+    _addDish(g, note: note);
+  }
+
+  /// 催菜：向后厨云打印机打催菜单（v3.3.71）
+  Future<void> _urge(Map b) async {
+    final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
+    if (remain <= 0) return;
+    if (!await PrintPrefs.on('urge')) {
+      toast(context, '催菜单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    try {
+      await CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+        tableTitle: '${widget.table['title']}',
+        tableQuyu: '${widget.table['quyu'] ?? ''}',
+        cart: [{'goods_name': b['goods_title'], 'quantity': remain, 'remark': b['remark'] ?? ''}],
+        title: '催菜单',
+      ));
+      if (mounted) toast(context, '已催菜：${b['goods_title']}');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
+
+  /// 出品划菜：标记该菜品后厨已出（v3.3.71；v3.3.74 合并行按明细逐条标记）
+  Future<void> _chuhua(Map b) async {
+    final target = '${b['is_chu']}' == '1' ? false : true;
+    try {
+      String? err;
+      final ids = b['_items'] is List
+          ? (b['_items'] as List).map((it) => int.tryParse('${it['id']}') ?? 0).where((i) => i > 0).toList()
+          : [int.tryParse('${b['id']}') ?? 0];
+      for (final id in ids) {
+        final r = await Api.tableChuhua(
+          wenxunId: Session.wenxunId,
+          kaitaiId: widget.kaitaiId,
+          itemId: id,
+          isChu: target,
+        );
+        if ('${r['code']}' != '200') {
+          err = '${r['msg'] ?? '操作失败'}';
+          break;
+        }
+      }
+      if (!mounted) return;
+      if (err == null) {
+        _loadBill();
+      } else {
+        toast(context, err, error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
+
+  /// 整单备注（v3.3.71）
+  Future<void> _editOrderRemark() async {
+    final r = await showDialog<String>(
+      context: context,
+      builder: (_) => _OrderRemarkDialog(initial: orderRemark),
+    );
+    if (r == null || !mounted) return;
+    setState(() => orderRemark = r);
+  }
+
+  /// 全部划菜（v3.3.71）
+  Future<void> _chuhuaAll() async {
+    try {
+      final r = await Api.tableChuhua(wenxunId: Session.wenxunId, kaitaiId: widget.kaitaiId, itemId: 0, isChu: true);
+      if (!mounted) return;
+      if ('${r['code']}' == '200') {
+        toast(context, '已全部划菜');
+        _loadBill();
+      } else {
+        toast(context, '${r['msg'] ?? '操作失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
 
   /// 无码菜品：手输名称/单价/数量，直接加到桌台账单
   Future<void> _noCodeDish() async {
@@ -827,13 +983,15 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
         toast(context, '已加：$label');
-        // 加菜同步打后厨小票（不阻塞）
-        CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-          tableTitle: '${widget.table['title']}',
-          tableQuyu: '${widget.table['quyu'] ?? ''}',
-          cart: cart.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity']}).toList(),
-          isAdd: true,
-        )).catchError((_) => <String, dynamic>{});
+        // 加菜同步打后厨小票（不阻塞；带做法备注）
+        if (await PrintPrefs.on('kitchen')) {
+          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+            tableTitle: '${widget.table['title']}',
+            tableQuyu: '${widget.table['quyu'] ?? ''}',
+            cart: cart.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity'], 'remark': c['remark'] ?? ''}).toList(),
+            isAdd: true,
+          )).catchError((_) => <String, dynamic>{});
+        }
         _loadBill();
       } else {
         toast(context, '${r['msg'] ?? '加菜失败'}', error: true);
@@ -844,16 +1002,160 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
+  // ==================== 退菜（v3.3.70） ====================
+  Future<void> _retreat(Map b) async {
+    final total = int.tryParse('${b['quantity']}') ?? 0;
+    final refunded = int.tryParse('${b['refund_num']}') ?? 0;
+    final can = total - refunded;
+    if (can <= 0) return;
+    if ('${b['order_id']}' != '0') {
+      toast(context, '已结算菜品不能退菜，请走订单退款', error: true);
+      return;
+    }
+    int num = 1;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(builder: (ctx, setD) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(width: 380, padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('退菜 · ${b['goods_title']}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700), textAlign: TextAlign.center),
+          const SizedBox(height: 6),
+          Text('已点 $total 件${refunded > 0 ? ' · 已退 $refunded 件' : ''} · 本次最多可退 $can 件',
+              style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          const SizedBox(height: 18),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            InkWell(
+              onTap: () => setD(() { if (num > 1) num--; }),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(width: 56, height: 56, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: const Color(0xFFF5F6FA), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.remove, size: 26)),
+            ),
+            Container(width: 110, alignment: Alignment.center,
+                child: Text('$num', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w800, color: PosTheme.red))),
+            InkWell(
+              onTap: () => setD(() { if (num < can) num++; }),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(width: 56, height: 56, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: const Color(0xFFF5F6FA), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.add, size: 26)),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          Text('退 ¥${Fmt.money((double.tryParse('${b['unit_price']}') ?? 0) * num)}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.red)),
+          const SizedBox(height: 18),
+          Row(children: [
+            Expanded(child: BigButton('取消', onTap: () => Navigator.pop(ctx, false), color: const Color(0xFFF5F6FA), textColor: PosTheme.textSub, height: 46)),
+            const SizedBox(width: 10),
+            Expanded(child: BigButton('确认退菜', onTap: () => Navigator.pop(ctx, true), color: PosTheme.red, height: 46)),
+          ]),
+        ])),
+      )),
+    );
+    if (ok != true || !mounted) return;
+    loadingDialog(context, '退菜中…');
+    try {
+      // 合并行：按 _items 原始明细依次分摊退件数（v3.3.74）
+      int left = num;
+      String? err;
+      for (final raw in (b['_items'] as List)) {
+        if (left <= 0) break;
+        final remain = (int.tryParse('${raw['quantity']}') ?? 0) - (int.tryParse('${raw['refund_num']}') ?? 0);
+        if (remain <= 0) continue;
+        final n = left > remain ? remain : left;
+        final r = await Api.tableRetreatDish(
+          wenxunId: Session.wenxunId,
+          kaitaiId: widget.kaitaiId,
+          itemId: int.tryParse('${raw['id']}') ?? 0,
+          num: n,
+        );
+        if ('${r['code']}' != '200') {
+          err = '${r['msg'] ?? '退菜失败'}';
+          break;
+        }
+        left -= n;
+      }
+      if (!mounted) return;
+      Navigator.pop(context); // loading
+      if (err == null && left == 0) {
+        toast(context, '已退：${b['goods_title']} ×$num');
+        // 退菜同步打后厨退菜票（不阻塞）
+        if (await PrintPrefs.on('retreat')) {
+          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+            tableTitle: '${widget.table['title']}',
+            tableQuyu: '${widget.table['quyu'] ?? ''}',
+            cart: [{'goods_name': b['goods_title'], 'quantity': num}],
+            title: '退菜单',
+          )).catchError((_) => <String, dynamic>{});
+        }
+        _loadBill();
+      } else {
+        toast(context, err ?? '退菜失败', error: true);
+        _loadBill(); // 部分成功也刷新
+      }
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    }
+  }
+
+  /// 重打后厨票：把当前账单未退菜品再传一次后厨云打印机
+  Future<void> _reprintKitchen() async {
+    final items = settleCart; // 已剔除退完、按剩余件数
+    if (items.isEmpty) {
+      toast(context, '当前没有未退菜品', error: true);
+      return;
+    }
+    if (!await PrintPrefs.on('reprint')) {
+      toast(context, '传后厨重打单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    try {
+      final r = await CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+        tableTitle: '${widget.table['title']}',
+        tableQuyu: '${widget.table['quyu'] ?? ''}',
+        cart: items.map((c) => {'goods_name': c['goods_name'], 'quantity': c['quantity']}).toList(),
+        title: '后厨单重打',
+      ));
+      if (!mounted) return;
+      toast(context, '${'${r['code']}' == '200' ? '已传后厨打印机（${items.length} 项）' : '打印失败：${r['msg'] ?? '请检查云打印机'}'}', error: '${r['code']}' != '200');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
+
   // ==================== 结账 ====================
   Future<void> _settle() async {
     if (bill.isEmpty) {
       toast(context, '该桌还没有点菜品', error: true);
       return;
     }
+    // 1. 费用/优惠/积分/发票/整单备注（v3.3.71）
+    final adj = await showDialog<Map>(
+      context: context,
+      builder: (_) => _SettleAdjustDialog(goodsTotal: billTotal, vip: vip, initialRemark: orderRemark),
+    );
+    if (adj == null || !mounted) return;
+    final finalTotal = (adj['final'] as double?) ?? billTotal;
+    final kaitaiFee = (adj['kaitai_fee'] as double?) ?? 0;
+    final teaFee = (adj['tea_fee'] as double?) ?? 0;
+    final serviceFee = (adj['service_fee'] as double?) ?? 0;
+    final boxFee = (adj['box_fee'] as double?) ?? 0;
+    final discountRate = (adj['discount_rate'] as double?) ?? 10;
+    final quiling = (adj['quiling'] as double?) ?? 0;
+    final jifenNum = (adj['jifen_num'] as int?) ?? 0;
+    final jifenDeduct = (adj['jifen_deduct'] as double?) ?? 0;
+    final invoiceTitle = '${adj['invoice_title'] ?? ''}';
+    final invoiceNo = '${adj['invoice_no'] ?? ''}';
+    final remark = '${adj['order_remark'] ?? ''}';
+    setState(() => orderRemark = remark);
+
+    // 2. 选择支付方式
     final methods = ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
     final picked = await showDialog<String>(
       context: context,
-      builder: (_) => _DiningPayDialog(total: billTotal, methods: methods, vip: vip),
+      builder: (_) => _DiningPayDialog(total: finalTotal, methods: methods, vip: vip),
     );
     if (picked == null || !mounted) return;
     if (picked == '会员余额') {
@@ -862,7 +1164,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         return;
       }
       final bal = _vipBalance();
-      if (bal < billTotal) {
+      if (bal < finalTotal) {
         toast(context, '会员余额不足（¥${Fmt.money(bal)}），请先充值', error: true);
         return;
       }
@@ -887,14 +1189,25 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         operatorId: Session.staffId,
         operatorName: Session.staffName,
         goodsTotal: billTotal,
-        finalTotal: billTotal,
+        finalTotal: finalTotal,
         pay1Type: picked,
-        pay1Money: billTotal,
+        pay1Money: finalTotal,
         cart: settleCart,
         vipId: picked == '会员余额' ? (int.tryParse('${vip!['id']}') ?? 0) : 0,
         phone: picked == '会员余额' ? '${vip!['phone'] ?? ''}' : '',
         guazhangName: gzName,
         guazhangPhone: gzPhone,
+        orderRemark: remark,
+        kaitaiFee: kaitaiFee,
+        teaFee: teaFee,
+        serviceFee: serviceFee,
+        boxFee: boxFee,
+        discountRate: discountRate,
+        quiling: quiling,
+        jifenNum: jifenNum,
+        jifenDeduct: jifenDeduct,
+        invoiceTitle: invoiceTitle,
+        invoiceNo: invoiceNo,
       );
       if (!mounted) return;
       // 先捕获 Navigator 和要用的数据：后面 pop 掉本弹窗后 State 会被销毁，
@@ -902,22 +1215,36 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       final navigator = Navigator.of(context);
       final tableTitle = '${widget.table['title']}';
       final peopleNum = int.tryParse('${widget.table['people_num']}') ?? 1;
-      final total = billTotal;
+      final total = finalTotal;
+      final goodsTotal = billTotal;
       final cart = settleCart;
       Navigator.pop(context); // loading
       if ('${r['code']}' == '200') {
         final orderSn = '${r['data']?['order_sn'] ?? ''}';
         navigator.pop(); // bill dialog
-        // 云打印结账单
-        CloudPrinter.print(CloudPrinter.diningReceipt(
-          orderSn: orderSn,
-          tableTitle: tableTitle,
-          peopleNum: peopleNum,
-          payMethod: picked,
-          goodsTotal: total,
-          finalTotal: total,
-          cart: cart,
-        )).catchError((_) => <String, dynamic>{});
+        // 云打印结账单（含费用/优惠/发票明细行）
+        final extra = <String>[];
+        if (kaitaiFee > 0) extra.add('开台费: ¥${Fmt.money(kaitaiFee)}');
+        if (teaFee > 0) extra.add('茶位费: ¥${Fmt.money(teaFee)}');
+        if (serviceFee > 0) extra.add('服务费: ¥${Fmt.money(serviceFee)}');
+        if (boxFee > 0) extra.add('餐盒费: ¥${Fmt.money(boxFee)}');
+        if (discountRate != 10) extra.add('整单折扣: $discountRate 折');
+        if (quiling > 0) extra.add('抹零: -¥${Fmt.money(quiling)}');
+        if (jifenNum > 0) extra.add('积分抵扣: $jifenNum 分 (-¥${Fmt.money(jifenDeduct)})');
+        if (remark.isNotEmpty) extra.add('整单备注: $remark');
+        if (invoiceTitle.isNotEmpty) extra.add('发票: $invoiceTitle${invoiceNo.isNotEmpty ? '（税号 $invoiceNo）' : ''}');
+        if (await PrintPrefs.on('dining')) {
+          CloudPrinter.print(CloudPrinter.diningReceipt(
+            orderSn: orderSn,
+            tableTitle: tableTitle,
+            peopleNum: peopleNum,
+            payMethod: picked,
+            goodsTotal: goodsTotal,
+            finalTotal: total,
+            cart: cart,
+            extraLines: extra,
+          )).catchError((_) => <String, dynamic>{});
+        }
         // 用 navigator.context 打开成功弹窗（本 State 已随账单弹窗销毁），
         // "完成"按钮用弹窗自己的 dctx 关闭自己
         showDialog(context: navigator.context, barrierDismissible: false, builder: (dctx) => Dialog(
@@ -947,125 +1274,370 @@ class _TableBillDialogState extends State<_TableBillDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 四周各留 10% 屏幕边距，适配大屏（v3.3.70）
+    final size = MediaQuery.of(context).size;
     return Dialog(
-      child: SizedBox(
-        width: 860, height: 620,
-        child: Column(children: [
-          // 头部
-          Container(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 14),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
-            child: Row(children: [
-              Text('${widget.table['title']} · 已点账单',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 12),
-              Text('人数 ${widget.table['people_num'] ?? 1}', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-              const Spacer(),
-              Text('合计 ¥${Fmt.money(billTotal)}', style: const TextStyle(fontSize: 20, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-            ]),
-          ),
-          Expanded(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              // 左：账单
-              Expanded(
-                flex: 5,
-                child: loading
-                    ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
-                    : bill.isEmpty
-                        ? const EmptyView('还没有点菜品，从右侧点菜')
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(14),
-                            itemCount: bill.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1, color: PosTheme.line),
-                            itemBuilder: (_, i) {
-                              final b = bill[i];
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 7),
-                                child: Row(children: [
-                                  Expanded(child: Text('${b['goods_title']}', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500))),
-                                  Text('¥${Fmt.money(b['unit_price'])} ×${b['quantity']}', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                                  const SizedBox(width: 12),
-                                  SizedBox(width: 66, child: Text('¥${Fmt.money(b['sub_total'])}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600))),
-                                ]),
-                              );
-                            },
-                          ),
-              ),
-              VerticalDivider(width: 1, color: PosTheme.line),
-              // 右：点菜
-              Expanded(
-                flex: 6,
-                child: Column(children: [
-                  SizedBox(
-                    height: 52,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.all(10),
-                      itemCount: cats.length,
-                      itemBuilder: (_, i) {
-                        final c = cats[i];
-                        final on = catId == c['id'];
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(8),
-                            onTap: () { setState(() => catId = c['id']); _loadDishes(); },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: on ? PosTheme.accent : const Color(0xFFF7F8FA),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text('${c['title']}', style: TextStyle(fontSize: 13, color: on ? Colors.white : PosTheme.textMain)),
+      insetPadding: EdgeInsets.symmetric(horizontal: size.width * 0.1, vertical: size.height * 0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          width: size.width * 0.8, height: size.height * 0.8,
+          child: Column(children: [
+            _header(),
+            Expanded(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // 左：账单（含退菜）
+                Expanded(
+                  flex: 4,
+                  child: loading
+                      ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
+                      : bill.isEmpty
+                          ? const EmptyView('还没有点菜品，从右侧点菜')
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(14),
+                              itemCount: bill.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: PosTheme.line),
+                              itemBuilder: (_, i) => _billRow(bill[i]),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: dishes.isEmpty
-                        ? const EmptyView('该分类暂无菜品')
-                        : GridView.builder(
-                            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 130, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.95),
-                            itemCount: dishes.length,
-                            itemBuilder: (_, i) {
-                              final g = dishes[i];
-                              return Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(10),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(10),
-                                  onTap: () => _addDish(g),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: PosTheme.line)),
-                                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                                      Expanded(child: '${g['goods_image'] ?? ''}'.isNotEmpty
-                                          ? ClipRRect(borderRadius: BorderRadius.circular(6), child: Image.network(Api.base + ('${g['goods_image']}'.startsWith('/') ? '' : '/') + '${g['goods_image']}', fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Container(color: const Color(0xFFF5F6F8), child: const Icon(Icons.restaurant, color: PosTheme.textHint))))
-                                          : Container(color: const Color(0xFFF5F6F8), child: const Icon(Icons.restaurant, color: PosTheme.textHint))),
-                                      const SizedBox(height: 4),
-                                      Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
-                                      Text('¥${Fmt.money(g['amount'] ?? g['price'])}', style: const TextStyle(fontSize: 13, color: PosTheme.accent, fontWeight: FontWeight.w700)),
-                                    ]),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ]),
-              ),
-            ]),
+                ),
+                VerticalDivider(width: 1, color: PosTheme.line),
+                // 右：点菜区（分类左栏 + 商品网格，v3.3.70）
+                Expanded(
+                  flex: 7,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    _catRail(),
+                    Expanded(child: _dishGrid()),
+                  ]),
+                ),
+              ]),
+            ),
+            _footer(),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ==================== 头部 ====================
+  Widget _header() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 16, 14, 14),
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(10)),
+          child: Text('${widget.table['title']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+        const SizedBox(width: 12),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('已点账单', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          // 用餐人数（点击可修改，v3.3.76）
+          InkWell(
+            onTap: _editPeople,
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 1),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text('人数 $_peopleNow', style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                const SizedBox(width: 3),
+                const Icon(Icons.edit, size: 12, color: PosTheme.textHint),
+              ]),
+            ),
           ),
-          // 底部操作
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
+        ]),
+        const Spacer(),
+        // 商品搜索（名称/简拼，v3.3.75；合计只在底部显示）
+        SizedBox(
+          width: 260,
+          height: 40,
+          child: TextField(
+            controller: searchCtrl,
+            onChanged: _onSearch,
+            style: const TextStyle(fontSize: 13.5),
+            decoration: InputDecoration(
+              hintText: '搜索商品名称 / 简拼',
+              hintStyle: const TextStyle(fontSize: 13, color: PosTheme.textHint),
+              prefixIcon: const Icon(Icons.search, size: 19, color: PosTheme.textHint),
+              // 清除搜索（v3.3.76）
+              suffixIcon: keyword.trim().isEmpty ? null : InkWell(
+                onTap: () { searchCtrl.clear(); setState(() => keyword = ''); },
+                borderRadius: BorderRadius.circular(20),
+                child: const Icon(Icons.close, size: 16, color: PosTheme.textHint),
+              ),
+              suffixIconConstraints: const BoxConstraints(minWidth: 34, minHeight: 30),
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFFF7F8FA),
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // 右上角关闭按钮已移除（v3.3.76），点击弹窗外空白即关闭
+      ]),
+    );
+  }
+
+  /// 当前显示的用餐人数（开台记录 kaitai_people 优先，历史数据回落 people_num/1）
+  int get _peopleNow => int.tryParse('${widget.table['kaitai_people'] ?? widget.table['people_num'] ?? 1}') ?? 1;
+
+  /// 修改用餐人数（v3.3.76）：+/- 步进 → 保存到桌台开台记录
+  Future<void> _editPeople() async {
+    int people = _peopleNow;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(builder: (ctx, setD) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(width: 360, padding: const EdgeInsets.all(26), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('修改用餐人数', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('${widget.table['title']}', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+          const SizedBox(height: 18),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            InkWell(
+              onTap: () => setD(() { if (people > 1) people--; }),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(width: 60, height: 60, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: const Color(0xFFF5F6FA), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.remove, size: 28)),
+            ),
+            Container(width: 110, alignment: Alignment.center,
+                child: Text('$people', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, color: PosTheme.accent))),
+            InkWell(
+              onTap: () => setD(() { if (people < 99) people++; }),
+              borderRadius: BorderRadius.circular(12),
+              child: Container(width: 60, height: 60, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: const Color(0xFFF5F6FA), borderRadius: BorderRadius.circular(12)),
+                  child: const Icon(Icons.add, size: 28)),
+            ),
+          ]),
+          const SizedBox(height: 20),
+          Row(children: [
+            Expanded(child: BigButton('取消', onTap: () => Navigator.pop(ctx, false), color: const Color(0xFFF5F6FA), textColor: PosTheme.textSub, height: 46)),
+            const SizedBox(width: 10),
+            Expanded(child: BigButton('确认修改', onTap: () => Navigator.pop(ctx, true), height: 46)),
+          ]),
+        ])),
+      )),
+    );
+    if (ok != true || !mounted) return;
+    loadingDialog(context, '保存中…');
+    try {
+      final r = await Api.tablePeople(
+        wenxunId: Session.wenxunId,
+        tableId: int.tryParse('${widget.table['id']}') ?? 0,
+        peopleNum: people,
+      );
+      if (!mounted) return;
+      Navigator.pop(context); // loading
+      if ('${r['code']}' == '200') {
+        widget.table['kaitai_people'] = people; // 同步本地（父级 tables 持有同一 map 引用）
+        widget.table['people_num'] = people;
+        if (mounted) setState(() {});
+        toast(context, '用餐人数已改为 $people');
+      } else {
+        toast(context, '${r['msg'] ?? '修改失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    }
+  }
+
+  // ==================== 账单行（做法备注 + 催菜/划菜/退菜，v3.3.71） ====================
+  Widget _billRow(Map b) {
+    final total = int.tryParse('${b['quantity']}') ?? 0;
+    final refunded = int.tryParse('${b['refund_num']}') ?? 0;
+    final allBack = refunded >= total; // 整行退完
+    final isChu = '${b['is_chu'] ?? 0}' == '1';
+    final note = '${b['remark'] ?? ''}'.trim();
+    final unsettled = '${b['order_id']}' == '0';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(children: [
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(
+                child: Text('${b['goods_title']}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14.5, fontWeight: FontWeight.w500,
+                      color: allBack ? PosTheme.textHint : PosTheme.textMain,
+                      decoration: allBack ? TextDecoration.lineThrough : TextDecoration.none,
+                    )),
+              ),
+              if ('${b['is_add']}' == 'true' || b['is_add'] == true) ...[
+                const SizedBox(width: 6),
+                _miniTag('加菜', const Color(0xFFFFF8EC), PosTheme.amber),
+              ],
+              if (refunded > 0) ...[
+                const SizedBox(width: 6),
+                _miniTag(allBack ? '已退' : '已退$refunded', const Color(0xFFFFF1F0), PosTheme.red),
+              ],
+              if (isChu) ...[
+                const SizedBox(width: 6),
+                _miniTag('已出', const Color(0xFFEDFFF5), PosTheme.green),
+              ],
+            ]),
+            const SizedBox(height: 2),
+            Text('¥${Fmt.money(b['unit_price'])} ×${total - refunded}${total > 1 ? '/$total' : ''}${note.isNotEmpty ? ' · 做法:$note' : ''}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          ]),
+        ),
+        Text('¥${Fmt.money(b['sub_total'])}', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700,
+            color: allBack ? PosTheme.textHint : PosTheme.textMain)),
+        const SizedBox(width: 10),
+        // 操作列：催菜 / 划菜 / 退菜（仅未结算且有剩余件数）
+        if (!allBack && unsettled)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            _rowBtn('催', const Color(0xFFF0F6FF), PosTheme.blue, onTap: () => _urge(b)),
+            const SizedBox(width: 5),
+            _rowBtn(isChu ? '取消' : '划', isChu ? const Color(0xFFF2F3F7) : const Color(0xFFEDFFF5), isChu ? PosTheme.textSub : PosTheme.green, onTap: () => _chuhua(b)),
+            const SizedBox(width: 5),
+            _rowBtn('退', const Color(0xFFFFF1F0), PosTheme.red, onTap: () => _retreat(b)),
+          ])
+        else
+          const SizedBox(width: 105),
+      ]),
+    );
+  }
+
+  Widget _miniTag(String text, Color bg, Color fg) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(5)),
+      child: Text(text, style: TextStyle(fontSize: 11, color: fg, fontWeight: FontWeight.w600)),
+    );
+  }
+
+  Widget _rowBtn(String text, Color bg, Color fg, {required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 32, height: 30,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+        child: Text(text, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: fg)),
+      ),
+    );
+  }
+
+  // ==================== 分类左栏 ====================
+  Widget _catRail() {
+    return Container(
+      width: 118,
+      color: const Color(0xFFF7F8FA),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        itemCount: cats.length,
+        itemBuilder: (_, i) {
+          final c = cats[i];
+          final on = catId == c['id'];
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                setState(() {
+                  catId = c['id'];
+                  if (keyword.isNotEmpty) { keyword = ''; searchCtrl.clear(); } // 选分类即退出搜索
+                });
+                _loadDishes();
+              },
+              child: Container(
+                height: 46,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: on ? PosTheme.accent : Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+                ),
+                child: Text('${c['title']}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: on ? Colors.white : PosTheme.textSub)),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ==================== 商品网格 ====================
+  Widget _dishGrid() {
+    final list = _gridGoods;
+    final searching = keyword.trim().isNotEmpty;
+    return list.isEmpty
+        ? EmptyView(searching ? '未找到匹配「${keyword.trim()}」的商品' : '该分类暂无菜品')
+        : GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 140, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.92),
+            itemCount: list.length,
+            itemBuilder: (_, i) {
+              final g = list[i];
+              return Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _addDish(g),
+                  onLongPress: () => _addDishWithNote(g), // 长按=带做法备注点菜
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: PosTheme.line)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Expanded(child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: RetailGoodsImage(urls: _dishImgUrls(g)),
+                      )),
+                      const SizedBox(height: 5),
+                      Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text('¥${Fmt.money(g['amount'] ?? g['price'])}', style: const TextStyle(fontSize: 13.5, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+                    ]),
+                  ),
+                ),
+              );
+            },
+          );
+  }
+
+  /// 商品图片候选地址（与收银页同规则：接口地址 → /goods/ 前缀 → 根路径，v3.3.73）
+  List<String> _dishImgUrls(Map g) {
+    final raw = '${g['goods_image'] ?? ''}'.trim();
+    final out = <String>[];
+    void add(String? u) {
+      final s = (u ?? '').trim();
+      if (s.isNotEmpty && !out.contains(s)) out.add(s);
+    }
+    add('${g['goods_image_url']}');
+    add('${g['goods_image_url_alt']}');
+    if (raw.isNotEmpty && !raw.startsWith('http')) {
+      final p = raw.startsWith('/') ? raw : '/$raw';
+      add('${Api.base}/goods$p');
+      add('${Api.base}$p');
+    } else if (raw.startsWith('http')) {
+      add(raw);
+    }
+    return out;
+  }
+
+  // ==================== 底部操作 ====================
+  Widget _footer() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
+      child: Row(children: [
+        // 左侧可横向滚动按钮区（Spacer 与横向滚动互斥，所以右侧固定按钮放外层）
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             child: Row(children: [
               Text('共 ${bill.length} 项 · 合计 ¥${Fmt.money(billTotal)}',
                   style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
@@ -1087,7 +1659,65 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                   ),
                 ),
               ],
-              const Spacer(),
+              const SizedBox(width: 12),
+              // 整单备注（v3.3.71）
+              InkWell(
+                onTap: _editOrderRemark,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: orderRemark.isNotEmpty ? const Color(0xFFFFF8EC) : const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: orderRemark.isNotEmpty ? PosTheme.amber.withOpacity(0.5) : PosTheme.line),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.edit_note, size: 19, color: orderRemark.isNotEmpty ? PosTheme.amber : PosTheme.textSub),
+                    const SizedBox(width: 7),
+                    Text(orderRemark.isEmpty ? '整单备注' : '备注:${orderRemark.length > 6 ? '${orderRemark.substring(0, 6)}…' : orderRemark}',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: orderRemark.isNotEmpty ? PosTheme.amber : PosTheme.textSub)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // 全部划菜（v3.3.71）
+              InkWell(
+                onTap: bill.isEmpty ? null : _chuhuaAll,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEDFFF5),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: PosTheme.green.withOpacity(0.4)),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.done_all, size: 19, color: PosTheme.green),
+                    SizedBox(width: 7),
+                    Text('全部划菜', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.green)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // 传后厨：重打当前账单未退菜品的后厨小票（v3.3.70）
+              InkWell(
+                onTap: bill.isEmpty ? null : _reprintKitchen,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F6FF),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: PosTheme.blue.withOpacity(0.4)),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.local_shipping_outlined, size: 19, color: PosTheme.blue),
+                    SizedBox(width: 7),
+                    Text('传后厨', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.blue)),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
               // 无码菜品（临时菜/时价菜手动录入）
               InkWell(
                 onTap: _noCodeDish,
@@ -1106,12 +1736,13 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                   ]),
                 ),
               ),
-              const SizedBox(width: 12),
-              BigButton('结账收款', onTap: bill.isEmpty ? null : _settle, width: 180, height: 50),
             ]),
           ),
-        ]),
-      ),
+        ),
+        const SizedBox(width: 12),
+        // 右侧固定：结账收款
+        BigButton('结账收款', onTap: bill.isEmpty ? null : _settle, width: 180, height: 50),
+      ]),
     );
   }
 
@@ -1615,5 +2246,372 @@ class _PreorderDialogState extends State<_PreorderDialog> {
         child: Icon(icon, size: 15, color: PosTheme.textSub),
       ),
     );
+  }
+}
+
+// ==================== 做法备注点菜（v3.3.71）：常用口味 chips + 自定义 ====================
+class _DishNoteDialog extends StatefulWidget {
+  final String title;
+  const _DishNoteDialog({required this.title});
+  @override
+  State<_DishNoteDialog> createState() => _DishNoteDialogState();
+}
+
+class _DishNoteDialogState extends State<_DishNoteDialog> {
+  static const _common = ['免辣', '少辣', '多辣', '不要香菜', '不要葱蒜', '不要蒜', '少盐', '清淡', '加麻', '打包'];
+  final Set<String> picked = {};
+  final customCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('做法备注 · ${widget.title}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+      content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Wrap(
+          spacing: 8, runSpacing: 8,
+          children: _common.map((s) {
+            final on = picked.contains(s);
+            return InkWell(
+              borderRadius: BorderRadius.circular(9),
+              onTap: () => setState(() { on ? picked.remove(s) : picked.add(s); }),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: on ? PosTheme.accent : const Color(0xFFF7F8FA),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+                ),
+                child: Text(s, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
+              ),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: customCtrl,
+          decoration: const InputDecoration(hintText: '自定义做法，如：微辣多醋', isDense: true),
+        ),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('不带备注加菜')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
+          onPressed: () {
+            final all = [...picked, if (customCtrl.text.trim().isNotEmpty) customCtrl.text.trim()];
+            Navigator.pop(context, all.join('，'));
+          },
+          child: const Text('加菜'),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 整单备注（v3.3.71） ====================
+class _OrderRemarkDialog extends StatefulWidget {
+  final String initial;
+  const _OrderRemarkDialog({required this.initial});
+  @override
+  State<_OrderRemarkDialog> createState() => _OrderRemarkDialogState();
+}
+
+class _OrderRemarkDialogState extends State<_OrderRemarkDialog> {
+  final ctrl = TextEditingController();
+  @override
+  void initState() {
+    super.initState();
+    ctrl.text = widget.initial;
+  }
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('整单备注', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+      content: SizedBox(width: 420, child: TextField(
+        controller: ctrl,
+        autofocus: true,
+        maxLines: 3,
+        decoration: const InputDecoration(hintText: '如：先上凉菜、12:30 前出餐、打包一半'),
+      )),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
+          onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+          child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+// ==================== 结算优惠弹窗（v3.3.71）：费用/折扣/抹零/积分/发票/整单备注 ====================
+class _SettleAdjustDialog extends StatefulWidget {
+  final double goodsTotal;
+  final Map? vip;
+  final String initialRemark;
+  const _SettleAdjustDialog({required this.goodsTotal, this.vip, required this.initialRemark});
+  @override
+  State<_SettleAdjustDialog> createState() => _SettleAdjustDialogState();
+}
+
+class _SettleAdjustDialogState extends State<_SettleAdjustDialog> {
+  final kaitaiCtrl = TextEditingController();
+  final teaCtrl = TextEditingController();
+  final serviceCtrl = TextEditingController();
+  final boxCtrl = TextEditingController();
+  final remarkCtrl = TextEditingController();
+  final invoiceCtrl = TextEditingController();
+  final invoiceNoCtrl = TextEditingController();
+  double rate = 10; // 10 = 不打折
+  int moling = 0;   // 0 不抹零 1 抹角 2 抹元
+  bool useJifen = false;
+
+  double _num(TextEditingController c) => double.tryParse(c.text.trim()) ?? 0;
+  int get _points => int.tryParse('${widget.vip?['jifen'] ?? 0}') ?? 0; // 100积分=1元
+
+  double get fees => _num(kaitaiCtrl) + _num(teaCtrl) + _num(serviceCtrl) + _num(boxCtrl);
+  double get rawTotal => (widget.goodsTotal + fees) * rate / 10;
+
+  double get quiling {
+    if (moling == 1) return rawTotal - ((rawTotal * 10).floorToDouble()) / 10;
+    if (moling == 2) return rawTotal - rawTotal.floorToDouble();
+    return 0;
+  }
+
+  double get afterMoling => rawTotal - quiling;
+  double get jifenMax => useJifen && _points > 0 ? (_points / 100).floorToDouble().clamp(0, afterMoling).toDouble() : 0;
+  double get finalTotal => (afterMoling - jifenMax).clamp(0.01, double.infinity).toDouble();
+
+  @override
+  void initState() {
+    super.initState();
+    remarkCtrl.text = widget.initialRemark;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(children: [
+        const Text('结账 · 优惠与费用', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        const Spacer(),
+        Text('菜品 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 14, color: PosTheme.textSub)),
+      ]),
+      content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // 附加费用
+        const Text('附加费用（选填）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        const SizedBox(height: 6),
+        Row(children: [
+          _feeField('开台费 ¥', kaitaiCtrl),
+          const SizedBox(width: 8),
+          _feeField('茶位费 ¥', teaCtrl),
+          const SizedBox(width: 8),
+          _feeField('服务费 ¥', serviceCtrl),
+          const SizedBox(width: 8),
+          _feeField('餐盒费 ¥', boxCtrl),
+        ]),
+        const SizedBox(height: 14),
+        // 整单折扣
+        const Text('整单折扣', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 8, runSpacing: 8, children: [10, 9.8, 9.5, 9, 8.8, 8].map((r) => _chip('$r 折', rate == r, () => setState(() => rate = r.toDouble()))).toList()),
+        const SizedBox(height: 14),
+        // 抹零
+        const Text('抹零', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 8, children: [
+          _chip('不抹零', moling == 0, () => setState(() => moling = 0)),
+          _chip('抹角', moling == 1, () => setState(() => moling = 1)),
+          _chip('抹元', moling == 2, () => setState(() => moling = 2)),
+        ]),
+        const SizedBox(height: 14),
+        // 积分抵扣
+        if (widget.vip != null) ...[
+          Row(children: [
+            const Text('积分抵扣（100 积分 = 1 元）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+            const Spacer(),
+            Text('可用 ${_points} 分 · 可抵 ¥${Fmt.money(_points / 100)}', style: const TextStyle(fontSize: 12.5, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 10),
+            Switch(value: useJifen, activeColor: PosTheme.accent, onChanged: _points > 0 ? (v) => setState(() => useJifen = v) : null),
+          ]),
+        ],
+        const SizedBox(height: 10),
+        TextField(controller: remarkCtrl, maxLines: 2, decoration: const InputDecoration(hintText: '整单备注（选填）', isDense: true)),
+        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: TextField(controller: invoiceCtrl, decoration: const InputDecoration(hintText: '发票抬头（选填）', isDense: true))),
+          const SizedBox(width: 8),
+          SizedBox(width: 150, child: TextField(controller: invoiceNoCtrl, decoration: const InputDecoration(hintText: '税号（选填）', isDense: true))),
+        ]),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(color: const Color(0xFFFFF8F4), borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Text('费用 +¥${Fmt.money(fees)}　折扣 $rate 折　抹零 -¥${Fmt.money(quiling)}${jifenMax > 0 ? '　积分 -¥${Fmt.money(jifenMax)}' : ''}',
+                style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+            const Spacer(),
+            const Text('应收', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(width: 8),
+            Text('¥${Fmt.money(finalTotal)}', style: const TextStyle(fontSize: 24, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+          ]),
+        ),
+      ]))),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12)),
+          onPressed: () => Navigator.pop(context, {
+            'final': finalTotal,
+            'kaitai_fee': _num(kaitaiCtrl),
+            'tea_fee': _num(teaCtrl),
+            'service_fee': _num(serviceCtrl),
+            'box_fee': _num(boxCtrl),
+            'discount_rate': rate,
+            'quiling': quiling,
+            'jifen_num': (jifenMax * 100).round(),
+            'jifen_deduct': jifenMax,
+            'invoice_title': invoiceCtrl.text.trim(),
+            'invoice_no': invoiceNoCtrl.text.trim(),
+            'order_remark': remarkCtrl.text.trim(),
+          }),
+          child: const Text('去收款', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        ),
+      ],
+    );
+  }
+
+  Widget _feeField(String label, TextEditingController c) {
+    return Expanded(child: TextField(
+      controller: c,
+      keyboardType: TextInputType.number,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(hintText: label, isDense: true),
+    ));
+  }
+
+  Widget _chip(String label, bool on, VoidCallback onTap) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(9),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: on ? PosTheme.accent : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+        ),
+        child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
+      ),
+    );
+  }
+}
+
+// ==================== 餐饮交班对账（v3.3.71） ====================
+class DiningJiaobanDialog extends StatefulWidget {
+  const DiningJiaobanDialog();
+  @override
+  State<DiningJiaobanDialog> createState() => DiningJiaobanDialogState();
+}
+
+class DiningJiaobanDialogState extends State<DiningJiaobanDialog> {
+  Map? stats;
+  bool loading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() { loading = true; error = null; });
+    try {
+      final r = await Api.diningJiaoban(Session.wenxunId);
+      if (!mounted) return;
+      setState(() { stats = (r['data'] ?? {}) as Map; loading = false; });
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() { loading = false; error = e.message; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Row(children: [
+        const Text('餐饮交班对账（今日）', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+        const Spacer(),
+        IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, size: 20)),
+      ]),
+      content: SizedBox(width: 460, child: loading
+          ? const Center(heightFactor: 3, child: CircularProgressIndicator(color: PosTheme.accent))
+          : error != null
+              ? Text(error!, style: const TextStyle(color: PosTheme.red))
+              : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  _row('堂食订单', '${stats?['order_count'] ?? 0} 单', highlight: true),
+                  _row('用餐人数', '${stats?['people_total'] ?? 0} 人'),
+                  _row('菜品份数', '${stats?['dish_count'] ?? 0} 份'),
+                  _row('营业额', '¥${Fmt.money(stats?['total_amount'])}', highlight: true),
+                  _row('客单价', '¥${Fmt.money(stats?['avg_amount'])}'),
+                  _row('优惠让利（折扣+抹零+积分）', '-¥${Fmt.money(stats?['discount_total'])}'),
+                  _row('今日退菜', '${stats?['refund_count'] ?? 0} 项 / -¥${Fmt.money(stats?['refund_amount'])}'),
+                  const Divider(height: 20),
+                  const Text('支付方式明细', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                  const SizedBox(height: 6),
+                  ...((stats?['by_pay'] ?? {}) as Map).entries.map((e) => _row('${e.key}', '¥${Fmt.money(e.value)}')),
+                ]),
+      ),
+      actions: [
+        TextButton(onPressed: _load, child: const Text('刷新')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
+          onPressed: (stats == null || loading) ? null : _print,
+          child: const Text('打印交班单'),
+        ),
+      ],
+    );
+  }
+
+  Widget _row(String label, String value, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(children: [
+        Text(label, style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+        const Spacer(),
+        Text(value, style: TextStyle(fontSize: highlight ? 17 : 14.5, fontWeight: FontWeight.w800, color: highlight ? PosTheme.accent : PosTheme.textMain)),
+      ]),
+    );
+  }
+
+  Future<void> _print() async {
+    final d = stats ?? {};
+    final sb = StringBuffer();
+    sb.writeln('<CB>餐饮交班单（今日）</CB>');
+    sb.writeln('--------------------------------');
+    sb.writeln('商户: ${Session.shopName}');
+    sb.writeln('收银: ${Session.staffName}');
+    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('--------------------------------');
+    sb.writeln('堂食订单: ${d['order_count']} 单 / ${d['people_total']} 人');
+    sb.writeln('菜品份数: ${d['dish_count']} 份');
+    sb.writeln('营业额: ¥${Fmt.money(d['total_amount'])}');
+    sb.writeln('客单价: ¥${Fmt.money(d['avg_amount'])}');
+    sb.writeln('优惠让利: -¥${Fmt.money(d['discount_total'])}');
+    sb.writeln('今日退菜: ${d['refund_count']} 项 / -¥${Fmt.money(d['refund_amount'])}');
+    sb.writeln('--------------------------------');
+    ((d['by_pay'] ?? {}) as Map).forEach((k, v) => sb.writeln('$k: ¥${Fmt.money(v)}'));
+    sb.writeln('--------------------------------');
+    if (!await PrintPrefs.on('shift')) {
+      toast(context, '交班单打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    try {
+      final r = await CloudPrinter.print(sb.toString());
+      if (mounted) toast(context, '${'${r['code']}' == '200' ? '交班单已打印' : '打印失败：${r['msg'] ?? '请检查云打印机'}'}', error: '${r['code']}' != '200');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
   }
 }

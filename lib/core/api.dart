@@ -436,6 +436,19 @@ class Api {
     });
   }
 
+  /// 修改就餐中桌台的用餐人数（v3.3.76）
+  static Future<Map<String, dynamic>> tablePeople({
+    required int wenxunId,
+    required int tableId,
+    required int peopleNum,
+  }) async {
+    return post('/api/zhuotai/renshu', {
+      'wenxun_id': wenxunId,
+      'id': tableId,
+      'people_num': peopleNum,
+    });
+  }
+
   /// 预约桌台（仅空闲桌可预约，桌台状态 0→1）
   static Future<Map<String, dynamic>> tableBook({
     required int wenxunId,
@@ -488,6 +501,54 @@ class Api {
       'kaitai_id': kaitaiId,
       'cart': cart,
     });
+  }
+
+  /// 退菜（未结算明细；num 为本次退几件，v3.3.70）
+  static Future<Map<String, dynamic>> tableRetreatDish({
+    required int wenxunId,
+    required String kaitaiId,
+    required int itemId,
+    required int num,
+  }) async {
+    return post('/api/tableorder/tuicai', {
+      'wenxun_id': wenxunId,
+      'kaitai_id': kaitaiId,
+      'item_id': itemId,
+      'num': num,
+    });
+  }
+
+  /// 出品划菜（itemId=0 时该桌全部划菜，v3.3.71）
+  static Future<Map<String, dynamic>> tableChuhua({
+    required int wenxunId,
+    required String kaitaiId,
+    int itemId = 0,
+    bool isChu = true,
+  }) async {
+    return post('/api/tableorder/chuhua', {
+      'wenxun_id': wenxunId,
+      'kaitai_id': kaitaiId,
+      'item_id': itemId,
+      'is_chu': isChu ? 1 : 0,
+    });
+  }
+
+  /// 并台：源桌未结算菜品并入目标桌，源桌恢复空闲（v3.3.71）
+  static Future<Map<String, dynamic>> tableMerge({
+    required int wenxunId,
+    required String sourceKaitaiId,
+    required String targetKaitaiId,
+  }) async {
+    return post('/api/tableorder/hebing', {
+      'wenxun_id': wenxunId,
+      'source_kaitai_id': sourceKaitaiId,
+      'target_kaitai_id': targetKaitaiId,
+    });
+  }
+
+  /// 餐饮交班对账（今日堂食统计，v3.3.71）
+  static Future<Map<String, dynamic>> diningJiaoban(int wenxunId) async {
+    return post('/shouyin/canyin/jiaoban', {'wenxun_id': wenxunId});
   }
 
   // ==================== 收银员预点餐 ====================
@@ -569,6 +630,18 @@ class Api {
     String phone = '',
     String guazhangName = '',
     String guazhangPhone = '',
+    // v3.3.71 扩展：备注/费用/折扣/抹零/积分/发票
+    String orderRemark = '',
+    double kaitaiFee = 0,
+    double teaFee = 0,
+    double serviceFee = 0,
+    double boxFee = 0,
+    double discountRate = 10,
+    double quiling = 0,
+    int jifenNum = 0,
+    double jifenDeduct = 0,
+    String invoiceTitle = '',
+    String invoiceNo = '',
   }) async {
     return post('/api/tableorder/add', {
       'wenxun_id': wenxunId,
@@ -588,6 +661,17 @@ class Api {
       if (phone.isNotEmpty) 'phone': phone,
       if (guazhangName.isNotEmpty) 'guazhang_name': guazhangName,
       if (guazhangPhone.isNotEmpty) 'guazhang_phone': guazhangPhone,
+      if (orderRemark.isNotEmpty) 'order_remark': orderRemark,
+      if (kaitaiFee > 0) 'kaitai_fee': kaitaiFee,
+      if (teaFee > 0) 'tea_fee': teaFee,
+      if (serviceFee > 0) 'service_fee': serviceFee,
+      if (boxFee > 0) 'box_fee': boxFee,
+      if (discountRate != 10) 'discount_rate': discountRate,
+      if (quiling > 0) 'quiling': quiling,
+      if (jifenNum > 0) 'jifen_num': jifenNum,
+      if (jifenDeduct > 0) 'jifen_deduct': jifenDeduct,
+      if (invoiceTitle.isNotEmpty) 'invoice_title': invoiceTitle,
+      if (invoiceNo.isNotEmpty) 'invoice_no': invoiceNo,
     });
   }
 

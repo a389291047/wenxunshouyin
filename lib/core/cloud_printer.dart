@@ -57,7 +57,7 @@ class CloudPrinter {
     );
   }
 
-  /// 后厨小票模板（cart 聚合同名菜品；仅菜品名+数量，不带价格）
+  /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
   static String kitchenTicket({
     required String tableTitle,
     required String tableQuyu,
@@ -66,16 +66,18 @@ class CloudPrinter {
     String title = '后厨单',
     bool isAdd = false,
   }) {
-    // 同名菜品合并数量
+    // 同名同做法合并数量（v3.3.71：做法不同不合并，分行走菜）
     final merged = <String, Map<String, dynamic>>{};
     for (final g in cart) {
       final name = '${g['goods_name'] ?? g['name'] ?? ''}';
+      final note = '${g['remark'] ?? ''}'.trim();
       final qty = int.tryParse('${g['quantity']}') ?? 0;
       if (name.isEmpty || qty <= 0) continue;
-      if (merged.containsKey(name)) {
-        merged[name]!['quantity'] = (merged[name]!['quantity'] as int) + qty;
+      final key = '$name|$note';
+      if (merged.containsKey(key)) {
+        merged[key]!['quantity'] = (merged[key]!['quantity'] as int) + qty;
       } else {
-        merged[name] = {'goods_name': name, 'quantity': qty};
+        merged[key] = {'goods_name': name, 'remark': note, 'quantity': qty};
       }
     }
     final sb = StringBuffer();
@@ -91,6 +93,8 @@ class CloudPrinter {
       final qty = g['quantity'] as int;
       count += qty;
       sb.writeln('${g['goods_name']}  x$qty');
+      final note = '${g['remark'] ?? ''}'.trim();
+      if (note.isNotEmpty) sb.writeln('  <<$note>>');
     });
     sb.writeln('--------------------------------');
     sb.writeln('合计件数: $count');
@@ -132,6 +136,7 @@ class CloudPrinter {
     required double goodsTotal,
     required double finalTotal,
     required List<Map<String, dynamic>> cart,
+    List<String> extraLines = const [], // 费用/优惠/发票/备注明细（v3.3.71）
   }) {
     final sb = StringBuffer();
     sb.writeln('<CB>稳讯收银 · 结账单</CB>');
@@ -142,11 +147,16 @@ class CloudPrinter {
     sb.writeln('收银: ${Session.staffName}');
     sb.writeln('--------------------------------');
     for (final g in cart) {
+      final note = '${g['remark'] ?? ''}'.trim();
       sb.writeln('${g['goods_name']}');
       sb.writeln('  ¥${Fmt.money(g['unit_price'])} x${g['quantity']}   ¥${Fmt.money((double.tryParse('${g['unit_price']}') ?? 0) * (int.tryParse('${g['quantity']}') ?? 0))}');
+      if (note.isNotEmpty) sb.writeln('  做法: $note');
     }
     sb.writeln('--------------------------------');
     sb.writeln('菜品合计: ¥${Fmt.money(goodsTotal)}');
+    for (final line in extraLines) {
+      sb.writeln(line);
+    }
     sb.writeln('实收: ¥${Fmt.money(finalTotal)}');
     sb.writeln('支付方式: $payMethod');
     sb.writeln('谢谢惠顾，欢迎下次光临');

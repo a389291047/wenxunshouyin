@@ -5,11 +5,13 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/session.dart';
 import 'core/theme.dart';
+import 'core/updater.dart';
 import 'pages/login_page.dart';
 import 'pages/shell_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Updater.init(); // 在线更新：读取当前版本号（设置页显示/比较用）
 
   // Android（商米等收银机）：全屏沉浸 + 跟随设备横竖屏
   if (Platform.isAndroid) {

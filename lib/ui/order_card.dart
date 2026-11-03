@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api.dart';
 import '../core/cloud_printer.dart';
+import '../core/print_prefs.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import '../core/usb_printer.dart';
@@ -84,6 +85,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   // ==================== 打印 ====================
 
   Future<void> _cloudPrint() async {
+    if (!await PrintPrefs.on('order')) {
+      toast(context, '订单小票打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
     setState(() => busy = true);
     loadingDialog(context, '发送云打印…');
     try {
@@ -185,7 +190,9 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         });
         try {
           final oo = Map<String, dynamic>.from(o);
-          await CloudPrinter.print(CloudPrinter.orderTicket(oo, isRefund: true));
+          if (await PrintPrefs.on('refund')) {
+            await CloudPrinter.print(CloudPrinter.orderTicket(oo, isRefund: true));
+          }
         } catch (_) {}
         widget.onRefunded();
       } else {
