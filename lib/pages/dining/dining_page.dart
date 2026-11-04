@@ -287,6 +287,12 @@ class _DiningPageState extends State<DiningPage> {
     final bookInfo = st == 1
         ? '${('${t['book_operator_name'] ?? ''}')} ${('${t['book_time'] ?? ''}')}'.trim()
         : '';
+    // 并台来源桌台名（v3.3.93）：如 "3,5" → "3、5"
+    final mergeText = '${t['merge_titles'] ?? ''}'
+        .split(',')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .join('、');
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
@@ -341,10 +347,20 @@ class _DiningPageState extends State<DiningPage> {
             if (busy) ...[
               const SizedBox(height: 2),
               Text('消费 ¥${Fmt.money(t['zongjine'] ?? 0)}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95))),
+              if (mergeText.isNotEmpty) ...[
+                const SizedBox(height: 1),
+                Text('并入 $mergeText', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.9))),
+              ],
             ],
             if (cleared) ...[
               const SizedBox(height: 2),
               Text('已结账 · 可继续加菜', style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.9))),
+              if (mergeText.isNotEmpty) ...[
+                const SizedBox(height: 1),
+                Text('并入 $mergeText', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
+              ],
             ],
           ]),
         ),
@@ -733,7 +749,8 @@ class _DiningPageState extends State<DiningPage> {
       if (!mounted) return;
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
-        toast(context, '已并入 ${r['data']?['target_table_title'] ?? target['title']}');
+        final srcTitle = r['data']?['source_table_title'] ?? t['title'];
+        toast(context, '「$srcTitle」已并入 ${r['data']?['target_table_title'] ?? target['title']}');
         _load();
       } else {
         toast(context, '${r['msg'] ?? '并台失败'}', error: true);
@@ -1443,11 +1460,32 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
-  /// 重打后厨票：把当前账单未退菜品再传一次后厨云打印机（按分类路由，v3.3.82）
+  /// 重打后厨票：只打「未出品（未划菜）」的菜品（v3.3.93），已出的菜不再重复打印
+  /// 按分类路由（v3.3.82）；合并行按 _items 明细逐条判断出品状态
   Future<void> _reprintKitchen() async {
-    final items = settleCart; // 已剔除退完、按剩余件数
+    final items = <Map<String, dynamic>>[];
+    for (final b in bill) {
+      final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
+      if (remain <= 0) continue;
+      final raw = b['_items'] is List && (b['_items'] as List).isNotEmpty ? (b['_items'] as List) : [b];
+      var qty = 0;
+      for (final it in raw) {
+        if ('${it['is_chu'] ?? 0}' == '1') continue; // 已出品跳过
+        final q = (int.tryParse('${it['quantity']}') ?? 0) - (int.tryParse('${it['refund_num']}') ?? 0);
+        if (q > 0) qty += q;
+      }
+      if (qty <= 0) continue;
+      items.add({
+        'goods_id': b['goods_id'],
+        'goods_name': b['goods_title'],
+        'goods_image': b['goods_image'] ?? '',
+        'unit_price': b['unit_price'],
+        'quantity': qty,
+        'remark': b['remark'] ?? '',
+      });
+    }
     if (items.isEmpty) {
-      toast(context, '当前没有未退菜品', error: true);
+      toast(context, '当前菜品都已出品，无需重打后厨单', error: true);
       return;
     }
     if (!await PrintPrefs.on('reprint')) {
@@ -1458,7 +1496,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       final routed = items.map((c) => {...c, 'cat_id': _catOf(c['goods_id'])}).toList();
       await _printKitchenRouted(routed, isAdd: false, title: '后厨单重打');
       if (!mounted) return;
-      toast(context, '已传后厨打印机（${items.length} 项）');
+      toast(context, '已传后厨打印机（${items.length} 项未出品）');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
     }
@@ -1716,6 +1754,18 @@ class _TableBillDialogState extends State<_TableBillDialog> {
             ),
           ),
         ]),
+        // 并台来源桌台名（v3.3.93）
+        if ('${widget.table['merge_titles'] ?? ''}'.trim().isNotEmpty) ...[
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(color: const Color(0xFFF0F6FF), borderRadius: BorderRadius.circular(7), border: Border.all(color: PosTheme.blue.withOpacity(0.3))),
+            child: Text(
+              '并入 ${'${widget.table['merge_titles']}'.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).join('、')}',
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.blue, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
         const Spacer(),
         // 商品搜索（名称/简拼，v3.3.75；合计只在底部显示）
         SizedBox(
