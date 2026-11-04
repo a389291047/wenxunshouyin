@@ -436,6 +436,19 @@ class Api {
     });
   }
 
+  /// 清台（v3.3.87）：已结账待清台(status=4)的桌台手动恢复为空闲
+  static Future<Map<String, dynamic>> tableQingtai({
+    required int wenxunId,
+    required int tableId,
+  }) async {
+    return post('/api/zhuotai/qingtai', {
+      'wenxun_id': wenxunId,
+      'table_id': tableId,
+      'operator_id': Session.staffId,
+      'operator_name': Session.staffName,
+    });
+  }
+
   /// 修改就餐中桌台的用餐人数（v3.3.76）
   static Future<Map<String, dynamic>> tablePeople({
     required int wenxunId,

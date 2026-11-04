@@ -45,8 +45,14 @@ class _DiningPageState extends State<DiningPage> {
   // 桌台状态：0空闲 1已预定 2就餐中 3扫码点餐 4已结账待清台
   static const statusText = {0: '空闲', 1: '已预定', 2: '就餐中', 3: '扫码点餐', 4: '待清台'};
   static const statusColor = {
-    0: PosTheme.green, 1: PosTheme.amber, 2: PosTheme.accent, 3: PosTheme.blue, 4: PosTheme.textHint,
+    0: PosTheme.green, 1: PosTheme.amber, 2: PosTheme.accent, 3: PosTheme.blue, 4: Color(0xFFF97316),
   };
+  // 待清台桌台卡片渐变（v3.3.87）：已结账但顾客可能继续就餐/加菜，醒目区分
+  static const clearedGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFFB75E), Color(0xFFF97316)],
+  );
 
   int get idleCount => tables.where((t) => '${t['status']}' == '0').length;
   int get busyCount => tables.where((t) => '${t['status']}' == '2' || '${t['status']}' == '3').length;
@@ -142,6 +148,8 @@ class _DiningPageState extends State<DiningPage> {
           _legend('就餐中 $busyCount', PosTheme.accent),
           const SizedBox(width: 12),
           _legend('已预定 ${tables.where((t) => '${t['status']}' == '1').length}', PosTheme.amber),
+          const SizedBox(width: 12),
+          _legend('待清台 ${tables.where((t) => '${t['status']}' == '4').length}', const Color(0xFFF97316)),
           const SizedBox(width: 14),
           // 餐饮交班对账入口已移到「交班页」（v3.3.77）
           OutlinedButton.icon(
@@ -269,6 +277,7 @@ class _DiningPageState extends State<DiningPage> {
     final c = statusColor[st] ?? PosTheme.textHint;
     final open = st == 0 || st == 3;
     final busy = st == 2;
+    final cleared = st == 4; // 已结账待清台：渐变卡片，可继续加菜/清台（v3.3.87）
     final bookInfo = st == 1
         ? '${('${t['book_operator_name'] ?? ''}')} ${('${t['book_time'] ?? ''}')}'.trim()
         : '';
@@ -291,6 +300,8 @@ class _DiningPageState extends State<DiningPage> {
             _tableActionSheet(t);
           } else if (st == 1) {
             _bookedActionSheet(t);
+          } else if (cleared) {
+            _clearedActionSheet(t);
           } else {
             toast(context, '该桌状态：${statusText[st]}');
           }
@@ -298,20 +309,21 @@ class _DiningPageState extends State<DiningPage> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           decoration: BoxDecoration(
+            gradient: cleared ? clearedGradient : null,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: c.withOpacity(0.45), width: 1.6),
+            border: Border.all(color: cleared ? Colors.white.withOpacity(0.35) : c.withOpacity(0.45), width: 1.6),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Container(width: 9, height: 9, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+              Container(width: 9, height: 9, decoration: BoxDecoration(color: cleared ? Colors.white : c, shape: BoxShape.circle)),
               const SizedBox(width: 7),
-              Text(statusText[st]!, style: TextStyle(fontSize: 12, color: c, fontWeight: FontWeight.w600)),
+              Text(statusText[st]!, style: TextStyle(fontSize: 12, color: cleared ? Colors.white : c, fontWeight: FontWeight.w600)),
               const Spacer(),
             ]),
             const Spacer(),
-            Text('${t['title']}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            Text('${t['title']}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: cleared ? Colors.white : null)),
             const SizedBox(height: 2),
-            Text('${t['renshu'] ?? '-'} 人桌', style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
+            Text('${t['renshu'] ?? '-'} 人桌', style: TextStyle(fontSize: 12, color: cleared ? Colors.white.withOpacity(0.85) : PosTheme.textSub)),
             if (bookInfo.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text('预定 $bookInfo', style: const TextStyle(fontSize: 11, color: PosTheme.amber), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -319,6 +331,10 @@ class _DiningPageState extends State<DiningPage> {
             if (busy) ...[
               const SizedBox(height: 2),
               Text('已开台', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            ],
+            if (cleared) ...[
+              const SizedBox(height: 2),
+              Text('已结账 · 可继续加菜', style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.9))),
             ],
             if (st == 0) ...[
               const SizedBox(height: 6),
@@ -442,6 +458,53 @@ class _DiningPageState extends State<DiningPage> {
   Future<void> _openPreorder(Map t) async {
     await showDialog(context: context, builder: (_) => _PreorderDialog(table: t));
     _load();
+  }
+
+  // ==================== 待清台（已结账）桌台操作（v3.3.87） ====================
+  Future<void> _clearedActionSheet(Map t) async {
+    final kaitaiId = '${t['kaitai_id'] ?? ''}';
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (_) => SafeArea(child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('${t['title']} · 待清台', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          const Text('已结账，顾客可能继续就餐或加菜', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          const SizedBox(height: 18),
+          if (kaitaiId.isNotEmpty) ...[
+            BigButton('继续点餐 / 加菜 / 再结算', onTap: () { Navigator.pop(context); _dishPanel(t, kaitaiId); }, height: 50),
+            const SizedBox(height: 10),
+          ],
+          BigButton('清台（顾客离店后恢复空闲）', onTap: () { Navigator.pop(context); _clearTable(t); }, color: const Color(0xFFFFF4EC), textColor: const Color(0xFFF97316), height: 46),
+        ]),
+      )),
+    );
+  }
+
+  // 清台：待清台桌台恢复空闲（有未结算加菜时后端会拦截）
+  Future<void> _clearTable(Map t) async {
+    final ok = await confirm(context, '确认清台', '「${t['title']}」已结账，确认顾客已离店并清台？清台后恢复为空闲桌台。');
+    if (!ok || !mounted) return;
+    loadingDialog(context, '清台中…');
+    try {
+      final r = await Api.tableQingtai(
+        wenxunId: Session.wenxunId,
+        tableId: int.tryParse('${t['id']}') ?? 0,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      if ('${r['code']}' == '200') {
+        toast(context, '已清台');
+        _load();
+      } else {
+        toast(context, '${r['msg'] ?? '清台失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    }
   }
 
   // ==================== 顾客到店：开台 + 出后厨票 ====================
@@ -762,9 +825,14 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     try {
       final r = await Api.tableBill(wenxunId: Session.wenxunId, kaitaiId: widget.kaitaiId);
       if (!mounted) return;
+      // v3.3.87：已结算明细（order_id>0，待清台后继续加菜场景）不参与再结算，
+      // 账单面板与结算金额只统计未结算部分（order_id=0）
+      final all = (r['list'] ?? []) as List;
+      final unpaid = all.where((e) => '${(e as Map)['order_id'] ?? 0}' == '0').toList();
+      final merged = _mergeBill(unpaid);
       setState(() {
-        bill = _mergeBill((r['list'] ?? []) as List);
-        billTotal = double.tryParse('${r['total']}') ?? 0;
+        bill = merged;
+        billTotal = merged.fold<double>(0, (s, b) => s + (double.tryParse('${b['sub_total']}') ?? 0));
         loading = false;
       });
     } on ApiError {

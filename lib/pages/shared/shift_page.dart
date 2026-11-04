@@ -219,6 +219,15 @@ class _ShiftPageState extends State<ShiftPage> {
                               const SizedBox(width: 10),
                               Expanded(child: StatTile(label: '现金收款', value: '¥${Fmt.money(stats['xianjin'])}', icon: Icons.payments_outlined, color: PosTheme.amber)),
                             ]),
+                            // 餐饮版：零售（wx_order）与堂食（wx_table_order）库表分开，分开展示构成（v3.3.88）
+                            if (Session.hangye == 2 && ((double.tryParse('${stats['canyin']}') ?? 0) > 0 || (double.tryParse('${stats['lingshou']}') ?? 0) > 0)) ...[
+                              const SizedBox(height: 10),
+                              Row(children: [
+                                Expanded(child: StatTile(label: '堂食营业', value: '¥${Fmt.money(stats['canyin'])}', icon: Icons.restaurant, color: const Color(0xFFF97316))),
+                                const SizedBox(width: 10),
+                                Expanded(child: StatTile(label: '零售营业', value: '¥${Fmt.money(stats['lingshou'])}', icon: Icons.storefront_outlined, color: PosTheme.green)),
+                              ]),
+                            ],
                             const Divider(height: 24, color: PosTheme.line),
                             // 打印按钮
                             BigButton('云打印交班单', onTap: _cloudPrintShift, height: 50),
