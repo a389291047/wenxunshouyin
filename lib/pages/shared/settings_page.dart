@@ -198,6 +198,26 @@ class _SettingsPageState extends State<SettingsPage> {
           {'goods_name': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '米饭', 'unit_price': '2.00', 'quantity': 4},
         ], extraLines: ['茶位费: ¥4.00']);
+      case 'reorder':
+        // 订单补打小票：从已结算堂食订单行重组（含附加费/优惠明细）
+        return CloudPrinter.diningReprintTicket({
+          'order_sn': 'CT$now示例',
+          'table_title': '大厅8',
+          'people_num': 4,
+          'create_time': now,
+          'goods_list': [
+            {'goods_title': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
+            {'goods_title': '米饭', 'unit_price': '2.00', 'quantity': 4},
+          ],
+          'goods_total': '66.00',
+          'kaitai_fee': '10.00',
+          'tea_fee': '4.00',
+          'discount_amount': '6.60',
+          'quiling': '0.40',
+          'final_total': '73.00',
+          'pay1_type': '微信支付',
+          'order_remark': '不要香菜',
+        });
       case 'retreat':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
           cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单');

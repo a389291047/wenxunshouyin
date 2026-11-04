@@ -150,6 +150,50 @@ class CloudPrinter {
     return sb.toString();
   }
 
+  /// 订单补打小票（v3.3.87）：USB 直连优先，云打印默认前台收银小票机（print_type=1）
+  static Future<Map<String, dynamic>> printReorder(String content) => print(content);
+
+  /// 堂食订单补打小票模板（v3.3.87）：从订单行重组结账单，含附加费/优惠明细
+  static String diningReprintTicket(Map o) {
+    final cart = parseGoods(o).map((g) => {
+          'goods_name': '${g['goods_title'] ?? g['goods_name'] ?? g['title'] ?? g['name'] ?? ''}',
+          'unit_price': double.tryParse('${g['unit_price'] ?? g['price'] ?? 0}') ?? 0,
+          'quantity': int.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1,
+          'remark': '${g['remark'] ?? ''}',
+        }).toList();
+    double f(String k) => double.tryParse('${o[k] ?? 0}') ?? 0;
+    final extra = <String>[];
+    if (f('kaitai_fee') > 0) extra.add('开台费: ¥${Fmt.money(f('kaitai_fee'))}');
+    if (f('tea_fee') > 0) extra.add('茶位费: ¥${Fmt.money(f('tea_fee'))}');
+    if (f('service_fee') > 0) extra.add('服务费: ¥${Fmt.money(f('service_fee'))}');
+    if (f('box_fee') > 0) extra.add('餐盒费: ¥${Fmt.money(f('box_fee'))}');
+    if (f('discount_amount') > 0) extra.add('整单优惠: -¥${Fmt.money(f('discount_amount'))}');
+    if (f('vip_reduce') > 0) extra.add('会员优惠: -¥${Fmt.money(f('vip_reduce'))}');
+    if (f('manual_prefer') > 0) extra.add('手动优惠: -¥${Fmt.money(f('manual_prefer'))}');
+    if (f('quiling') > 0) extra.add('抹零: -¥${Fmt.money(f('quiling'))}');
+    if ((int.tryParse('${o['jifen_num'] ?? 0}') ?? 0) > 0) {
+      extra.add('积分抵扣: ${o['jifen_num']}分 (-¥${Fmt.money(f('jifen_deduct'))})');
+    }
+    if (f('refund_total') > 0) extra.add('累计退款: -¥${Fmt.money(f('refund_total'))}');
+    final remark = '${o['order_remark'] ?? ''}';
+    if (remark.isNotEmpty) extra.add('整单备注: $remark');
+    final invoice = '${o['invoice_title'] ?? ''}';
+    if (invoice.isNotEmpty) extra.add('发票: $invoice');
+    final pays = ['${o['pay1_type'] ?? ''}', '${o['pay2_type'] ?? ''}', '${o['pay3_type'] ?? ''}']
+        .where((p) => p.isNotEmpty && p != 'null')
+        .toList();
+    return diningReceipt(
+      orderSn: '${o['order_sn'] ?? ''}',
+      tableTitle: '${o['table_title'] ?? ''}',
+      peopleNum: int.tryParse('${o['people_num'] ?? 1}') ?? 1,
+      payMethod: pays.isEmpty ? '其他' : pays.join(' / '),
+      goodsTotal: f('goods_total'),
+      finalTotal: f('final_total'),
+      cart: cart,
+      extraLines: extra,
+    );
+  }
+
   /// 组零售收银小票
   static String retailReceipt({
     required String orderNo,

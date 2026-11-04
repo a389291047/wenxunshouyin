@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/cloud_printer.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/order_card.dart';
@@ -394,8 +396,8 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               ),
           ],
         )),
-        // 底部操作
-        if (canRefund)
+        // 底部操作：已结算单可补打小票；可退单再显示申请退款
+        if ('${o['order_status']}' == '1')
           Container(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
             decoration: const BoxDecoration(
@@ -404,11 +406,25 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               border: Border(top: BorderSide(color: PosTheme.line)),
             ),
             child: Row(children: [
-              Text('剩余可退 ¥${Fmt.money(refundable - refunded)}',
-                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+              if (canRefund)
+                Text('剩余可退 ¥${Fmt.money(refundable - refunded)}',
+                    style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
               const Spacer(),
-              SizedBox(width: 130, child: BigButton('申请退款', onTap: () => _tableRefund(o),
-                  color: PosTheme.red, height: 44)),
+              OutlinedButton.icon(
+                onPressed: () => _reprintDining(o),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: PosTheme.blue,
+                  side: const BorderSide(color: PosTheme.blue),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+                icon: const Icon(Icons.print_outlined, size: 17),
+                label: const Text('补打小票', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+              ),
+              if (canRefund) ...[
+                const SizedBox(width: 12),
+                SizedBox(width: 130, child: BigButton('申请退款', onTap: () => _tableRefund(o),
+                    color: PosTheme.red, height: 44)),
+              ],
             ]),
           ),
       ]),
@@ -473,6 +489,27 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         Expanded(child: Text(v, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: valueColor ?? PosTheme.textMain))),
       ]),
     );
+  }
+
+  /// 补打堂食小票（v3.3.87）：USB 直连优先，云打印默认前台收银小票机
+  Future<void> _reprintDining(Map o) async {
+    if (!await PrintPrefs.on('reorder')) {
+      toast(context, '订单补打小票已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    loadingDialog(context, '发送补打小票…');
+    try {
+      await CloudPrinter.printReorder(CloudPrinter.diningReprintTicket(o));
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '补打小票已发送');
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, '打印失败：$e', error: true);
+    }
   }
 
   /// 堂食订单退款弹窗：金额（默认整单）+ 原因 + 权限密码
