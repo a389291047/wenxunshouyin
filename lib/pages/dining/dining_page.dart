@@ -295,10 +295,12 @@ class _DiningPageState extends State<DiningPage> {
         onTap: () {
           if (open) {
             // 扫码点餐桌（状态3）若顾客已下单（有开台号），直接进账单面板；
-            // 否则走开台流程
+            // 空闲桌弹操作面板（开台点餐/预定桌台/预约点餐）；扫码未下单桌直接开台
             final kt = '${t['kaitai_id'] ?? ''}';
             if (st == 3 && kt.isNotEmpty) {
               _dishPanel(t, kt);
+            } else if (st == 0) {
+              _idleActionSheet(t);
             } else {
               _openTableDialog(t);
             }
@@ -338,7 +340,7 @@ class _DiningPageState extends State<DiningPage> {
             ],
             if (busy) ...[
               const SizedBox(height: 2),
-              Text('已开台', style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.9))),
+              Text('消费 ¥${Fmt.money(t['zongjine'] ?? 0)}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95))),
             ],
             if (cleared) ...[
               const SizedBox(height: 2),
@@ -348,6 +350,52 @@ class _DiningPageState extends State<DiningPage> {
         ),
       ),
     );
+  }
+
+  // ==================== 空闲桌操作面板（开台点餐 / 预定桌台 / 预约点餐，v3.3.91） ====================
+  Future<void> _idleActionSheet(Map t) async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (_) => SafeArea(child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('${t['title']} · 空闲', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          const Text('选择本桌的下一步操作', textAlign: TextAlign.center, style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          const SizedBox(height: 18),
+          BigButton('开台点餐', onTap: () { Navigator.pop(context); _openTableDialog(t); }, height: 50),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: BigButton('预定桌台', onTap: () { Navigator.pop(context); _bookTable(t); }, color: const Color(0xFFFFF8EC), textColor: PosTheme.amber, height: 46)),
+            const SizedBox(width: 10),
+            Expanded(child: BigButton('预约点餐', onTap: () { Navigator.pop(context); _openPreorder(t); }, color: const Color(0xFFF0F6FF), textColor: PosTheme.blue, height: 46)),
+          ]),
+        ]),
+      )),
+    );
+  }
+
+  // 纯预定桌台（不点菜，0→1）
+  Future<void> _bookTable(Map t) async {
+    try {
+      final r = await Api.tableBook(
+        wenxunId: Session.wenxunId,
+        tableId: int.tryParse('${t['id']}') ?? 0,
+        operatorId: Session.staffId,
+        operatorName: Session.staffName.isEmpty ? '收银员' : Session.staffName,
+      );
+      if (!mounted) return;
+      if ('${r['code']}' == '200') {
+        toast(context, '已预定「${t['title']}」');
+      } else {
+        toast(context, '${r['msg'] ?? '预定失败'}');
+      }
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      toast(context, e.message);
+    }
+    _load();
   }
 
   // ==================== 开台（点桌台图 → 人数数字键盘弹窗，v3.3.67） ====================
