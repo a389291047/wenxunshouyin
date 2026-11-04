@@ -416,11 +416,15 @@ class Api {
     required int wenxunId,
     required int tableId,
     required String kaitaiId,
+    int operatorId = 0,
+    String password = '',
   }) async {
     return post('/api/zhuotai/cancel_kaitai', {
       'wenxun_id': wenxunId,
       'table_id': tableId,
       'kaitai_id': kaitaiId,
+      'operator_id': operatorId,
+      'password': password,
     });
   }
 

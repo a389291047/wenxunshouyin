@@ -744,16 +744,21 @@ class _DiningPageState extends State<DiningPage> {
     }
   }
 
-  // ==================== 取消开台 ====================
+  // ==================== 取消开台（6位权限码数字键盘，v3.3.92） ====================
   Future<void> _cancelOpen(Map t, String kaitaiId) async {
-    final ok = await confirm(context, '取消开台', '「${t['title']}」未结算菜品将被清空，桌台恢复空闲，确定？');
-    if (!ok || !mounted) return;
+    final pwd = await showDialog<String>(
+      context: context,
+      builder: (_) => _CancelOpenPwdDialog(table: t),
+    );
+    if (pwd == null || pwd.isEmpty || !mounted) return;
     loadingDialog(context, '处理中…');
     try {
       final r = await Api.tableCancelOpen(
         wenxunId: Session.wenxunId,
         tableId: int.tryParse('${t['id']}') ?? 0,
         kaitaiId: kaitaiId,
+        operatorId: Session.staffId,
+        password: pwd,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -767,6 +772,157 @@ class _DiningPageState extends State<DiningPage> {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
+  }
+}
+
+/// 取消开台权限码弹窗：6 位圆点 + 九宫格数字键盘（触摸屏，v3.3.92）
+class _CancelOpenPwdDialog extends StatefulWidget {
+  final Map table;
+  const _CancelOpenPwdDialog({required this.table});
+  @override
+  State<_CancelOpenPwdDialog> createState() => _CancelOpenPwdDialogState();
+}
+
+class _CancelOpenPwdDialogState extends State<_CancelOpenPwdDialog> {
+  String pwd = '';
+
+  void _key(String k) {
+    setState(() {
+      if (k == 'C') {
+        pwd = '';
+      } else if (k == '<') {
+        if (pwd.isNotEmpty) pwd = pwd.substring(0, pwd.length - 1);
+      } else if (pwd.length < 6) {
+        pwd += k;
+      }
+    });
+  }
+
+  void _confirm() {
+    if (pwd.length != 6) {
+      toast(context, '请输入6位数字权限密码（由商户在设置页分配）', error: true);
+      return;
+    }
+    Navigator.pop(context, pwd);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 400,
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Text('取消开台', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('${widget.table['title']} · 未点菜才可取消',
+                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub), maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            InkWell(
+              onTap: () => Navigator.pop(context),
+              child: const Icon(Icons.close, size: 24, color: PosTheme.textHint),
+            ),
+          ]),
+          const SizedBox(height: 18),
+          // 6 位圆点显示框
+          Container(
+            height: 54,
+            decoration: BoxDecoration(
+              color: PosTheme.bg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: PosTheme.line),
+            ),
+            child: Row(children: [
+              const SizedBox(width: 12),
+              const Icon(Icons.lock_outline, size: 20, color: PosTheme.textHint),
+              const SizedBox(width: 12),
+              Expanded(
+                child: pwd.isEmpty
+                    ? const Text('请输入权限密码（6位数字，由商户分配）',
+                        style: TextStyle(fontSize: 13, color: PosTheme.textHint))
+                    : Row(mainAxisAlignment: MainAxisAlignment.start, children: [
+                        for (var i = 0; i < 6; i++) ...[
+                          if (i > 0) const SizedBox(width: 10),
+                          Container(
+                            width: 12, height: 12,
+                            decoration: BoxDecoration(
+                              color: i < pwd.length ? PosTheme.textMain : Colors.transparent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: PosTheme.textHint, width: 1.2),
+                            ),
+                          ),
+                        ],
+                      ]),
+              ),
+              if (pwd.isNotEmpty)
+                InkWell(
+                  onTap: () => _key('C'),
+                  borderRadius: BorderRadius.circular(8),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Text('清空', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                  ),
+                ),
+              const SizedBox(width: 8),
+            ]),
+          ),
+          const SizedBox(height: 12),
+          // 九宫格数字键盘
+          _pad(),
+          const SizedBox(height: 14),
+          BigButton('确认取消开台', onTap: _confirm, color: PosTheme.red, height: 50),
+        ]),
+      ),
+    );
+  }
+
+  Widget _pad() {
+    Widget keyBtn(String label, {VoidCallback? onTap, Color? color, IconData? icon}) {
+      final enabled = onTap != null;
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          height: 56,
+          decoration: BoxDecoration(
+            color: enabled ? (color ?? Colors.white) : PosTheme.bg,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: PosTheme.line),
+          ),
+          alignment: Alignment.center,
+          child: icon != null
+              ? Icon(icon, size: 24, color: enabled ? PosTheme.textMain : PosTheme.textHint)
+              : Text(label, style: TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.w700,
+                  color: enabled ? (color ?? PosTheme.textMain) : PosTheme.textHint)),
+        ),
+      );
+    }
+
+    return Column(children: [
+      for (var row = 0; row < 4; row++) ...[
+        if (row > 0) const SizedBox(height: 8),
+        Row(children: [
+          for (var col = 0; col < 3; col++) ...[
+            if (col > 0) const SizedBox(width: 8),
+            Expanded(
+              child: row < 3
+                  ? keyBtn('${row * 3 + col + 1}', onTap: () => _key('${row * 3 + col + 1}'))
+                  : (col == 0
+                      ? keyBtn('清空', onTap: pwd.isEmpty ? null : () => _key('C'), color: const Color(0xFFF2F3F7))
+                      : (col == 1
+                          ? keyBtn('0', onTap: () => _key('0'))
+                          : keyBtn('退格', onTap: pwd.isEmpty ? null : () => _key('<'),
+                              icon: Icons.backspace_outlined))),
+            ),
+          ],
+        ]),
+      ],
+    ]);
   }
 }
 
