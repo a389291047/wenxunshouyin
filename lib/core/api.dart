@@ -785,6 +785,13 @@ class Api {
     });
   }
 
+  /// 开台订单（就餐中）列表（v3.3.84）：数据源 wx_zhuotai status=2 + 明细聚合
+  static Future<Map<String, dynamic>> diningKaitaiList(int wenxunId) async {
+    return post('/api/canyinorder/kaitaiList', {
+      'wenxun_id': wenxunId,
+    });
+  }
+
   /// 堂食订单退款（v3.3.83）：整单/部分；需权限密码
   static Future<Map<String, dynamic>> diningOrderRefund({
     required int wenxunId,

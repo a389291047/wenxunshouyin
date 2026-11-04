@@ -52,7 +52,13 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
     setState(() => loading = true);
     try {
       if (tab <= 1) {
-        final r = await Api.diningOrders(Session.wenxunId, page, 20, tab == 0 ? 0 : 1);
+        final Map<String, dynamic> r;
+        if (tab == 0) {
+          // 开台订单：数据源是就餐中桌台（wx_zhuotai status=2），未结算的主订单表里没有
+          r = await Api.diningKaitaiList(Session.wenxunId);
+        } else {
+          r = await Api.diningOrders(Session.wenxunId, page, 20, 1);
+        }
         if (!mounted) return;
         final d = r['data'] ?? {};
         final list = (d['list'] ?? []) as List;
@@ -232,7 +238,8 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                         ),
                       )),
             if (diningList.isNotEmpty) ...[
-              const Divider(height: 1, color: PosTheme.line),
+            const Divider(height: 1, color: PosTheme.line),
+            if (status == 1)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -287,7 +294,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               ],
             ]),
             const SizedBox(height: 3),
-            Text('${o['order_sn'] ?? '未结算'} · ${Fmt.date(o['create_time'])} · ${((o['goods_list'] ?? []) as List).length} 项 · ${o['pay1_type'] ?? '-'}',
+            Text(_tableSubTitle(o),
                 style: const TextStyle(fontSize: 12, color: PosTheme.textSub),
                 maxLines: 1, overflow: TextOverflow.ellipsis),
           ])),
@@ -297,6 +304,18 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         ]),
       ),
     );
+  }
+
+  /// 列表副标题：就餐中显示「未结算 · 开台时间 · N项」；已结算显示单号+支付方式
+  String _tableSubTitle(Map o) {
+    final parts = <String>[
+      '${o['order_sn'] ?? ''}'.isEmpty ? '未结算' : '${o['order_sn']}',
+      Fmt.date(o['create_time']),
+      '${((o['goods_list'] ?? []) as List).length} 项',
+    ];
+    final pay = '${o['pay1_type'] ?? ''}';
+    if (pay.isNotEmpty && pay != 'null') parts.add(pay);
+    return parts.join(' · ');
   }
 
   Widget _tableDetailPanel(Map o) {
@@ -321,7 +340,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
           child: Row(children: [
             const Icon(Icons.receipt_long, size: 19, color: PosTheme.accent),
             const SizedBox(width: 8),
-            Expanded(child: Text('堂食订单 · ${o['table_title'] ?? ''}',
+            Expanded(child: Text('${'${o['order_status']}' == '0' ? '就餐中' : '堂食订单'} · ${o['table_title'] ?? ''}',
                 style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700))),
             TagChip('${o['status_text'] ?? ''}',
                 color: {0: PosTheme.accent, 1: PosTheme.green, 3: PosTheme.textHint}[int.tryParse('${o['order_status']}')] ?? PosTheme.textHint),
@@ -330,11 +349,13 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         Expanded(child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
           children: [
-            _kvRow('单号', '${o['order_sn'] ?? '-'}'),
+            _kvRow('${o['order_status']}' == '0' ? '开台流水' : '单号',
+                '${o['order_sn'] ?? ''}'.isEmpty ? '${o['kaitai_id'] ?? '-'}' : '${o['order_sn']}'),
             _kvRow('开台时间', Fmt.date(o['create_time'])),
             _kvRow('用餐人数', '${o['people_num'] ?? '-'} 人'),
             _kvRow('收银员', '${o['operator_name'] ?? '-'}'),
-            _kvRow('支付方式', '${o['pay1_type'] ?? '-'}'),
+            if ('${o['pay1_type'] ?? ''}'.isNotEmpty && '${o['pay1_type']}' != 'null')
+              _kvRow('支付方式', '${o['pay1_type']}'),
             if (refunded > 0) _kvRow('已退款', '¥${Fmt.money(refunded)}', valueColor: PosTheme.red),
             const SizedBox(height: 8),
             const Divider(height: 1, color: PosTheme.line),
