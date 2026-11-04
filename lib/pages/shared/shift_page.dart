@@ -37,22 +37,41 @@ class _ShiftPageState extends State<ShiftPage> {
     try {
       final s = await Api.shiftStats(Session.staffId);
       // 当天退款统计与明细（客户端计算，避免后端改动）
+      // 来源1：小程序订单（wx_order.refund_status=2）；来源2：统一退款记录 wx_refund（堂食/收银，status=2 成功）
       var ra = 0.0;
       var rc = 0;
       final ro = <Map>[];
       try {
-        final orders = await Api.ordersAll(Session.wenxunId);
         final now = DateTime.now();
         final today =
             '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-        for (final o in orders) {
-          if ('${o['refund_status']}' != '2') continue;
-          final rt = '${o['refund_time'] ?? o['update_time'] ?? ''}';
-          if (!rt.startsWith(today)) continue;
+        void addIfToday(Map o, String time, String amountKey) {
+          if (!time.startsWith(today)) return;
+          final amt = double.tryParse('${o[amountKey]}') ?? 0;
+          if (amt <= 0) return;
           rc++;
-          ra += double.tryParse('${o['refund_amount']}') ?? 0;
+          ra += amt;
           ro.add(o);
         }
+
+        // 来源1：小程序订单退款
+        try {
+          final orders = await Api.ordersAll(Session.wenxunId);
+          for (final o in orders) {
+            if ('${o['refund_status']}' != '2') continue;
+            addIfToday(o, '${o['refund_time'] ?? o['update_time'] ?? ''}', 'refund_amount');
+          }
+        } catch (_) {}
+
+        // 来源2：堂食/收银统一退款记录（wx_refund，status=2 退款成功）
+        try {
+          final refunds = await Api.refundList(Session.wenxunId);
+          for (final o in refunds) {
+            if ('${o['status']}' != '2') continue;
+            addIfToday(o, '${o['update_time'] ?? o['create_time'] ?? ''}', 'refund_amount');
+          }
+        } catch (_) {}
+
         // 按退款时间倒序
         ro.sort((a, b) => ('${b['refund_time'] ?? b['update_time'] ?? ''}')
             .compareTo('${a['refund_time'] ?? a['update_time'] ?? ''}'));
