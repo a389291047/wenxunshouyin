@@ -784,6 +784,38 @@ class Api {
       if (status != null) 'status': status,
     });
   }
+
+  /// 堂食订单退款（v3.3.83）：整单/部分；需权限密码
+  static Future<Map<String, dynamic>> diningOrderRefund({
+    required int wenxunId,
+    required int orderId,
+    required String reason,
+    required String password,
+    double amount = 0,
+  }) {
+    return post('/api/canyinorder/refund', {
+      'wenxun_id': wenxunId,
+      'order_id': orderId,
+      'reason': reason,
+      'operator_id': Session.staffId,
+      'password': password,
+      if (amount > 0) 'refund_amount': amount,
+    });
+  }
+
+  /// 退款订单列表（堂食+收银+小程序统一退款记录，v3.3.83）
+  static Future<List> refundList(int wenxunId) async {
+    final r = await post('/api/canyinorder/refundList', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') return (r['data']?['list'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取退款订单失败'}');
+  }
+
+  /// 充值订单列表（会员充值流水，v3.3.83）
+  static Future<List> chongzhiList(int wenxunId) async {
+    final r = await post('/api/canyinorder/chongzhiList', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') return (r['data']?['list'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取充值订单失败'}');
+  }
 }
 
 class ApiError implements Exception {
