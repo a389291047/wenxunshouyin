@@ -373,8 +373,11 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               ]),
             )),
             const Divider(height: 14, color: PosTheme.line),
+            // ===== 费用明细（菜品 + 附加费 + 优惠）=====
+            ..._feeRows(o),
+            const Divider(height: 14, color: PosTheme.line),
             Row(children: [
-              const Text('实收', style: TextStyle(fontSize: 14.5)),
+              Text('${o['order_status']}' == '0' ? '消费金额' : '实收', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
               const Spacer(),
               Text('¥${Fmt.money(total)}',
                   style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: PosTheme.accent)),
@@ -408,6 +411,56 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                   color: PosTheme.red, height: 44)),
             ]),
           ),
+      ]),
+    );
+  }
+
+  /// 费用明细行：菜品小计 + 附加费（开台/茶位/服务/餐盒）+ 优惠（折扣/手动/抹零/积分）
+  List<Widget> _feeRows(Map o) {
+    double f(String k) => double.tryParse('${o[k] ?? 0}') ?? 0;
+    final hasGoods = ((o['goods_list'] ?? []) as List).isNotEmpty;
+
+    final fees = <MapEntry<String, double>>[
+      MapEntry('开台费', f('kaitai_fee')),
+      MapEntry('茶位费', f('tea_fee')),
+      MapEntry('服务费', f('service_fee')),
+      MapEntry('餐盒费', f('box_fee')),
+    ].where((e) => e.value > 0).toList();
+
+    final prefers = <MapEntry<String, double>>[
+      MapEntry('整单优惠', f('discount_amount')),
+      MapEntry('会员优惠', f('vip_reduce')),
+      MapEntry('手动优惠', f('manual_prefer')),
+      MapEntry('抹零', f('quiling')),
+      if ((int.tryParse('${o['jifen_num'] ?? 0}') ?? 0) > 0)
+        MapEntry('积分抵扣（${o['jifen_num']}分）', f('jifen_deduct')),
+    ].where((e) => e.value > 0).toList();
+
+    final rows = <Widget>[];
+    if (hasGoods) {
+      rows.add(_feeRow('菜品小计', f('goods_total')));
+    }
+    if (fees.isNotEmpty) {
+      for (final e in fees) {
+        rows.add(_feeRow(e.key, e.value));
+      }
+    }
+    if (prefers.isNotEmpty) {
+      for (final e in prefers) {
+        rows.add(_feeRow(e.key, -e.value, color: PosTheme.green));
+      }
+    }
+    return rows;
+  }
+
+  Widget _feeRow(String label, double amount, {Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Row(children: [
+        Text(label, style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+        const Spacer(),
+        Text('${amount < 0 ? '-' : ''}¥${Fmt.money(amount.abs())}',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color ?? PosTheme.textMain)),
       ]),
     );
   }
