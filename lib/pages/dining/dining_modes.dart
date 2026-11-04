@@ -747,7 +747,7 @@ class BookListDialog extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             decoration: BoxDecoration(color: const Color(0xFFFFF8EC), borderRadius: BorderRadius.circular(10)),
-            child: const Text('预约新桌：关闭本窗口，点击下方空闲桌台 →「预约」；预点菜可在预约后提前保存，顾客到店一键开台',
+            child: const Text('预约新桌：关闭本窗口，点击空闲桌台 → 开台弹窗内点「预点餐」保存即预约；预点菜顾客到店一键开台',
                 style: TextStyle(fontSize: 12.5, color: PosTheme.amber)),
           ),
           const SizedBox(height: 10),
@@ -1070,17 +1070,44 @@ Future<Map<String, String>?> showGuazhangInfoDialog(BuildContext context) async 
 class KaitaiKeypadDialog extends StatefulWidget {
   final Map table; // 开台的桌台（点桌台图传入）
   final Future<void> Function(Map table, String kaitaiId) onOpened;
-  const KaitaiKeypadDialog({super.key, required this.table, required this.onOpened});
+  final Future<void> Function(Map table)? onPreorder; // 打开预点餐/改菜（v3.3.90）
+  const KaitaiKeypadDialog({super.key, required this.table, required this.onOpened, this.onPreorder});
   @override
   State<KaitaiKeypadDialog> createState() => _KaitaiKeypadDialogState();
 }
 
 class _KaitaiKeypadDialogState extends State<KaitaiKeypadDialog> {
   String people = '';
+  Map<String, dynamic>? preorder; // 该桌预点单（v3.3.90：点空闲桌台弹窗显示）
 
   Map get table => widget.table;
   int get _peopleNum => int.tryParse(people) ?? 0;
   bool get _canOpen => _peopleNum >= 1;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreorder();
+  }
+
+  Future<void> _loadPreorder() async {
+    try {
+      final r = await Api.preorderGet(wenxunId: Session.wenxunId, tableId: int.tryParse('${table['id']}') ?? 0);
+      if (!mounted) return;
+      if ('${r['code']}' == '200') {
+        final list = (r['list'] ?? []) as List;
+        setState(() {
+          preorder = {
+            'count': list.length,
+            'total': '${r['total'] ?? '0.00'}',
+            'remark': '${r['remark'] ?? ''}',
+          };
+        });
+      }
+    } on ApiError {
+      // 查询失败不影响开台
+    }
+  }
 
   void _key(String k) {
     if (k == 'C') {
@@ -1146,6 +1173,36 @@ class _KaitaiKeypadDialogState extends State<KaitaiKeypadDialog> {
             ]),
           ),
           const SizedBox(height: 16),
+          // 预点单摘要（v3.3.90：该桌已提前预点时展示）
+          if (preorder != null && ((preorder!['count'] as int) > 0 || '${preorder!['remark']}'.trim().isNotEmpty)) ...[
+            InkWell(
+              onTap: widget.onPreorder == null ? null : () async { Navigator.pop(context); await widget.onPreorder!(table); },
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(color: const Color(0xFFFFF8EC), borderRadius: BorderRadius.circular(12), border: Border.all(color: PosTheme.amber.withOpacity(0.35))),
+                child: Row(children: [
+                  const Icon(Icons.receipt_long, size: 18, color: PosTheme.amber),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      (preorder!['count'] as int) > 0
+                          ? '已预点 ${(preorder!['count'])} 项 · ¥${preorder!['total']}${('${preorder!['remark']}'.trim().isNotEmpty) ? ' · ${preorder!['remark']}' : ''}'
+                          : '该桌已预约 · ${preorder!['remark']}',
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.amber, fontWeight: FontWeight.w600),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (widget.onPreorder != null) ...[
+                    const SizedBox(width: 6),
+                    const Text('修改 ›', style: TextStyle(fontSize: 12.5, color: PosTheme.amber, fontWeight: FontWeight.w700)),
+                  ],
+                ]),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           // 显示区：人数大字
           _display(),
           const SizedBox(height: 14),

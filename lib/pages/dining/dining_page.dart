@@ -53,6 +53,12 @@ class _DiningPageState extends State<DiningPage> {
     end: Alignment.bottomRight,
     colors: [Color(0xFFFFB75E), Color(0xFFF97316)],
   );
+  // 就餐中桌台卡片渐变（v3.3.90）：红色渐变醒目
+  static const busyGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFFF6B6B), Color(0xFFE53E3E)],
+  );
 
   int get idleCount => tables.where((t) => '${t['status']}' == '0').length;
   int get busyCount => tables.where((t) => '${t['status']}' == '2' || '${t['status']}' == '3').length;
@@ -309,58 +315,37 @@ class _DiningPageState extends State<DiningPage> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           decoration: BoxDecoration(
-            gradient: cleared ? clearedGradient : null,
+            gradient: cleared
+                ? clearedGradient
+                : busy
+                    ? busyGradient
+                    : null,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: cleared ? Colors.white.withOpacity(0.35) : c.withOpacity(0.45), width: 1.6),
+            border: Border.all(color: (cleared || busy) ? Colors.white.withOpacity(0.35) : c.withOpacity(0.45), width: 1.6),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Container(width: 9, height: 9, decoration: BoxDecoration(color: cleared ? Colors.white : c, shape: BoxShape.circle)),
+              Container(width: 9, height: 9, decoration: BoxDecoration(color: (cleared || busy) ? Colors.white : c, shape: BoxShape.circle)),
               const SizedBox(width: 7),
-              Text(statusText[st]!, style: TextStyle(fontSize: 12, color: cleared ? Colors.white : c, fontWeight: FontWeight.w600)),
+              Text(statusText[st]!, style: TextStyle(fontSize: 12, color: (cleared || busy) ? Colors.white : c, fontWeight: FontWeight.w600)),
               const Spacer(),
             ]),
             const Spacer(),
-            Text('${t['title']}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: cleared ? Colors.white : null)),
-            const SizedBox(height: 2),
-            Text('${t['renshu'] ?? '-'} 人桌', style: TextStyle(fontSize: 12, color: cleared ? Colors.white.withOpacity(0.85) : PosTheme.textSub)),
+            Text('${t['title']}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: (cleared || busy) ? Colors.white : null)),
             if (bookInfo.isNotEmpty) ...[
               const SizedBox(height: 2),
               Text('预定 $bookInfo', style: const TextStyle(fontSize: 11, color: PosTheme.amber), maxLines: 1, overflow: TextOverflow.ellipsis),
             ],
             if (busy) ...[
               const SizedBox(height: 2),
-              Text('已开台', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              Text('已开台', style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.9))),
             ],
             if (cleared) ...[
               const SizedBox(height: 2),
               Text('已结账 · 可继续加菜', style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(0.9))),
             ],
-            if (st == 0) ...[
-              const SizedBox(height: 6),
-              Row(children: [
-                _cardAction('预点餐', onTap: () => _openPreorder(t)),
-              ]),
-            ],
           ]),
         ),
-      ),
-    );
-  }
-
-  // 桌台卡片上的小操作按钮
-  Widget _cardAction(String label, {required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F6FA),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: PosTheme.line),
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
       ),
     );
   }
@@ -372,6 +357,7 @@ class _DiningPageState extends State<DiningPage> {
       barrierDismissible: false,
       builder: (_) => KaitaiKeypadDialog(
         table: t,
+        onPreorder: (t2) => _openPreorder(t2), // 弹窗内可查看/修改预点单（v3.3.90）
         onOpened: (t2, kaitaiId) async {
           await _load();
           if (!mounted) return;
@@ -2289,148 +2275,228 @@ class _PreorderDialogState extends State<_PreorderDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 排版与开台点餐账单面板一致（v3.3.90）：左账单 / 右分类栏+商品图片网格 / 底部操作
+    final size = MediaQuery.of(context).size;
     return Dialog(
-      child: SizedBox(
-        width: 860, height: 620,
-        child: Column(children: [
-          // 头部
-          Container(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 14),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
-            child: Row(children: [
-              Text('预点餐 · ${widget.table['title']}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 12),
-              Text('提前点菜，顾客到店一键开台出后厨票', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-              const Spacer(),
-              Text('合计 ¥${Fmt.money(total)}', style: const TextStyle(fontSize: 20, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-              IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-            ]),
-          ),
-          Expanded(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              // 左：已选菜品 + 备注 + 保存
-              Expanded(
-                flex: 5,
-                child: Column(children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-                    child: TextField(
-                      controller: TextEditingController(text: remark),
-                      onChanged: (v) => remark = v,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        hintText: '到店备注（如：预计12:00到店 · 张先生）',
-                        prefixIcon: Icon(Icons.schedule, size: 20),
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: loading
-                        ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
-                        : bill.isEmpty
-                            ? const EmptyView('还没选菜；不选菜保存 = 仅预约桌台')
-                            : ListView.separated(
-                                padding: const EdgeInsets.all(14),
-                                itemCount: bill.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1, color: PosTheme.line),
-                                itemBuilder: (_, i) {
-                                  final b = bill[i];
-                                  return Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 6),
-                                    child: Row(children: [
-                                      Expanded(child: Text('${b['goods_title']}', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500))),
-                                      Text('¥${Fmt.money(b['unit_price'])}', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                                      const SizedBox(width: 12),
-                                      _qtyBtn(Icons.remove, () => _changeQty(i, -1)),
-                                      Container(
-                                        width: 34,
-                                        alignment: Alignment.center,
-                                        child: Text('${b['quantity']}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                                      ),
-                                      _qtyBtn(Icons.add, () => _changeQty(i, 1)),
-                                      const SizedBox(width: 8),
-                                      Text('¥${Fmt.money((double.tryParse('${b['unit_price']}') ?? 0) * (int.tryParse('${b['quantity']}') ?? 0))}',
-                                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600), textAlign: TextAlign.right),
-                                    ]),
-                                  );
-                                },
-                              ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Row(children: [
-                      Expanded(child: BigButton('保存预点单', onTap: _save, height: 50)),
+      insetPadding: EdgeInsets.symmetric(horizontal: size.width * 0.1, vertical: size.height * 0.1),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          width: size.width * 0.8, height: size.height * 0.8,
+          child: Column(children: [
+            _header(),
+            Expanded(
+              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // 左：已选菜品（数量步进）
+                Expanded(
+                  flex: 4,
+                  child: loading
+                      ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
+                      : bill.isEmpty
+                          ? const EmptyView('还没选菜；不选菜保存 = 仅预约桌台')
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(14),
+                              itemCount: bill.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1, color: PosTheme.line),
+                              itemBuilder: (_, i) {
+                                final b = bill[i];
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 7),
+                                  child: Row(children: [
+                                    Expanded(
+                                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                        Text('${b['goods_title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500)),
+                                        const SizedBox(height: 2),
+                                        Text('¥${Fmt.money(b['unit_price'])}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                                      ]),
+                                    ),
+                                    _qtyBtn(Icons.remove, () => _changeQty(i, -1)),
+                                    Container(width: 34, alignment: Alignment.center,
+                                        child: Text('${b['quantity']}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700))),
+                                    _qtyBtn(Icons.add, () => _changeQty(i, 1)),
+                                    const SizedBox(width: 10),
+                                    SizedBox(width: 72,
+                                        child: Text('¥${Fmt.money((double.tryParse('${b['unit_price']}') ?? 0) * (int.tryParse('${b['quantity']}') ?? 0))}',
+                                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700), textAlign: TextAlign.right)),
+                                  ]),
+                                );
+                              },
+                            ),
+                ),
+                VerticalDivider(width: 1, color: PosTheme.line),
+                // 右：分类栏 + 商品图片网格（与开台点餐一致）
+                Expanded(
+                  flex: 7,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    _catRail(),
+                    Expanded(child: _dishGrid()),
+                  ]),
+                ),
+              ]),
+            ),
+            _footer(),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ==================== 头部（桌名徽章 + 合计） ====================
+  Widget _header() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 16, 22, 14),
+      decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(color: PosTheme.amber, borderRadius: BorderRadius.circular(10)),
+          child: Text('${widget.table['title']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)),
+        ),
+        const SizedBox(width: 12),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('预点餐', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          Text('保存后桌台自动预约，顾客到店一键开台出后厨票', style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+        ]),
+        const Spacer(),
+        Text('合计 ¥${Fmt.money(total)}', style: const TextStyle(fontSize: 20, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
+
+  // ==================== 分类左栏（样式同开台点餐） ====================
+  Widget _catRail() {
+    return Container(
+      width: 118,
+      color: const Color(0xFFF7F8FA),
+      child: ListView.builder(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        itemCount: cats.length,
+        itemBuilder: (_, i) {
+          final c = cats[i];
+          final on = catId == int.tryParse('${c['id']}');
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () { setState(() => catId = int.tryParse('${c['id']}') ?? -1); _loadDishes(); },
+              child: Container(
+                height: 46,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: on ? PosTheme.accent : Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+                ),
+                child: Text('${c['title']}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: on ? Colors.white : PosTheme.textSub)),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ==================== 商品图片网格（样式同开台点餐） ====================
+  Widget _dishGrid() {
+    return dishes.isEmpty
+        ? const EmptyView('该分类暂无菜品')
+        : GridView.builder(
+            padding: const EdgeInsets.all(12),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 140, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 0.92),
+            itemCount: dishes.length,
+            itemBuilder: (_, i) {
+              final g = dishes[i];
+              return Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => _pick(g),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: PosTheme.line)),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Expanded(child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: RetailGoodsImage(urls: _dishImgUrls(g)),
+                      )),
+                      const SizedBox(height: 5),
+                      Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text('¥${Fmt.money(g['amount'] ?? g['price'])}', style: const TextStyle(fontSize: 13.5, color: PosTheme.accent, fontWeight: FontWeight.w800)),
                     ]),
                   ),
-                ]),
-              ),
-              VerticalDivider(width: 1, color: PosTheme.line),
-              // 右：分类 + 菜品
-              Expanded(
-                flex: 6,
-                child: Column(children: [
-                  SizedBox(
-                    height: 52,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      itemCount: cats.length,
-                      itemBuilder: (_, i) {
-                        final c = cats[i];
-                        final on = catId == int.tryParse('${c['id']}');
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(9),
-                            onTap: () { setState(() => catId = int.tryParse('${c['id']}') ?? -1); _loadDishes(); },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: on ? PosTheme.accent : const Color(0xFFF5F6FA),
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              child: Text('${c['title']}', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  Expanded(
-                    child: dishes.isEmpty
-                        ? const EmptyView('该分类暂无菜品')
-                        : GridView.builder(
-                            padding: const EdgeInsets.all(12),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 220, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 2.4),
-                            itemCount: dishes.length,
-                            itemBuilder: (_, i) {
-                              final g = dishes[i];
-                              return InkWell(
-                                borderRadius: BorderRadius.circular(10),
-                                onTap: () => _pick(g),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  decoration: BoxDecoration(color: const Color(0xFFF8F9FC), borderRadius: BorderRadius.circular(10), border: Border.all(color: PosTheme.line)),
-                                  child: Row(children: [
-                                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
-                                      Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                                      const SizedBox(height: 3),
-                                      Text('¥${Fmt.money(g['amount'] ?? g['price'])}', style: const TextStyle(fontSize: 12.5, color: PosTheme.accent, fontWeight: FontWeight.w600)),
-                                    ])),
-                                    const Icon(Icons.add_circle_outline, size: 20, color: PosTheme.accent),
-                                  ]),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ]),
-              ),
-            ]),
+                ),
+              );
+            },
+          );
+  }
+
+  /// 商品图片候选地址（与开台点餐同规则）
+  List<String> _dishImgUrls(Map g) {
+    final raw = '${g['goods_image'] ?? ''}'.trim();
+    final out = <String>[];
+    void add(String? u) {
+      final s = (u ?? '').trim();
+      if (s.isNotEmpty && !out.contains(s)) out.add(s);
+    }
+    add('${g['goods_image_url']}');
+    add('${g['goods_image_url_alt']}');
+    if (raw.isNotEmpty && !raw.startsWith('http')) {
+      final p = raw.startsWith('/') ? raw : '/$raw';
+      add('${Api.base}/goods$p');
+      add('${Api.base}$p');
+    } else if (raw.startsWith('http')) {
+      add(raw);
+    }
+    return out;
+  }
+
+  // ==================== 底部操作（清空 / 保存预点单） ====================
+  Widget _footer() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 14),
+      decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
+      child: Row(children: [
+        Expanded(
+          child: TextField(
+            controller: TextEditingController(text: remark),
+            onChanged: (v) => remark = v,
+            style: const TextStyle(fontSize: 13.5),
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: '到店备注（如：预计12:00到店 · 张先生）',
+              prefixIcon: Icon(Icons.schedule, size: 19),
+            ),
           ),
-        ]),
-      ),
+        ),
+        const SizedBox(width: 14),
+        Text('共 ${bill.length} 项', style: const TextStyle(fontSize: 14, color: PosTheme.textSub)),
+        const SizedBox(width: 14),
+        InkWell(
+          onTap: bill.isEmpty ? null : () => setState(() => bill.clear()),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: bill.isEmpty ? const Color(0xFFF7F8FA) : const Color(0xFFFFF1F0),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: bill.isEmpty ? PosTheme.line : PosTheme.red.withOpacity(0.4)),
+            ),
+            child: Text('清空', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700,
+                color: bill.isEmpty ? PosTheme.textHint : PosTheme.red)),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 180, height: 50,
+          child: BigButton('保存预点单', onTap: _save, height: 50),
+        ),
+      ]),
     );
   }
 
