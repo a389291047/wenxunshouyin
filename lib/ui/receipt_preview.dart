@@ -26,7 +26,7 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
     try {
       await CloudPrinter.printFront(widget.content, machineCode: widget.machineCode);
       if (!mounted) return;
-      toast(context, '测试小票已发送');
+      toast(context, '已发送打印');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
     } catch (e) {
@@ -48,11 +48,6 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
             const Icon(Icons.receipt_long_outlined, size: 19, color: PosTheme.accent),
             const SizedBox(width: 8),
             Expanded(child: Text('小票预览 · ${widget.title}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-            InkWell(
-              onTap: () => Navigator.pop(context),
-              borderRadius: BorderRadius.circular(16),
-              child: const Padding(padding: EdgeInsets.all(4), child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
-            ),
           ]),
           const SizedBox(height: 12),
           // 纸张效果预览
@@ -82,7 +77,7 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
           Row(children: [
             Expanded(child: BigButton('关闭', onTap: () => Navigator.pop(context), color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 44)),
             const SizedBox(width: 10),
-            Expanded(child: BigButton('发送测试打印', onTap: printing ? null : _testPrint, height: 44)),
+            Expanded(child: BigButton('打印', onTap: printing ? null : _testPrint, height: 44)),
           ]),
         ]),
       ),
