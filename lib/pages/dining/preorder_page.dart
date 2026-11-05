@@ -114,12 +114,16 @@ class _PreorderPageState extends State<PreorderPage> {
 
   // ==================== 公共小组件 ====================
 
-  /// 显示名：微信昵称优先，其次顾客填写的称呼
+  /// 显示名：优先顾客点餐时填写的称谓 → 会员表 wx_vip.xm（服务端下发 vip_xm/display_name）→ 微信昵称
   static String _displayName(Map<String, dynamic> r) {
-    final nick = '${r['nickname'] ?? ''}'.trim();
-    if (nick.isNotEmpty) return nick;
+    final dn = '${r['display_name'] ?? ''}'.trim();
+    if (dn.isNotEmpty) return dn;
     final name = '${r['contact_name'] ?? ''}'.trim();
-    return name;
+    if (name.isNotEmpty) return name;
+    final xm = '${r['vip_xm'] ?? ''}'.trim();
+    if (xm.isNotEmpty) return xm;
+    final nick = '${r['nickname'] ?? ''}'.trim();
+    return nick;
   }
 
   /// 微信头像：有头像显示网络图，没有/加载失败显示默认头像（首字渐变气泡）
