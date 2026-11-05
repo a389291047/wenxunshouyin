@@ -3136,7 +3136,7 @@ class DiningJiaobanDialogState extends State<DiningJiaobanDialog> {
   Future<void> _print() async {
     final d = stats ?? {};
     final sb = StringBuffer();
-    sb.writeln('<CB>餐饮交班单（今日）</CB>');
+    sb.writeln('<FS2><center>餐饮交班单（今日）</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('商户: ${Session.shopName}');
     sb.writeln('收银: ${Session.staffName}');

@@ -5,8 +5,10 @@ import 'package:fast_gbk/fast_gbk.dart';
 
 /// ESC/POS 小票指令编码
 ///
-/// 输入为与云打印一致的文本格式：
-/// - `<CB>标题</CB>` → 居中 + 倍大 + 加粗
+/// 输入为与云打印一致的文本格式，同时兼容易联云新旧两套排版标签：
+/// - `<CB>标题</CB>`（旧协议）→ 居中 + 倍大 + 加粗
+/// - `<FS2><center>标题</center></FS2>`（新协议 K4/K5/K6/K7/K8）→ 居中 + 倍大 + 加粗
+/// - `<center>` / `<FB>` / `<FS>` 等新协议标签按各自效果渲染
 /// - 其余行 → 左对齐正文
 /// 中文用 GBK 编码（热敏打印机内置 GB2312/GBK 中文字库），并先发 FS& 开启汉字模式。
 class EscPos {
@@ -18,6 +20,10 @@ class EscPos {
   /// 80mm 纸有效行宽
   static const int width80 = 48;
 
+  /// 已知排版标签（新旧协议），渲染时剥除
+  static final RegExp _tagRe =
+      RegExp(r'</?(CB|C|B|BOLD|FS|FS2|FB|FH|FH2|FW|FW2|center|right|left)>', caseSensitive: false);
+
   /// 把云打印文本格式转成 ESC/POS 字节流
   static Uint8List encode(String content, {int paperWidth = 58}) {
     final width = paperWidth >= 80 ? width80 : width58;
@@ -28,17 +34,28 @@ class EscPos {
     final lines = content.replaceAll('\r\n', '\n').split('\n');
     for (final raw in lines) {
       final t = raw.trim();
-      if (t.startsWith('<CB>') && t.contains('</CB>')) {
-        final title = t.substring(4, t.indexOf('</CB>'));
-        for (final line in _wrap(title, width)) {
-          _text(out, line, center: true, double: true, bold: true);
+      if (t.isEmpty) {
+        out.add([0x0A]);
+        continue;
+      }
+      // 标记识别（剥标签前）：center=居中，fs2=倍大，fb=加粗
+      final lower = t.toLowerCase();
+      final center = lower.contains('<center>') || lower.contains('<cb>');
+      final double = lower.contains('<fs2>') || lower.contains('<cb>');
+      final bold = lower.contains('<fb>') || lower.contains('<cb>') || lower.contains('<bold>');
+      final text = t.replaceAll(_tagRe, '');
+      if (text.isEmpty) {
+        out.add([0x0A]);
+        continue;
+      }
+      if (center || double || bold) {
+        for (final line in _wrap(text, double ? width ~/ 2 : width)) {
+          _text(out, line, center: center, double: double, bold: bold);
           out.add([0x0A]);
         }
-        out.add([0x0A]); // 标题后空一行
-      } else if (t.isEmpty) {
-        out.add([0x0A]);
+        if (double) out.add([0x0A]); // 倍大标题后空一行
       } else {
-        for (final line in _wrap(t, width)) {
+        for (final line in _wrap(text, width)) {
           _text(out, line);
           out.add([0x0A]);
         }

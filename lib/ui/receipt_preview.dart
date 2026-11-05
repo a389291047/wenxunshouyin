@@ -266,19 +266,21 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
   List<Widget> _renderLines(String content, _PaperSpec s) {
     final lines = content.replaceAll('\r', '').split('\n');
     final out = <Widget>[];
-    final cbRe = RegExp(r'^<CB>(.*?)(?:</CB>)?$');
     final sepRe = RegExp(r'^[-=_·]{3,}$');
     final moneyRe = RegExp(r'(合计|实收|营业总额|应付|退款金额|收款笔数|抹零)');
 
     for (final raw in lines) {
       final rawTrim = raw.replaceAll('\r', '').trim();
-      // 居中大标题（<CB></CB>）需在剥标签之前识别
-      final cb = cbRe.firstMatch(rawTrim);
-      if (cb != null) {
+      // 居中大标题需在剥标签之前识别：旧协议 <CB></CB> / 新协议 <FS2><center></center></FS2>
+      final low = rawTrim.toLowerCase();
+      final isTitle = low.contains('<cb>') ||
+          (low.contains('<center>') && (low.contains('<fs2>') || low.contains('<fs>')));
+      if (isTitle) {
+        final title = rawTrim.replaceAll(RegExp(r'<[A-Za-z/][^>]*>'), '').trim();
         out.add(Padding(
           padding: const EdgeInsets.only(top: 2, bottom: 6),
           child: Text(
-            cb.group(1)!.trim(),
+            title,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: s.fontSize + 5,

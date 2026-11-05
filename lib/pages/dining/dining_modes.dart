@@ -569,10 +569,10 @@ class _PaihaoDialogState extends State<PaihaoDialog> {
         toast(context, '已取号：${number} 号（$p 位）');
         // 打印排队号票
         final sb = StringBuffer();
-        sb.writeln('<CB>排队号</CB>');
+        sb.writeln('<FS2><center>排队号</center></FS2>');
         sb.writeln('--------------------------------');
         sb.writeln('您的号码：');
-        sb.writeln('<CB>** $number **</CB>');
+        sb.writeln('<FS2><center>** $number **</center></FS2>');
         sb.writeln('$p 位 · 前方 $waiting 桌');
         sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
         sb.writeln('请留意叫号，过号重排');

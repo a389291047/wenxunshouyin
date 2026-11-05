@@ -228,7 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
           cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打');
       case 'queue':
-        return '<CB>排队号</CB>\n--------------------------------\n您的号码：\n<CB>** 12 **</CB>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
+        return '<FS2><center>排队号</center></FS2>\n--------------------------------\n您的号码：\n<FS2><center>** 12 **</center></FS2>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
       case 'shift':
         return CloudPrinter.shiftReceipt(zongyingye: 3268.50, bishu: 42, vip: 860.00, xianjin: 1208.50, saoma: 1200.00, refundAmount: 66.00, refundCount: 1);
       case 'order':
@@ -702,7 +702,7 @@ class _SettingsPageState extends State<SettingsPage> {
     loadingDialog(context, '发送测试小票…');
     try {
       await UsbPrinter.printTicket(sel,
-          '<CB>测试小票</CB>\n--------------------------------\n稳讯收银桌面版\nUSB打印机：${sel['name']}\n纸张：${usbPaper}mm\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
+          '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\nUSB打印机：${sel['name']}\n纸张：${usbPaper}mm\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
           paperWidth: usbPaper);
       if (!mounted) return;
       Navigator.pop(context);
@@ -785,7 +785,7 @@ class _SettingsPageState extends State<SettingsPage> {
       await Api.cloudPrint(
         wenxunId: Session.wenxunId,
         machineCode: '${p['machine_code']}',
-        content: '<CB>测试小票</CB>\n--------------------------------\n稳讯收银桌面版\n打印机：${p['name']}\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
+        content: '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\n打印机：${p['name']}\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
       );
       if (!mounted) return;
       Navigator.pop(context);

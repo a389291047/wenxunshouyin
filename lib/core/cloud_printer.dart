@@ -97,7 +97,7 @@ class CloudPrinter {
       }
     }
     final sb = StringBuffer();
-    sb.writeln('<CB>${isAdd ? '加菜单' : title}</CB>');
+    sb.writeln('<FS2><center>${isAdd ? '加菜单' : title}</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('桌台: $tableTitle${tableQuyu.isNotEmpty ? ' ($tableQuyu)' : ''}');
     if (remark.isNotEmpty) sb.writeln('备注: $remark');
@@ -126,7 +126,7 @@ class CloudPrinter {
     List<String> extraLines = const [],
   }) {
     final sb = StringBuffer();
-    sb.writeln('<CB>预结单</CB>');
+    sb.writeln('<FS2><center>预结单</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('桌台: $tableTitle   人数: $peopleNum');
     sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
@@ -202,7 +202,7 @@ class CloudPrinter {
     required List<Map<String, dynamic>> cart,
   }) {
     final sb = StringBuffer();
-    sb.writeln('<CB>稳讯收银</CB>');
+    sb.writeln('<FS2><center>稳讯收银</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('单号: $orderNo');
     sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
@@ -232,7 +232,7 @@ class CloudPrinter {
     List<String> extraLines = const [], // 费用/优惠/发票/备注明细（v3.3.71）
   }) {
     final sb = StringBuffer();
-    sb.writeln('<CB>稳讯收银 · 结账单</CB>');
+    sb.writeln('<FS2><center>稳讯收银 · 结账单</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('单号: $orderSn');
     sb.writeln('桌台: $tableTitle   人数: $peopleNum');
@@ -267,7 +267,7 @@ class CloudPrinter {
     int refundCount = 0,
   }) {
     final sb = StringBuffer();
-    sb.writeln('<CB>交班单</CB>');
+    sb.writeln('<FS2><center>交班单</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('收银员: ${Session.staffName}');
     sb.writeln('商户: ${Session.shopName}');
@@ -295,7 +295,7 @@ class CloudPrinter {
       goods = raw is List ? raw : ((jsonDecode('${raw ?? '[]'}') as List?) ?? []);
     } catch (_) {}
     final sb = StringBuffer();
-    sb.writeln('<CB>${isRefund ? '退款单' : '订单小票'}</CB>');
+    sb.writeln('<FS2><center>${isRefund ? '退款单' : '订单小票'}</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('商户: ${Session.shopName}');
     sb.writeln('单号: ${o['order_number'] ?? ''}');
