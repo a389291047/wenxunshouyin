@@ -396,6 +396,15 @@ class Api {
     return (r['wancheng'] ?? []) as List;
   }
 
+  /// 就餐中桌台「未起菜」统计（未传后厨菜品数，v3.3.111）
+  /// 返回 {"t<桌台ID>": {"total": 菜品总份数, "pending": 未传后厨份数}}
+  static Future<Map<String, dynamic>> kitchenPending(int wenxunId) async {
+    final r = await post('/api/diancan/kitchenPending', {'wenxun_id': wenxunId});
+    final d = r['data'];
+    final tables = d is Map ? d['tables'] : null;
+    return tables is Map ? Map<String, dynamic>.from(tables) : <String, dynamic>{};
+  }
+
   static Future<Map<String, dynamic>> tableOpen({
     required int wenxunId,
     required int tableId,

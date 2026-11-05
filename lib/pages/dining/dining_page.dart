@@ -90,6 +90,19 @@ class _DiningPageState extends State<DiningPage> {
     try {
       final r = await Api.tables(Session.wenxunId);
       if (!mounted) return;
+      // 拉取就餐中桌台「未起菜」统计（v3.3.111），失败不影响桌台显示
+      Map<String, dynamic> kp = {};
+      try {
+        kp = await Api.kitchenPending(Session.wenxunId);
+      } catch (_) {}
+      for (final t in r) {
+        if (t is! Map) continue;
+        final st = kp['t${t['id']}'];
+        if (st is Map) {
+          t['kitchen_total'] = st['total'];
+          t['kitchen_pending'] = st['pending'];
+        }
+      }
       setState(() { tables = r; loading = false; });
       _loadPreorderCount();
     } on ApiError catch (e) {
@@ -334,6 +347,12 @@ class _DiningPageState extends State<DiningPage> {
     final open = st == 0 || st == 3;
     final busy = st == 2;
     final cleared = st == 4; // 已结账待清台：渐变卡片，可继续加菜/清台（v3.3.87）
+    // 未起菜统计（v3.3.111）：全部未传后厨 → 等待中·未起菜；部分未传 → 提示 N 道未起菜
+    final kTotal = int.tryParse('${t['kitchen_total'] ?? 0}') ?? 0;
+    final kPending = int.tryParse('${t['kitchen_pending'] ?? 0}') ?? 0;
+    final notStarted = busy && kTotal > 0 && kPending >= kTotal;
+    final partially = busy && kPending > 0 && kPending < kTotal;
+    final stLabel = notStarted ? '等待中 · 未起菜' : statusText[st]!;
     final bookInfo = st == 1
         ? '${('${t['book_operator_name'] ?? ''}')} ${('${t['book_time'] ?? ''}')}'.trim()
         : '';
@@ -394,7 +413,7 @@ class _DiningPageState extends State<DiningPage> {
             Row(children: [
               Container(width: 9, height: 9, decoration: BoxDecoration(color: (cleared || busy) ? Colors.white : c, shape: BoxShape.circle)),
               const SizedBox(width: 7),
-              Text(statusText[st]!, style: TextStyle(fontSize: 12, color: (cleared || busy) ? Colors.white : c, fontWeight: FontWeight.w600)),
+              Text(stLabel, style: TextStyle(fontSize: 12, color: (cleared || busy) ? Colors.white : c, fontWeight: FontWeight.w600)),
               const Spacer(),
               if (pending > 0)
                 Container(
@@ -412,6 +431,15 @@ class _DiningPageState extends State<DiningPage> {
             if (busy) ...[
               const SizedBox(height: 2),
               Text('消费 ¥${Fmt.money(t['zongjine'] ?? 0)}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95))),
+              if (notStarted) ...[
+                const SizedBox(height: 1),
+                Text('菜品 $kTotal 道待传后厨', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
+              ] else if (partially) ...[
+                const SizedBox(height: 1),
+                Text('$kPending 道未起菜', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
+              ],
               if (mergeText.isNotEmpty) ...[
                 const SizedBox(height: 1),
                 Text('并入 $mergeText', maxLines: 1, overflow: TextOverflow.ellipsis,
