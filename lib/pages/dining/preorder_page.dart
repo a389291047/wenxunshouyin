@@ -54,19 +54,36 @@ class _PreorderPageState extends State<PreorderPage> {
         keyword: keyword,
       );
       if (!mounted) return;
-      final d = (r['data'] ?? {}) as Map;
+      final raw = r['data'];
+      final d = raw is Map ? raw : const <String, dynamic>{};
+      final list = d['list'];
       setState(() {
-        rows = (d['list'] ?? []) as List;
-        counts = Map<String, dynamic>.from((d['counts'] ?? {}) as Map);
-        loading = false;
+        rows = list is List ? list : <dynamic>[];
+        counts = _asCounts(d['counts']);
       });
     } on ApiError catch (e) {
       if (!mounted) return;
-      setState(() {
-        loading = false;
-        error = e.message;
-      });
+      setState(() => error = e.message);
+    } catch (e) {
+      // 兜底：任何解析异常都不能让页面卡在 loading（v3.3.103）
+      if (!mounted) return;
+      setState(() => error = '数据解析失败：$e');
+    } finally {
+      if (mounted && loading) setState(() => loading = false);
     }
+  }
+
+  /// counts 兼容两种形态：对象 {"0":n,"1":n,"2":n} 与数组 [n,n,n]
+  static Map<String, dynamic> _asCounts(dynamic raw) {
+    final out = <String, dynamic>{'0': 0, '1': 0, '2': 0};
+    if (raw is Map) {
+      raw.forEach((k, v) => out['$k'] = v);
+    } else if (raw is List) {
+      for (var i = 0; i < raw.length && i < 3; i++) {
+        out['$i'] = raw[i];
+      }
+    }
+    return out;
   }
 
   Future<void> _loadTables() async {
@@ -398,6 +415,7 @@ class _PreorderPageState extends State<PreorderPage> {
     if (tableId <= 0) return;
 
     loadingDialog(context, '开台中…');
+    var closed = false;
     try {
       final res = await Api.preorderApprove(
         wenxunId: Session.wenxunId,
@@ -409,12 +427,18 @@ class _PreorderPageState extends State<PreorderPage> {
       );
       if (!mounted) return;
       Navigator.pop(context); // loading
+      closed = true;
       if ('${res['code']}' != '200') {
         toast(context, '${res['msg'] ?? '开台失败'}', error: true);
         return;
       }
-      final d = (res['data'] ?? {}) as Map;
-      final items = ((d['items'] ?? []) as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      final raw = res['data'];
+      final d = raw is Map ? raw : const <String, dynamic>{};
+      final rawItems = d['items'];
+      final items = (rawItems is List ? rawItems : const [])
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
       toast(context, '${res['msg'] ?? '已开台'}');
       // 菜品下到厨房：后厨按分类路由出票 + 前台整单一张
       _printOrder(
@@ -425,8 +449,18 @@ class _PreorderPageState extends State<PreorderPage> {
       await Future.wait([_load(), _loadTables()]);
     } on ApiError catch (e) {
       if (!mounted) return;
-      Navigator.pop(context);
+      if (!closed) {
+        Navigator.pop(context);
+        closed = true;
+      }
       toast(context, e.message, error: true);
+    } catch (e) {
+      if (!mounted) return;
+      if (!closed) {
+        Navigator.pop(context);
+        closed = true;
+      }
+      toast(context, '开台异常：$e', error: true);
     }
   }
 

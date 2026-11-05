@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
@@ -65,10 +67,22 @@ class _DiningPageState extends State<DiningPage> {
   int get idleCount => tables.where((t) => '${t['status']}' == '0').length;
   int get busyCount => tables.where((t) => '${t['status']}' == '2' || '${t['status']}' == '3').length;
 
+  Timer? _pollTimer;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // 每 20 秒静默刷新一次「预约待安排」数量（顾客随时可能提交预约，v3.3.103）
+    _pollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) _loadPreorderCount();
+    });
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -89,8 +103,16 @@ class _DiningPageState extends State<DiningPage> {
     try {
       final r = await Api.preorderList(wenxunId: Session.wenxunId, status: '0');
       if (!mounted) return;
-      final c = ((r['data'] ?? {})['counts'] ?? {}) as Map;
-      setState(() => _preorderWaiting = int.tryParse('${c['0'] ?? 0}') ?? 0);
+      final raw = r['data'];
+      final d = raw is Map ? raw : const <String, dynamic>{};
+      final c = d['counts'];
+      int n = 0;
+      if (c is Map) {
+        n = int.tryParse('${c['0'] ?? c[0] ?? 0}') ?? 0;
+      } else if (c is List && c.isNotEmpty) {
+        n = int.tryParse('${c[0]}') ?? 0;
+      }
+      setState(() => _preorderWaiting = n);
     } catch (_) {
       // 预约模块异常不影响桌台
     }
