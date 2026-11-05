@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../core/api.dart';
 import '../../core/preorder_badge.dart';
@@ -790,61 +789,57 @@ class _PreorderPageState extends State<PreorderPage> {
   // ==================== 门店预约码 ====================
 
   Future<void> _unionQr() async {
-    final url = Api.preorderUnionUrl(wenxunId: Session.wenxunId);
     await showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        child: Container(
-          width: 440,
-          padding: const EdgeInsets.all(22),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('门店预约点餐码', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            const Text('所有顾客扫同一个码：选菜 → 填手机号 → 提交预约\n收银员在「预约点餐」里安排开台后，菜品进账单，再点「传后厨」出票',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: PosTheme.textHint, height: 1.6)),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                Api.preorderQrUrl(wenxunId: Session.wenxunId),
-                width: 260,
-                height: 260,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 260,
-                  height: 260,
-                  color: const Color(0xFFF4F5F7),
-                  alignment: Alignment.center,
-                  child: const Text('二维码加载失败\n请检查网络后重试',
-                      textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
+        child: Stack(
+          children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              decoration: BoxDecoration(color: PosTheme.bg, borderRadius: BorderRadius.circular(8)),
-              child: Text(url, style: const TextStyle(fontSize: 11.5, color: PosTheme.textSub)),
+              width: 440,
+              padding: const EdgeInsets.all(22),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                const Text('门店预约点餐码', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                const Text('所有顾客扫同一个码：选菜 → 填手机号 → 提交预约\n收银员在「预约点餐」里安排开台后，菜品进账单，再点「传后厨」出票',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12.5, color: PosTheme.textHint, height: 1.6)),
+                const SizedBox(height: 16),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    Api.preorderQrUrl(wenxunId: Session.wenxunId),
+                    width: 260,
+                    height: 260,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 260,
+                      height: 260,
+                      color: const Color(0xFFF4F5F7),
+                      alignment: Alignment.center,
+                      child: const Text('二维码加载失败\n请检查网络后重试',
+                          textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: 160,
+                  child: BigButton('关闭', onTap: () => Navigator.pop(ctx), height: 42),
+                ),
+              ]),
             ),
-            const SizedBox(height: 14),
-            Row(children: [
-              Expanded(
-                child: BigButton('关闭',
-                    onTap: () => Navigator.pop(ctx),
-                    color: const Color(0xFFF4F5F7),
-                    textColor: PosTheme.textSub,
-                    height: 42),
+            // 右上角关闭按钮
+            Positioned(
+              top: 6,
+              right: 6,
+              child: IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close, size: 20),
+                color: PosTheme.textHint,
+                tooltip: '关闭',
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: BigButton('复制链接', onTap: () async {
-                  await Clipboard.setData(ClipboardData(text: url));
-                  if (ctx.mounted) toast(ctx, '链接已复制，可发到朋友圈/公众号');
-                }, height: 42),
-              ),
-            ]),
-          ]),
+            ),
+          ],
         ),
       ),
     );
