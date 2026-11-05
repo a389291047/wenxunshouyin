@@ -115,6 +115,7 @@ class _PreorderPageState extends State<PreorderPage> {
   // ==================== 公共小组件 ====================
 
   /// 显示名：优先顾客点餐时填写的称谓 → 会员表 wx_vip.xm（服务端下发 vip_xm/display_name）→ 微信昵称
+  /// （仅右侧详情用；左侧列表保持显示微信昵称，见 _leftName）
   static String _displayName(Map<String, dynamic> r) {
     final dn = '${r['display_name'] ?? ''}'.trim();
     if (dn.isNotEmpty) return dn;
@@ -124,6 +125,14 @@ class _PreorderPageState extends State<PreorderPage> {
     if (xm.isNotEmpty) return xm;
     final nick = '${r['nickname'] ?? ''}'.trim();
     return nick;
+  }
+
+  /// 左侧列表显示名：微信昵称优先（顾客要求左侧保持昵称）
+  static String _leftName(Map<String, dynamic> r) {
+    final nick = '${r['nickname'] ?? ''}'.trim();
+    if (nick.isNotEmpty) return nick;
+    final name = '${r['contact_name'] ?? ''}'.trim();
+    return name;
   }
 
   /// 微信头像：有头像显示网络图，没有/加载失败显示默认头像（首字渐变气泡）
@@ -347,7 +356,7 @@ class _PreorderPageState extends State<PreorderPage> {
     final st = int.tryParse('${r['status']}') ?? 0;
     final stColor = const {0: PosTheme.accent, 1: PosTheme.green, 2: PosTheme.textHint}[st] ?? PosTheme.textHint;
     final stText = const {0: '待安排', 1: '已安排', 2: '已拒绝'}[st] ?? '';
-    final nick = _displayName(r);
+    final nick = _leftName(r);
     final phone = '${r['contact_phone'] ?? ''}'.trim();
     final avatar = '${r['avatar'] ?? ''}'.trim();
     final arrive = '${r['arrive_time'] ?? ''}'.trim();
