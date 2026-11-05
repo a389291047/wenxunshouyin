@@ -353,53 +353,66 @@ class _PreorderPageState extends State<PreorderPage> {
       borderRadius: BorderRadius.circular(14),
       onTap: () => setState(() => selectedId = id),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
         decoration: BoxDecoration(
           color: on ? PosTheme.accent.withOpacity(0.05) : Colors.white,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 1.6 : 1),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            _avatar(avatar, nick, 40, fontSize: 17),
-            const SizedBox(width: 9),
-            Expanded(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(13),
+          child: Stack(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 13),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Flexible(
-                    child: Text(nick.isNotEmpty ? nick : '未留称呼',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [stColor.withOpacity(0.16), stColor.withOpacity(0.07)]),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(stText,
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: stColor)),
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  _avatar(avatar, nick, 42, fontSize: 18),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(nick.isNotEmpty ? nick : '未留称呼',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 4),
+                      Text(phone.isNotEmpty ? phone : '未留手机号',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                    ]),
                   ),
                 ]),
-                const SizedBox(height: 3),
-                Text(phone.isNotEmpty ? phone : '未留手机号',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                const SizedBox(height: 12),
+                // 人数（左）· 到店时间（右）左右布局
+                Row(children: [
+                  if (people > 0)
+                    _pill(Icons.people_alt_outlined, '$people 人', PosTheme.textHint)
+                  else
+                    const SizedBox.shrink(),
+                  const Spacer(),
+                  if (arrive.isNotEmpty)
+                    Flexible(child: _pill(Icons.schedule, arrive, PosTheme.green)),
+                ]),
               ]),
             ),
+            // 状态徽角：右上角
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 5),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [stColor.withOpacity(0.85), stColor.withOpacity(0.65)]),
+                  borderRadius: const BorderRadius.only(
+                    topRight: Radius.circular(13),
+                    bottomLeft: Radius.circular(13),
+                  ),
+                ),
+                child: Text(stText,
+                    style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: Colors.white)),
+              ),
+            ),
           ]),
-          const SizedBox(height: 8),
-          Row(children: [
-            if (people > 0) ...[
-              _pill(Icons.people_alt_outlined, '$people 人', PosTheme.textHint),
-              const SizedBox(width: 6),
-            ],
-            if (arrive.isNotEmpty) Flexible(child: _pill(Icons.schedule, arrive, PosTheme.green)),
-          ]),
-        ]),
+        ),
       ),
     );
   }
