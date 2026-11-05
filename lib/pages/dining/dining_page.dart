@@ -966,6 +966,9 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   String keyword = '';
   List allGoods = []; // 全部商品缓存（首次搜索时拉取）
   bool allGoodsLoading = false;
+  // 待传后厨清单（v3.3.99）：点菜/加菜只入账不出票，
+  // 点「传后厨」才统一打印（后厨按分类路由 + 前台整单一张）
+  final List<Map<String, dynamic>> _pendingKitchen = [];
 
   /// 会员可用余额（现金余额 + 赠送余额）
   double _vipBalance() {
@@ -1248,7 +1251,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }], label: '${r['name']}×${r['num']}');
   }
 
-  /// 统一加菜入口：请求后端 → 后厨小票（按分类路由）+ 前台单 → 刷新账单
+  /// 统一加菜入口：请求后端 → 暂存待传清单 → 刷新账单
+  /// （v3.3.99 起加菜不再即时打印，点「传后厨」统一出票，避免一菜一票浪费纸）
   Future<void> _pushDishes(List<Map<String, dynamic>> cart, {required String label}) async {
     loadingDialog(context, '加菜中…');
     try {
@@ -1261,12 +1265,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
         toast(context, '已加：$label');
-        // 加菜同步打后厨小票（不阻塞；按「打印机分配」路由，v3.3.82）
-        if (await PrintPrefs.on('kitchen')) {
-          _printKitchenRouted(cart, isAdd: true).catchError((_) => <String, dynamic>{});
+        // 补全分类 id（后厨分单路由用），入待传清单，不出票
+        for (final c in cart) {
+          c['cat_id'] = '${c['cat_id'] ?? _catOf(c['goods_id'])}';
+          _pendingKitchen.add(c);
         }
-        // 前台单：整单/分单由设置决定（不阻塞）
-        _printFront(cart);
+        setState(() {});
         _loadBill();
       } else {
         toast(context, '${r['msg'] ?? '加菜失败'}', error: true);
@@ -1332,24 +1336,33 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     await Future.wait(futures);
   }
 
-  /// 前台单（点单完成后发往前台）：
-  /// 整单打印 = 整桌全部商品条目打一张；分单打印 = 每道商品各打一张
-  Future<void> _printFront(List<Map<String, dynamic>> items) async {
-    if (items.isEmpty || !await PrintPrefs.on('front')) return;
+  /// 传后厨（v3.3.99）：
+  /// 有待传菜品 → 后厨按分类路由出票（可一菜一出/多台分单）+ 前台整单一张，
+  /// 传完清空待传清单；无待传菜品 → 兜底走「补打未出品」
+  Future<void> _sendKitchen() async {
+    if (_pendingKitchen.isNotEmpty) {
+      await _sendPendingKitchen();
+      return;
+    }
+    await _reprintKitchen();
+  }
+
+  /// 传送待传菜品：后厨单按「打印机分配」路由（后厨可一菜一出），前台固定整单一张
+  Future<void> _sendPendingKitchen() async {
+    final items = List<Map<String, dynamic>>.from(_pendingKitchen);
+    final kitchenOn = await PrintPrefs.on('kitchen');
+    final frontOn = await PrintPrefs.on('front');
+    if (!kitchenOn && !frontOn) {
+      toast(context, '后厨单与前台单打印均已关闭（设置 → 小票打印设置）');
+      return;
+    }
     try {
-      final wid = '${Session.wenxunId}';
-      final mode = await PrinterRoute.frontMode(wid);
-      final code = await PrinterRoute.frontPrinter(wid);
-      if (mode == PrinterRoute.modeSplit) {
-        for (final it in items) {
-          await CloudPrinter.printFront(CloudPrinter.kitchenTicket(
-            tableTitle: '${widget.table['title']}',
-            tableQuyu: '${widget.table['quyu'] ?? ''}',
-            cart: [it],
-            title: '前台单',
-          ), machineCode: code);
-        }
-      } else {
+      if (kitchenOn) {
+        await _printKitchenRouted(items, isAdd: true, title: '后厨单');
+      }
+      if (frontOn) {
+        // 前台单固定整单打印：本次待传菜品合并一张，不再一菜一出（v3.3.99）
+        final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
         await CloudPrinter.printFront(CloudPrinter.kitchenTicket(
           tableTitle: '${widget.table['title']}',
           tableQuyu: '${widget.table['quyu'] ?? ''}',
@@ -1357,8 +1370,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           title: '前台单',
         ), machineCode: code);
       }
+      if (!mounted) return;
+      _pendingKitchen.clear();
+      setState(() {});
+      toast(context, '已传送后厨（${items.length} 项）');
     } catch (_) {
-      // 前台单失败不阻塞点菜流程
+      if (mounted) toast(context, '打印失败，请检查云打印机网络', error: true);
     }
   }
 
@@ -2137,21 +2154,34 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                 ),
               ),
               const SizedBox(width: 12),
-              // 传后厨：重打当前账单未退菜品的后厨小票（v3.3.70）
+              // 传后厨（v3.3.99）：点菜不再即时出票，点此统一传送
+              // 待传 >0 时打新点菜品（后厨按分类路由 + 前台整单一张）；无待传时补打未出品
               InkWell(
-                onTap: bill.isEmpty ? null : _reprintKitchen,
+                onTap: bill.isEmpty && _pendingKitchen.isEmpty ? null : _sendKitchen,
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF0F6FF),
+                    color: _pendingKitchen.isNotEmpty ? const Color(0xFFFFF7E8) : const Color(0xFFF0F6FF),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: PosTheme.blue.withOpacity(0.4)),
+                    border: Border.all(
+                      color: _pendingKitchen.isNotEmpty
+                          ? const Color(0xFFF59E0B).withOpacity(0.5)
+                          : PosTheme.blue.withOpacity(0.4),
+                    ),
                   ),
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.local_shipping_outlined, size: 19, color: PosTheme.blue),
-                    SizedBox(width: 7),
-                    Text('传后厨', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.blue)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.local_shipping_outlined, size: 19,
+                        color: _pendingKitchen.isNotEmpty ? const Color(0xFFD97706) : PosTheme.blue),
+                    const SizedBox(width: 7),
+                    Text(
+                      _pendingKitchen.isNotEmpty ? '传后厨(${_pendingKitchen.length})' : '传后厨',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: _pendingKitchen.isNotEmpty ? const Color(0xFFD97706) : PosTheme.blue,
+                      ),
+                    ),
                   ]),
                 ),
               ),
