@@ -146,19 +146,18 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   Widget build(BuildContext context) {
     final v = widget.vip;
     return AlertDialog(
-      title: Text('会员充值 · ${v['name'] ?? v['phone'] ?? ''}'),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: EdgeInsets.zero,
+      contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
+      actionsPadding: const EdgeInsets.fromLTRB(22, 4, 22, 18),
+      title: _header(v),
       content: SizedBox(
-        width: 460,
+        width: 520,
         child: FutureBuilder<List>(
           future: tiersFuture,
           builder: (_, snap) {
             final tiers = snap.data ?? [];
             return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text(
-                '当前余额 ¥${Fmt.money(v['amount'])}　赠送余额 ¥${Fmt.money(v['gift_balance'])}　积分 ${v['score'] ?? 0}',
-                style: const TextStyle(fontSize: 13, color: PosTheme.textSub),
-              ),
-              const SizedBox(height: 14),
               if (snap.connectionState != ConnectionState.done)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 28),
@@ -166,49 +165,29 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                 )
               else if (tiers.isEmpty)
                 Container(
-                  padding: const EdgeInsets.symmetric(vertical: 22),
+                  padding: const EdgeInsets.symmetric(vertical: 26),
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-                  child: const Text('暂无充值活动，请联系店长配置充值档次', style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
+                  decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(12)),
+                  child: const Text('暂无充值活动，请联系店长配置充值档次', style: TextStyle(fontSize: 13.5, color: PosTheme.textHint)),
                 )
               else
-                Wrap(spacing: 10, runSpacing: 10, children: [
+                Wrap(spacing: 12, runSpacing: 12, children: [
                   for (final t in tiers)
-                    InkWell(
-                      borderRadius: BorderRadius.circular(10),
-                      onTap: submitting ? null : () => setState(() => tier = t as Map),
-                      child: Container(
-                        width: 128,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: '${tier?['id']}' == '${t['id']}' ? const Color(0xFFFFF2ED) : Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: '${tier?['id']}' == '${t['id']}' ? PosTheme.accent : PosTheme.line,
-                            width: '${tier?['id']}' == '${t['id']}' ? 1.5 : 1,
-                          ),
-                        ),
-                        child: Column(children: [
-                          Text('¥${t['amount'] ?? 0}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                          const SizedBox(height: 2),
-                          Text('送 ¥${t['zengsong'] ?? 0}', style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
-                        ]),
-                      ),
-                    ),
+                    _tierCard(t),
                 ]),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
               // ---- 充值方式 ----
               Row(children: [
-                Expanded(child: _modeChip('现金充值', Icons.payments_outlined, cashMode,
+                Expanded(child: _modeChip('现金充值（权限码）', Icons.payments_outlined, cashMode,
                     () => setState(() => cashMode = true))),
-                const SizedBox(width: 10),
-                Expanded(child: _modeChip('付款码充值', Icons.qr_code_scanner, !cashMode,
+                const SizedBox(width: 12),
+                Expanded(child: _modeChip('扫码支付', Icons.qr_code_scanner, !cashMode,
                     () => setState(() => cashMode = false))),
               ]),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               if (cashMode) ...[
                 _pwdBox(),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 _pwdPad(),
               ] else
                 TextField(
@@ -230,15 +209,135 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: submitting ? null : () => Navigator.pop(context), child: const Text('取消')),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
-          onPressed: submitting ? null : _submit,
-          child: submitting
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-              : Text(cashMode ? '确认现金充值' : '确认付款码充值'),
-        ),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: PosTheme.textSub,
+                side: const BorderSide(color: PosTheme.line),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: submitting ? null : () => Navigator.pop(context),
+              child: const Text('取消', style: TextStyle(fontSize: 15)),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: PosTheme.accent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: submitting ? null : _submit,
+              child: submitting
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : Text(cashMode ? '确认现金充值' : '确认收款', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
+            ),
+          ),
+        ]),
       ],
+    );
+  }
+
+  /// 渐变头部：会员信息 + 当前余额（v3.3.118 美化）
+  Widget _header(Map v) {
+    final name = '${v['name'] ?? v['phone'] ?? '会员'}';
+    final avatarRaw = '${v['avatar'] ?? ''}'.trim();
+    final avatarUrl = avatarRaw.isEmpty
+        ? ''
+        : avatarRaw.startsWith('http')
+            ? avatarRaw
+            : Api.base + (avatarRaw.startsWith('/') ? '' : '/') + avatarRaw;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFFF7A45), Color(0xFFFF5B2E)],
+          ),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundColor: Colors.white.withOpacity(0.25),
+              backgroundImage: avatarUrl.isEmpty ? null : NetworkImage(avatarUrl),
+              onBackgroundImageError: avatarUrl.isEmpty ? null : (_, __) {},
+              child: avatarUrl.isEmpty
+                  ? Text(name.characters.isNotEmpty ? name.characters.first : '?',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white))
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('会员充值',
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                const SizedBox(height: 2),
+                Text('${v['name'] ?? ''}　${v['phone'] ?? ''}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: _headerStat('当前余额', '¥${Fmt.money(v['amount'])}')),
+            Expanded(child: _headerStat('赠送余额', '¥${Fmt.money(v['gift_balance'])}')),
+            Expanded(child: _headerStat('积分', '${v['score'] ?? 0}')),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _headerStat(String k, String val) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(k, style: const TextStyle(fontSize: 11.5, color: Colors.white70)),
+      const SizedBox(height: 2),
+      Text(val, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
+    ]);
+  }
+
+  /// 充值档次卡（选中态橙色渐变，v3.3.118）
+  Widget _tierCard(Map t) {
+    final on = '${tier?['id']}' == '${t['id']}';
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: submitting ? null : () => setState(() => tier = t),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 150,
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          gradient: on
+              ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [Color(0xFFFF8A5C), Color(0xFFFF5B2E)])
+              : null,
+          color: on ? null : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 1.5 : 1),
+          boxShadow: on
+              ? [BoxShadow(color: PosTheme.accent.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 3))]
+              : null,
+        ),
+        child: Column(children: [
+          Text('¥${t['amount'] ?? 0}',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: on ? Colors.white : PosTheme.accent)),
+          const SizedBox(height: 3),
+          Text('送 ¥${t['zengsong'] ?? 0}',
+              style: TextStyle(fontSize: 12, color: on ? Colors.white.withOpacity(0.9) : PosTheme.textSub)),
+        ]),
+      ),
     );
   }
 

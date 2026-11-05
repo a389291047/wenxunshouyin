@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
 /// 零售版 · 会员页：列表/查询/添加/充值/扣款/最近消费
@@ -190,122 +191,13 @@ class _MemberPageState extends State<MemberPage> {
     }
   }
 
-  // ==================== 充值（与微信小程序充值页一致：档次 + 扫付款码） ====================
+  // ==================== 充值（v3.3.118 换用完整版弹窗：现金充值需权限码 / 付款码免密） ====================
   Future<void> _recharge() async {
     if (selected == null) return;
-    final v = selected!;
-    final codeCtrl = TextEditingController();
-    Map? tier;            // 选中的充值档次 {id, amount, zengsong}
-    bool submitting = false;
-    final tiersFuture = Api.vipRechargeTiers(Session.wenxunId); // 只创建一次
-
-    final r = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) => AlertDialog(
-        title: Text('会员充值 · ${v['name'] ?? v['phone']}'),
-        content: SizedBox(
-          width: 440,
-          child: FutureBuilder<List>(
-            future: tiersFuture,
-            builder: (_, snap) {
-              final tiers = snap.data ?? [];
-              return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Text('当前余额 ¥${Fmt.money(v['amount'])}　赠送余额 ¥${Fmt.money(v['gift_balance'])}　积分 ${v['score'] ?? 0}',
-                    style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                const SizedBox(height: 14),
-                if (snap.connectionState != ConnectionState.done)
-                  const Padding(padding: EdgeInsets.symmetric(vertical: 28), child: Center(child: CircularProgressIndicator(color: PosTheme.accent)))
-                else if (tiers.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 22),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-                    child: const Text('暂无充值活动，请联系店长配置充值档次', style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
-                  )
-                else
-                  Wrap(spacing: 10, runSpacing: 10, children: [
-                    for (final t in tiers)
-                      InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: () => setD(() => tier = t as Map),
-                        child: Container(
-                          width: 128,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: '${tier?['id']}' == '${t['id']}' ? const Color(0xFFFFF2ED) : Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: '${tier?['id']}' == '${t['id']}' ? PosTheme.accent : PosTheme.line, width: '${tier?['id']}' == '${t['id']}' ? 1.5 : 1),
-                          ),
-                          child: Column(children: [
-                            Text('¥${t['amount'] ?? 0}', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                            const SizedBox(height: 2),
-                            Text('送 ¥${t['zengsong'] ?? 0}', style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
-                          ]),
-                        ),
-                      ),
-                  ]),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: codeCtrl,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  maxLength: 30,
-                  enabled: !submitting,
-                  onSubmitted: (_) => Navigator.pop(ctx, true),
-                  decoration: const InputDecoration(
-                    labelText: '顾客付款码',
-                    hintText: '扫码枪扫描顾客付款码，或手动输入',
-                    counterText: '',
-                    prefixIcon: Icon(Icons.qr_code_scanner, size: 20),
-                  ),
-                ),
-              ]);
-            },
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
-            onPressed: () {
-              if (tier == null) { toast(context, '请选择充值档次', error: true); return; }
-              final code = codeCtrl.text.trim();
-              if (!RegExp(r'^\d{18,30}$').hasMatch(code)) { toast(context, '请输入有效的付款码（18-30位数字）', error: true); return; }
-              Navigator.pop(ctx, true);
-            },
-            child: const Text('确认充值'),
-          ),
-        ],
-      )),
-    );
-    if (r != true || !mounted) return;
-    final amount = double.tryParse('${tier?['amount'] ?? ''}') ?? 0;
-    if (amount <= 0) {
-      toast(context, '请选择充值档次', error: true);
-      return;
-    }
-    loadingDialog(context, '等待顾客支付…');
-    try {
-      final resp = await Api.rechargeCodePay(
-        wenxunId: Session.wenxunId,
-        amount: amount,
-        code: codeCtrl.text.trim(),
-      );
-      if (!mounted) return;
-      Navigator.pop(context);
-      final outerCode = '${resp['code']}';
-      final data = (resp['data'] ?? {}) as Map;
-      final ok = outerCode == '0' && ('${data['code'] ?? ''}' == '000000' || data['success'] == true);
-      if (ok) {
-        toast(context, '充值成功 ¥${Fmt.money(amount)}（送 ¥${tier?['zengsong'] ?? 0}）');
-        _load();
-      } else {
-        toast(context, '${data['msg'] ?? resp['message'] ?? '支付未完成，请确认'}', error: true);
-      }
-    } on ApiError catch (e) {
-      if (mounted) Navigator.pop(context);
-      toast(context, e.message, error: true);
-    }
+    final r = await showVipRechargeDialog(context, vip: selected!);
+    if (r == null || !mounted) return;
+    toast(context, '充值成功 ¥${Fmt.money(r['amount'])}（送 ¥${Fmt.money(r['gift'])}）');
+    _load();
   }
 
   // ==================== 最近消费（仅最近 5 条） ====================
@@ -411,17 +303,40 @@ class _MemberPageState extends State<MemberPage> {
                                         color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
                                         borderRadius: BorderRadius.circular(10),
                                       ),
+                                      // 单行布局（v3.3.118）：头像 · 昵称 · 手机号 · 金额，一行居中，超出省略号
                                       child: Row(children: [
                                         _VipAvatar(avatarUrl: _avatarUrl(v), radius: 17, fallbackText: _avatarChar(v), highlight: on),
                                         const SizedBox(width: 12),
-                                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                          Text('${v['name'] ?? ''}', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-                                          Text('${v['phone'] ?? ''}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
-                                        ])),
-                                        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                                          Text('¥${Fmt.money(v['amount'])}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                                          Text('积分 ${v['score'] ?? 0}', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-                                        ]),
+                                        Expanded(
+                                          child: Row(children: [
+                                            Flexible(
+                                              flex: 5,
+                                              child: Text(
+                                                '${v['name'] ?? ''}',
+                                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Flexible(
+                                              flex: 4,
+                                              child: Text(
+                                                '${v['phone'] ?? ''}',
+                                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
+                                              ),
+                                            ),
+                                          ]),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Flexible(
+                                          flex: 2,
+                                          child: Text(
+                                            '¥${Fmt.money(v['amount'])}',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.right,
+                                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent),
+                                          ),
+                                        ),
                                       ]),
                                     ),
                                   );
@@ -461,12 +376,14 @@ class _MemberPageState extends State<MemberPage> {
         const SizedBox(height: 18),
         Row(children: [
           Expanded(child: _kv('可用余额', '¥${Fmt.money(v['amount'])}', PosTheme.accent)),
+          const SizedBox(width: 12),
           Expanded(child: _kv('赠送余额', '¥${Fmt.money(v['gift_balance'])}', PosTheme.green)),
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Row(children: [
           Expanded(child: _kv('积分', '${v['score'] ?? 0}', PosTheme.blue)),
-          Expanded(child: _kv('累计充值', '¥${Fmt.money(v['accumulation_recharge'])}', PosTheme.textMain)),
+          const SizedBox(width: 12),
+          Expanded(child: _kv('累计充值', '¥${Fmt.money(v['accumulation_recharge'])}', const Color(0xFF7C3AED))),
         ]),
         const Spacer(),
         BigButton('充值', onTap: _recharge, height: 50),
@@ -476,13 +393,22 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
+  /// 详情数据卡（v3.3.118）：按数值色渐变底 + 同色浅描边，卡片间留间隙
   Widget _kv(String k, String v, Color c) {
     return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [c.withOpacity(0.12), c.withOpacity(0.04)],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.withOpacity(0.18)),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(k, style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
-        const SizedBox(height: 3),
+        const SizedBox(height: 4),
         Text(v, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: c)),
       ]),
     );
