@@ -112,6 +112,74 @@ class _PreorderPageState extends State<PreorderPage> {
     return null;
   }
 
+  // ==================== 公共小组件 ====================
+
+  /// 显示名：微信昵称优先，其次顾客填写的称呼
+  static String _displayName(Map<String, dynamic> r) {
+    final nick = '${r['nickname'] ?? ''}'.trim();
+    if (nick.isNotEmpty) return nick;
+    final name = '${r['contact_name'] ?? ''}'.trim();
+    return name;
+  }
+
+  /// 微信头像：有头像显示网络图，没有/加载失败显示默认头像（首字渐变气泡）
+  Widget _avatar(String url, String name, double size, {double fontSize = 15}) {
+    final initial = name.isNotEmpty ? name.substring(0, 1) : '客';
+    Widget fallback() => Container(
+          width: size,
+          height: size,
+          alignment: Alignment.center,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFFB27A), Color(0xFFFF5A1F)],
+            ),
+          ),
+          child: Text(initial,
+              style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w800, color: Colors.white)),
+        );
+    if (url.trim().isEmpty) return fallback();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size / 5),
+      child: Image.network(
+        url.trim(),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback(),
+      ),
+    );
+  }
+
+  /// 信息气泡（人数 / 到店时间等）
+  Widget _pill(IconData icon, String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.09), borderRadius: BorderRadius.circular(20)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 12.5, color: color),
+        const SizedBox(width: 4),
+        Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+      ]),
+    );
+  }
+
+  /// 渐变线条（header 底部装饰）
+  Widget _gradientLine({double height = 2}) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [PosTheme.accent, PosTheme.accent.withOpacity(0.25), Colors.transparent],
+        ),
+      ),
+    );
+  }
+
   // ==================== 页面 ====================
 
   @override
@@ -275,89 +343,79 @@ class _PreorderPageState extends State<PreorderPage> {
     final st = int.tryParse('${r['status']}') ?? 0;
     final stColor = const {0: PosTheme.accent, 1: PosTheme.green, 2: PosTheme.textHint}[st] ?? PosTheme.textHint;
     final stText = const {0: '待安排', 1: '已安排', 2: '已拒绝'}[st] ?? '';
-    final name = '${r['contact_name'] ?? ''}'.trim();
+    final nick = _displayName(r);
     final phone = '${r['contact_phone'] ?? ''}'.trim();
+    final avatar = '${r['avatar'] ?? ''}'.trim();
     final arrive = '${r['arrive_time'] ?? ''}'.trim();
     final people = int.tryParse('${r['people_num'] ?? 0}') ?? 0;
     final total = double.tryParse('${r['total'] ?? 0}') ?? 0;
-    final items = (r['items'] is List ? r['items'] as List : const [])
-        .whereType<Map>()
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
-    final dishText = items.take(3).map((e) => '${e['goods_name'] ?? e['goods_title'] ?? ''}').join('、');
-    final createTime = '${r['create_time'] ?? ''}';
 
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       onTap: () => setState(() => selectedId = id),
       child: Container(
         padding: const EdgeInsets.fromLTRB(12, 11, 12, 11),
         decoration: BoxDecoration(
           color: on ? PosTheme.accent.withOpacity(0.05) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 1.6 : 1),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              width: 30,
-              height: 30,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: stColor.withOpacity(0.10), borderRadius: BorderRadius.circular(8)),
-              child: Text(name.isNotEmpty ? name.substring(0, 1) : '客',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: stColor)),
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(name.isNotEmpty ? name : '未留称呼',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700)),
-            ),
-            if (phone.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              Text(phone, style: const TextStyle(fontSize: 12, color: PosTheme.blue, fontWeight: FontWeight.w600)),
-            ],
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-              decoration: BoxDecoration(color: stColor.withOpacity(0.10), borderRadius: BorderRadius.circular(20)),
-              child: Text(stText, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: stColor)),
+          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            _avatar(avatar, nick, 40, fontSize: 17),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(
+                    child: Text(nick.isNotEmpty ? nick : '未留称呼',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [stColor.withOpacity(0.16), stColor.withOpacity(0.07)]),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(stText,
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: stColor)),
+                  ),
+                ]),
+                const SizedBox(height: 3),
+                Text(phone.isNotEmpty ? phone : '未留手机号',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: phone.isNotEmpty ? PosTheme.blue : PosTheme.textHint,
+                        fontWeight: FontWeight.w600)),
+              ]),
             ),
           ]),
-          const SizedBox(height: 7),
+          const SizedBox(height: 8),
           Row(children: [
             if (people > 0) ...[
-              _mini(Icons.people_alt_outlined, '$people 人'),
-              const SizedBox(width: 10),
+              _pill(Icons.people_alt_outlined, '$people 人', PosTheme.blue),
+              const SizedBox(width: 6),
             ],
-            if (arrive.isNotEmpty) _mini(Icons.schedule, arrive),
+            if (arrive.isNotEmpty) Flexible(child: _pill(Icons.schedule, arrive, PosTheme.green)),
             const Spacer(),
-            Text('¥${Fmt.money(total)}',
-                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFFF8A50), Color(0xFFFF5A1F)]),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text('¥${Fmt.money(total)}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
+            ),
           ]),
-          if (dishText.isNotEmpty) ...[
-            const SizedBox(height: 5),
-            Text('$dishText${items.length > 3 ? ' 等${items.length}项' : ''}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-          ],
-          if (createTime.isNotEmpty) ...[
-            const SizedBox(height: 3),
-            Text('提交 $createTime', style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
-          ],
         ]),
       ),
     );
-  }
-
-  Widget _mini(IconData icon, String text) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, size: 13, color: PosTheme.textHint),
-      const SizedBox(width: 3),
-      Text(text, style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
-    ]);
   }
 
   // ---------- 右：菜品清单 + 操作 ----------
@@ -373,67 +431,84 @@ class _PreorderPageState extends State<PreorderPage> {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
     final total = double.tryParse('${r['total'] ?? 0}') ?? 0;
-    final name = '${r['contact_name'] ?? ''}'.trim();
+    final name = _displayName(r); // 微信昵称优先，其次顾客填写称呼
     final phone = '${r['contact_phone'] ?? ''}'.trim();
     final people = int.tryParse('${r['people_num'] ?? 0}') ?? 0;
     final arrive = '${r['arrive_time'] ?? ''}'.trim();
     final remark = '${r['remark'] ?? ''}'.trim();
     final tableTitle = '${r['table_title'] ?? ''}'.trim();
     final kaitai = '${r['kaitai_id'] ?? ''}'.trim();
+    final createTime = '${r['create_time'] ?? ''}'.trim();
     final stColor = const {0: PosTheme.accent, 1: PosTheme.green, 2: PosTheme.textHint}[st] ?? PosTheme.textHint;
     final stText = const {0: '待安排', 1: '已安排', 2: '已拒绝'}[st] ?? '';
 
     return Column(children: [
-      // 顾客信息
+      // 顾客信息头
       Container(
         width: double.infinity,
         color: Colors.white,
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
+        padding: const EdgeInsets.fromLTRB(24, 18, 24, 0),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(color: stColor.withOpacity(0.10), borderRadius: BorderRadius.circular(12)),
-              child: Text(name.isNotEmpty ? name.substring(0, 1) : '客',
-                  style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: stColor)),
+            _avatar('${r['avatar'] ?? ''}'.trim(), name.isNotEmpty ? name : '', 52, fontSize: 21),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(
+                    child: Text(name.isNotEmpty ? name : '未留称呼',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [stColor.withOpacity(0.16), stColor.withOpacity(0.07)]),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(stText,
+                        style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: stColor)),
+                  ),
+                ]),
+                const SizedBox(height: 5),
+                Row(children: [
+                  if (phone.isNotEmpty)
+                    Flexible(
+                      child: Text(phone,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13.5, color: PosTheme.blue, fontWeight: FontWeight.w700)),
+                    ),
+                  if (people > 0) ...[
+                    const SizedBox(width: 8),
+                    _pill(Icons.people_alt_outlined, '$people 人', PosTheme.blue),
+                  ],
+                  if (arrive.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Flexible(child: _pill(Icons.schedule, arrive, PosTheme.green)),
+                  ],
+                ]),
+              ]),
             ),
             const SizedBox(width: 12),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Text(name.isNotEmpty ? name : '未留称呼',
-                    style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration:
-                      BoxDecoration(color: stColor.withOpacity(0.10), borderRadius: BorderRadius.circular(20)),
-                  child: Text(stText, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: stColor)),
-                ),
-              ]),
-              const SizedBox(height: 4),
-              Row(children: [
-                if (phone.isNotEmpty)
-                  Text(phone, style: const TextStyle(fontSize: 13.5, color: PosTheme.blue, fontWeight: FontWeight.w700)),
-                if (phone.isNotEmpty && people > 0) const SizedBox(width: 12),
-                if (people > 0)
-                  Text('$people 人', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                if (arrive.isNotEmpty) ...[
-                  if (phone.isNotEmpty || people > 0) const SizedBox(width: 12),
-                  Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.schedule, size: 14, color: PosTheme.textHint),
-                    const SizedBox(width: 3),
-                    Text('到店 $arrive', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                  ]),
-                ],
-              ]),
-            ]),
-            const Spacer(),
+            // 右上角：金额（无"合计"文字）+ 提交时间
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              const Text('合计', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-              Text('¥${Fmt.money(total)}',
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFFF8A50), Color(0xFFFF5A1F)]),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Text('¥${Fmt.money(total)}',
+                    style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white)),
+              ),
+              if (createTime.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Text('提交 $createTime',
+                    style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+              ],
             ]),
           ]),
           if (st == 1 && tableTitle.isNotEmpty) ...[
@@ -469,6 +544,9 @@ class _PreorderPageState extends State<PreorderPage> {
               ]),
             ),
           ],
+          const SizedBox(height: 12),
+          // 渐变装饰线
+          _gradientLine(),
         ]),
       ),
       // 菜品清单
@@ -542,6 +620,7 @@ class _PreorderPageState extends State<PreorderPage> {
     ]);
   }
 
+  /// 菜品行：名称 / 数量 / 小计 三等分（各占 1/3，超长省略号，不换行不变形）
   Widget _dishRow(Map<String, dynamic> it) {
     final title = '${it['goods_name'] ?? it['goods_title'] ?? ''}';
     final price = double.tryParse('${it['unit_price'] ?? 0}') ?? 0;
@@ -549,27 +628,37 @@ class _PreorderPageState extends State<PreorderPage> {
     final sub = double.tryParse('${it['sub_total'] ?? 0}') ?? (price * qty);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      child: Row(children: [
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 2),
-            Text('单价 ¥${Fmt.money(price)}', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-          ]),
-        ),
-        SizedBox(
-          width: 70,
-          child: Text('× $qty',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
-        ),
-        SizedBox(
-          width: 92,
-          child: Text('¥${Fmt.money(sub)}',
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-        ),
-      ]),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text('单价 ¥${Fmt.money(price)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            ]),
+          ),
+          Expanded(
+            child: Text('× $qty',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Text('¥${Fmt.money(sub)}',
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
     );
   }
 
