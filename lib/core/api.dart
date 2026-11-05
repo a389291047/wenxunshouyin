@@ -635,17 +635,34 @@ class Api {
     return post('/api/diancan/pendingList', {'wenxun_id': wenxunId});
   }
 
+  /// 预约点餐列表（全部状态，v3.3.102）：data.list / data.counts / data.total
+  /// [status] 0 待安排 / 1 已安排 / 2 已拒绝 / all
+  static Future<Map<String, dynamic>> preorderList({
+    required int wenxunId,
+    String status = '0',
+    String keyword = '',
+  }) async {
+    return post('/api/diancan/preorderList', {
+      'wenxun_id': wenxunId,
+      'status': status,
+      'keyword': keyword,
+    });
+  }
+
   /// 同意并开台（未开台自动开台，已开台追加菜品）：data.kaitai_id / items / is_new
+  /// [tableId] 收银员安排的桌台（统一预约入口必填）
   static Future<Map<String, dynamic>> preorderApprove({
     required int wenxunId,
     required int preorderId,
     required int peopleNum,
     required int operatorId,
     required String operatorName,
+    int tableId = 0,
   }) async {
     return post('/api/diancan/preorderApprove', {
       'wenxun_id': wenxunId,
       'preorder_id': preorderId,
+      'table_id': tableId,
       'people_num': peopleNum,
       'operator_id': operatorId,
       'operator_name': operatorName,
@@ -670,6 +687,14 @@ class Api {
   /// 桌台点餐二维码图片地址（顾客扫码入口）
   static String tableQrUrl({required int wenxunId, required int tableId}) =>
       '$base/api/diancan/qr?wenxun_id=$wenxunId&table_id=$tableId';
+
+  /// 统一预约点餐二维码（所有顾客同一个链接，不绑桌台，v3.3.102）
+  static String preorderQrUrl({required int wenxunId}) =>
+      '$base/api/diancan/qr?wenxun_id=$wenxunId';
+
+  /// 统一预约点餐 H5 链接（可发朋友圈/公众号菜单/店内海报）
+  static String preorderUnionUrl({required int wenxunId}) =>
+      '$base/h5/diancan.html?wenxun_id=$wenxunId';
 
   /// 桌台点餐 H5 链接（顾客手机直接打开）
   static String tableOrderUrl({required int wenxunId, required int tableId}) =>

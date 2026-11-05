@@ -10,6 +10,7 @@ import '../../ui/receipt_preview.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import 'dining_modes.dart';
+import 'preorder_page.dart';
 import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 
 /// 餐饮版 · 点餐主页（中餐 / 面馆 / 快餐通用）
@@ -27,6 +28,7 @@ class _DiningPageState extends State<DiningPage> {
   bool loading = true;
   String? error;
   String region = ''; // 区域筛选：'' = 全部区域
+  int _preorderWaiting = 0; // 预约点餐待安排数量（v3.3.102）
 
   // 所有区域（去重、保序）
   List<String> get _regions {
@@ -75,10 +77,29 @@ class _DiningPageState extends State<DiningPage> {
       final r = await Api.tables(Session.wenxunId);
       if (!mounted) return;
       setState(() { tables = r; loading = false; });
+      _loadPreorderCount();
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() { loading = false; error = e.message; });
     }
+  }
+
+  /// 预约点餐待安排数量（统一入口提交的预约不绑桌台，桌台角标统计不到，v3.3.102）
+  Future<void> _loadPreorderCount() async {
+    try {
+      final r = await Api.preorderList(wenxunId: Session.wenxunId, status: '0');
+      if (!mounted) return;
+      final c = ((r['data'] ?? {})['counts'] ?? {}) as Map;
+      setState(() => _preorderWaiting = int.tryParse('${c['0'] ?? 0}') ?? 0);
+    } catch (_) {
+      // 预约模块异常不影响桌台
+    }
+  }
+
+  Future<void> _openPreorders() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const PreorderPage()));
+    if (!mounted) return;
+    _load();
   }
 
   @override
@@ -156,17 +177,12 @@ class _DiningPageState extends State<DiningPage> {
           _legend('已预定 ${tables.where((t) => '${t['status']}' == '1').length}', PosTheme.amber),
           const SizedBox(width: 12),
           _legend('待清台 ${tables.where((t) => '${t['status']}' == '4').length}', const Color(0xFFF97316)),
-          if (_pendingTotal > 0) ...[
+          if (_preorderWaiting > 0) ...[
             const SizedBox(width: 12),
-            // 顾客扫码待确认预点单（v3.3.101）：点击进入确认面板
+            // 预约点餐待安排（v3.3.102）：点击打开预约点餐模块
             InkWell(
               borderRadius: BorderRadius.circular(20),
-              onTap: () {
-                final withPending = tables
-                    .where((e) => (int.tryParse('${e['pending'] ?? 0}') ?? 0) > 0)
-                    .toList();
-                if (withPending.isNotEmpty) _pendingSheet(withPending.first);
-              },
+              onTap: _openPreorders,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
@@ -177,13 +193,24 @@ class _DiningPageState extends State<DiningPage> {
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.notifications_active, size: 14, color: Color(0xFFEF4444)),
                   const SizedBox(width: 5),
-                  Text('顾客待确认 $_pendingTotal',
+                  Text('预约待安排 $_preorderWaiting',
                       style: const TextStyle(fontSize: 12.5, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
                 ]),
               ),
             ),
           ],
           const SizedBox(width: 14),
+          // 预约点餐（顾客统一链接提交的预约，v3.3.102）
+          OutlinedButton.icon(
+            onPressed: _openPreorders,
+            style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                foregroundColor: _preorderWaiting > 0 ? PosTheme.accent : PosTheme.textSub,
+                side: BorderSide(color: _preorderWaiting > 0 ? PosTheme.accent : PosTheme.line)),
+            icon: const Icon(Icons.event_available_outlined, size: 17),
+            label: Text(_preorderWaiting > 0 ? '预约点餐 $_preorderWaiting' : '预约点餐'),
+          ),
+          const SizedBox(width: 10),
           // 桌台点餐二维码（顾客扫码自助点餐入口，v3.3.101）
           OutlinedButton.icon(
             onPressed: _qrCodeSheet,
@@ -425,9 +452,6 @@ class _DiningPageState extends State<DiningPage> {
   // ==================== 顾客扫码预点餐（v3.3.101） ====================
 
   /// 全店待确认的顾客预点单总数（顶栏提示用）
-  int get _pendingTotal => tables.fold<int>(
-      0, (s, t) => s + (int.tryParse('${t['pending'] ?? 0}') ?? 0));
-
   /// 顾客扫码预点单确认面板（一桌可能有多条，逐条同意/拒绝）
   Future<void> _pendingSheet(Map t) async {
     List<Map<String, dynamic>> rows;
