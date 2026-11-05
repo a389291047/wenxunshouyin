@@ -179,7 +179,6 @@ class _DiningPageState extends State<DiningPage> {
   static const List<Map<String, dynamic>> _orderModes = [
     {'label': '开台点餐', 'color': PosTheme.red},
     {'label': '堂食模式', 'color': Color(0xFFFF7A45)},
-    {'label': '外卖点餐', 'color': Color(0xFF7B61FF)},
     {'label': '排队取号', 'color': PosTheme.blue},
     {'label': '挂账点餐', 'color': PosTheme.red},
   ];
@@ -207,18 +206,6 @@ class _DiningPageState extends State<DiningPage> {
           const SizedBox(width: 12),
           _legend('待清台 ${tables.where((t) => '${t['status']}' == '4').length}', const Color(0xFFF97316)),
           const SizedBox(width: 14),
-          // 桌台点餐二维码（顾客扫码自助点餐入口，v3.3.101）
-          // 预约点餐入口已移到左侧菜单「预约」（v3.3.104）
-          OutlinedButton.icon(
-            onPressed: _qrCodeSheet,
-            style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-                foregroundColor: PosTheme.blue,
-                side: const BorderSide(color: PosTheme.blue)),
-            icon: const Icon(Icons.qr_code_2, size: 17),
-            label: const Text('点餐码'),
-          ),
-          const SizedBox(width: 10),
           // 餐饮交班对账入口已移到「交班页」（v3.3.77）
           OutlinedButton.icon(
             onPressed: _load,
@@ -266,9 +253,6 @@ class _DiningPageState extends State<DiningPage> {
         break;
       case '堂食模式':
         setState(() => mode = 1);
-        break;
-      case '外卖点餐':
-        await showDialog(context: context, builder: (_) => const WaimaiDialog());
         break;
       case '排队取号':
         await showDialog(context: context, builder: (_) => const PaihaoDialog());
@@ -688,66 +672,6 @@ class _DiningPageState extends State<DiningPage> {
     } catch (_) {
       // 打印失败不影响开台
     }
-  }
-
-  /// 桌台点餐二维码（顾客扫码自助点餐入口）
-  Future<void> _qrCodeSheet() async {
-    if (tables.isEmpty) {
-      toast(context, '暂无桌台', error: true);
-      return;
-    }
-    final picked = await showDialog<Map>(
-      context: context,
-      builder: (_) => TablePickDialog(tables: tables, title: '选择桌台生成点餐码'),
-    );
-    if (picked == null || !mounted) return;
-    final tid = int.tryParse('${picked['id']}') ?? 0;
-    if (tid <= 0) return;
-    final url = Api.tableOrderUrl(wenxunId: Session.wenxunId, tableId: tid);
-    await showDialog(
-      context: context,
-      builder: (ctx) => Dialog(
-        child: Container(
-          width: 420,
-          padding: const EdgeInsets.all(22),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('${picked['title']} · 点餐码',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 6),
-            const Text('顾客用微信/手机相机扫码即可自助点餐，提交后需收银员确认开台',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.network(
-                Api.tableQrUrl(wenxunId: Session.wenxunId, tableId: tid),
-                width: 250,
-                height: 250,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Container(
-                  width: 250,
-                  height: 250,
-                  color: const Color(0xFFF4F5F7),
-                  alignment: Alignment.center,
-                  child: const Text('二维码加载失败\n请检查网络后重试',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SelectableText(url,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 10.5, color: PosTheme.textHint)),
-            const SizedBox(height: 16),
-            BigButton('关闭',
-                onTap: () => Navigator.pop(ctx),
-                color: const Color(0xFFF4F5F7), textColor: PosTheme.textSub, height: 42),
-          ]),
-        ),
-      ),
-    );
   }
 
   // ==================== 空闲桌操作面板（开台点餐 / 预定桌台 / 预约点餐，v3.3.91） ====================

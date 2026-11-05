@@ -7,7 +7,8 @@ import '../../core/theme.dart';
 import '../../ui/widgets.dart';
 
 /// 餐饮点餐方式扩展（v3.3.63）：
-/// 不开台点餐 / 外卖流水 / 排队取号叫号 / 预约列表 / 挂账台账 / 选桌扫码
+/// 不开台点餐 / 排队取号叫号 / 预约列表 / 挂账台账 / 选桌扫码
+/// 外卖点餐已移除（v3.3.119），点餐码入口已移除（顶栏不再显示）
 
 // ==================== 不开台点餐（快餐/外带 · 即点即收） ====================
 
@@ -376,143 +377,6 @@ class _DirectVipPickerState extends State<_DirectVipPicker> {
         ),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
-    );
-  }
-}
-
-// ==================== 外卖点餐（只记流水） ====================
-
-class WaimaiDialog extends StatefulWidget {
-  const WaimaiDialog({super.key});
-  @override
-  State<WaimaiDialog> createState() => _WaimaiDialogState();
-}
-
-class _WaimaiDialogState extends State<WaimaiDialog> {
-  final amountCtrl = TextEditingController();
-  final beizhuCtrl = TextEditingController();
-  List list = [];
-  double sum = 0;
-  bool loading = true;
-  bool saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    try {
-      final r = await Api.waimaiLst();
-      if (!mounted) return;
-      setState(() {
-        list = (r['list'] ?? []) as List;
-        sum = double.tryParse('${r['sum']}') ?? 0;
-        loading = false;
-      });
-    } on ApiError {
-      if (!mounted) return;
-      setState(() => loading = false);
-    }
-  }
-
-  Future<void> _save() async {
-    final amount = double.tryParse(amountCtrl.text.trim()) ?? 0;
-    if (amount <= 0) {
-      toast(context, '请输入有效金额', error: true);
-      return;
-    }
-    setState(() => saving = true);
-    try {
-      final r = await Api.waimaiAdd(amount: amount, beizhu: beizhuCtrl.text.trim());
-      if (!mounted) return;
-      setState(() => saving = false);
-      if ('${r['code']}' == '200') {
-        toast(context, '外卖流水已登记 ¥${Fmt.money(amount)}');
-        amountCtrl.clear();
-        beizhuCtrl.clear();
-        _load();
-      } else {
-        toast(context, '${r['msg'] ?? '登记失败'}', error: true);
-      }
-    } on ApiError catch (e) {
-      if (mounted) setState(() => saving = false);
-      toast(context, e.message, error: true);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      child: Container(
-        width: 560, height: 560,
-        padding: const EdgeInsets.all(20),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            const Text('外卖点餐', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(color: const Color(0xFFF4F0FF), borderRadius: BorderRadius.circular(20)),
-              child: const Text('只记流水 · 今日', style: TextStyle(fontSize: 12, color: Color(0xFF7B61FF))),
-            ),
-            const Spacer(),
-            IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
-          ]),
-          const SizedBox(height: 14),
-          Row(children: [
-            SizedBox(width: 170, child: TextField(
-              controller: amountCtrl,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: '金额（元）', prefixText: '¥ ', isDense: true),
-            )),
-            const SizedBox(width: 10),
-            Expanded(child: TextField(
-              controller: beizhuCtrl,
-              decoration: const InputDecoration(labelText: '备注（如：美团×2 黄焖鸡）', isDense: true),
-            )),
-            const SizedBox(width: 10),
-            BigButton('登记', onTap: saving ? null : _save, width: 96, height: 44),
-          ]),
-          const SizedBox(height: 14),
-          Expanded(
-            child: loading
-                ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
-                : list.isEmpty
-                    ? const Center(child: Text('今日暂无外卖流水', style: TextStyle(color: PosTheme.textHint)))
-                    : ListView.separated(
-                        itemCount: list.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1, color: PosTheme.line),
-                        itemBuilder: (_, i) {
-                          final w = list[i];
-                          final t = '${w['create_time'] ?? ''}';
-                          return ListTile(
-                            dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 6),
-                            leading: const Icon(Icons.delivery_dining, color: Color(0xFF7B61FF)),
-                            title: Text('${(w['beizhu'] ?? '').toString().isEmpty ? '外卖' : w['beizhu']}',
-                                style: const TextStyle(fontSize: 14)),
-                            subtitle: Text('${t.length >= 16 ? t.substring(11, 16) : t} · ${w['operator_name'] ?? ''}',
-                                style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
-                            trailing: Text('¥${Fmt.money(double.tryParse('${w['amount']}') ?? 0)}',
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                          );
-                        },
-                      ),
-          ),
-          Container(
-            padding: const EdgeInsets.only(top: 10),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
-            child: Row(children: [
-              const Text('今日外卖合计', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-              const Spacer(),
-              Text('¥${Fmt.money(sum)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-            ]),
-          ),
-        ]),
-      ),
     );
   }
 }
