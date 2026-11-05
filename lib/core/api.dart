@@ -572,6 +572,17 @@ class Api {
     });
   }
 
+  /// 一键传后厨/起菜：该桌所有「未传后厨」菜品置为已传（v3.3.112）
+  static Future<Map<String, dynamic>> tableChuanHouchu({
+    required int wenxunId,
+    required String kaitaiId,
+  }) async {
+    return post('/api/diancan/chuanHouchu', {
+      'wenxun_id': wenxunId,
+      'kaitai_id': kaitaiId,
+    });
+  }
+
   /// 餐饮交班对账（今日堂食统计，v3.3.71）
   static Future<Map<String, dynamic>> diningJiaoban(int wenxunId) async {
     return post('/shouyin/canyin/jiaoban', {'wenxun_id': wenxunId});
