@@ -817,8 +817,8 @@ class _DiningPageState extends State<DiningPage> {
   // ==================== 就餐中桌台操作 ====================
   Future<void> _tableActionSheet(Map t) async {
     final kaitaiId = '${t['kaitai_id'] ?? ''}';
-    // 未传后厨菜品数（v3.3.114）：有未起菜时面板顶部展示「传后厨」按钮（手动，带数量）
-    final kPending = int.tryParse('${t['kitchen_pending'] ?? 0}') ?? 0;
+    // v3.3.115：传后厨统一在账单面板内操作（带打印+数量显示），
+    // 此处不再提供只改状态的传后厨入口（避免菜品不打印就被标记已传）
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
@@ -827,11 +827,7 @@ class _DiningPageState extends State<DiningPage> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('${t['title']} · 就餐中', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
           const SizedBox(height: 18),
-          if (kPending > 0) ...[
-            BigButton('传后厨 · 起菜（$kPending 道未传）', onTap: () { Navigator.pop(context); _chuanHouchu(t, kaitaiId, kPending); }, height: 50, color: const Color(0xFFFFF7ED), textColor: const Color(0xFFC2410C)),
-            const SizedBox(height: 10),
-          ],
-          BigButton('查看账单 / 加菜 / 结账', onTap: () { Navigator.pop(context); _dishPanel(t, kaitaiId); }, height: 50),
+          BigButton('查看账单 / 传后厨 / 加菜 / 结账', onTap: () { Navigator.pop(context); _dishPanel(t, kaitaiId); }, height: 50),
           const SizedBox(height: 10),
           Row(children: [
             Expanded(child: BigButton('转台', onTap: () { Navigator.pop(context); _changeTable(t); }, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46)),
@@ -846,23 +842,6 @@ class _DiningPageState extends State<DiningPage> {
   }
 
   // ==================== 已预定桌台操作 ====================
-
-  /// 传后厨/起菜（v3.3.114，手动操作）：预约转桌台的菜品由收银员确认后才传后厨，
-  /// 自动起菜已移除（避免收银员查看账单时误触发）
-  Future<void> _chuanHouchu(Map t, String kaitaiId, int kPending) async {
-    if (kaitaiId.isEmpty) return;
-    final ok = await confirm(context, '${t['title']} · 确认传后厨',
-        '共 $kPending 道菜品将立即起菜，确认后请同步打印后厨小票。');
-    if (!ok) return;
-    try {
-      await Api.tableChuanHouchu(wenxunId: Session.wenxunId, kaitaiId: kaitaiId);
-      if (!mounted) return;
-      toast(context, '已传后厨 · 起菜 $kPending 道');
-      _load();
-    } on ApiError catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-  }
 
   Future<void> _bookedActionSheet(Map t) async {
     final bookInfo = '${('${t['book_operator_name'] ?? '-'}')}  ${('${t['book_time'] ?? ''}')}'.trim();
@@ -1374,7 +1353,18 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   bool allGoodsLoading = false;
   // 待传后厨清单（v3.3.99）：点菜/加菜只入账不出票，
   // 点「传后厨」才统一打印（后厨按分类路由 + 前台整单一张）
-  final List<Map<String, dynamic>> _pendingKitchen = [];
+  // v3.3.115：待传状态持久化到后端 is_xiachu 字段（下单=0，打印传后厨=1），
+  // 账单面板关闭重开数量不丢（内存清单方案已废弃）
+  int get _pendingCount {
+    int n = 0;
+    for (final b in bill) {
+      if ('${b['is_xiachu'] ?? 1}' == '0') {
+        final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
+        if (remain > 0) n += remain;
+      }
+    }
+    return n;
+  }
 
   /// 会员可用余额（现金余额 + 赠送余额）
   double _vipBalance() {
@@ -1487,6 +1477,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         m['refund_num'] = (int.tryParse('${m['refund_num']}') ?? 0) + (int.tryParse('${it['refund_num']}') ?? 0);
         m['sub_total'] = ((double.tryParse('${m['sub_total']}') ?? 0) + (double.tryParse('${it['sub_total']}') ?? 0)).toStringAsFixed(2);
         if ('${it['is_chu']}' != '1') m['is_chu'] = 0; // 全部已出才算已出
+        if ('${it['is_xiachu'] ?? 1}' != '1') m['is_xiachu'] = 0; // 任一未传后厨即算未传（v3.3.115）
       }
     }
     return order.map((k) => map[k]!).toList();
@@ -1671,12 +1662,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
         toast(context, '已加：$label');
-        // 补全分类 id（后厨分单路由用），入待传清单，不出票
-        for (final c in cart) {
-          c['cat_id'] = '${c['cat_id'] ?? _catOf(c['goods_id'])}';
-          _pendingKitchen.add(c);
-        }
-        setState(() {});
+        // 后端已将新菜标记为「未传后厨」（is_xiachu=0，v3.3.115），
+        // 重拉账单后「传后厨(N)」数量自动包含，无需内存暂存
         _loadBill();
       } else {
         toast(context, '${r['msg'] ?? '加菜失败'}', error: true);
@@ -1742,20 +1729,36 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     await Future.wait(futures);
   }
 
-  /// 传后厨（v3.3.99）：
-  /// 有待传菜品 → 后厨按分类路由出票（可一菜一出/多台分单）+ 前台整单一张，
-  /// 传完清空待传清单；无待传菜品 → 兜底走「补打未出品」
+  /// 传后厨（v3.3.115）：
+  /// 有未传菜品（后端 is_xiachu=0，跨面板关闭持久）→ 后厨按分类路由出票 + 前台整单一张，
+  /// 打印成功后调后端置为已传；无未传菜品 → 兜底走「补打未出品」
   Future<void> _sendKitchen() async {
-    if (_pendingKitchen.isNotEmpty) {
+    if (_pendingCount > 0) {
       await _sendPendingKitchen();
       return;
     }
     await _reprintKitchen();
   }
 
-  /// 传送待传菜品：后厨单按「打印机分配」路由（后厨可一菜一出），前台固定整单一张
+  /// 传送未传菜品：后厨单按「打印机分配」路由（后厨可一菜一出），前台固定整单一张
   Future<void> _sendPendingKitchen() async {
-    final items = List<Map<String, dynamic>>.from(_pendingKitchen);
+    // 从账单原始行收集未传后厨菜品（含分类 id，供后厨分单路由）
+    final items = <Map<String, dynamic>>[];
+    for (final b in bill) {
+      if ('${b['is_xiachu'] ?? 1}' != '0') continue;
+      for (final row in ((b['_items'] ?? []) as List)) {
+        final m = Map<String, dynamic>.from(row as Map);
+        final remain = (int.tryParse('${m['quantity']}') ?? 0) - (int.tryParse('${m['refund_num']}') ?? 0);
+        if (remain <= 0) continue;
+        m['quantity'] = remain;
+        m['cat_id'] = '${m['cat_id'] ?? _catOf(m['goods_id'])}';
+        items.add(m);
+      }
+    }
+    if (items.isEmpty) {
+      await _reprintKitchen();
+      return;
+    }
     final kitchenOn = await PrintPrefs.on('kitchen');
     final frontOn = await PrintPrefs.on('front');
     if (!kitchenOn && !frontOn) {
@@ -1776,9 +1779,14 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           title: '前台单',
         ), machineCode: code);
       }
+      // 打印成功后：后端 is_xiachu 置 1（持久化，v3.3.115），
+      // 之后再开面板数量归零；打印失败不会置 1，重开面板数量仍在
+      try {
+        await Api.tableChuanHouchu(wenxunId: Session.wenxunId, kaitaiId: widget.kaitaiId);
+      } catch (_) {}
       if (!mounted) return;
-      _pendingKitchen.clear();
       setState(() {});
+      _loadBill();
       toast(context, '已传送后厨（${items.length} 项）');
     } catch (_) {
       if (mounted) toast(context, '打印失败，请检查云打印机网络', error: true);
@@ -2561,31 +2569,32 @@ class _TableBillDialogState extends State<_TableBillDialog> {
               ),
               const SizedBox(width: 12),
               // 传后厨（v3.3.99）：点菜不再即时出票，点此统一传送
-              // 待传 >0 时打新点菜品（后厨按分类路由 + 前台整单一张）；无待传时补打未出品
+              // 未传 >0 时打未传菜品（后厨按分类路由 + 前台整单一张）；无未传时补打未出品
+              // v3.3.115：数量来自后端 is_xiachu，面板关闭重开不丢
               InkWell(
-                onTap: bill.isEmpty && _pendingKitchen.isEmpty ? null : _sendKitchen,
+                onTap: bill.isEmpty && _pendingCount == 0 ? null : _sendKitchen,
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: _pendingKitchen.isNotEmpty ? const Color(0xFFFFF7E8) : const Color(0xFFF0F6FF),
+                    color: _pendingCount > 0 ? const Color(0xFFFFF7E8) : const Color(0xFFF0F6FF),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: _pendingKitchen.isNotEmpty
+                      color: _pendingCount > 0
                           ? const Color(0xFFF59E0B).withOpacity(0.5)
                           : PosTheme.blue.withOpacity(0.4),
                     ),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.local_shipping_outlined, size: 19,
-                        color: _pendingKitchen.isNotEmpty ? const Color(0xFFD97706) : PosTheme.blue),
+                        color: _pendingCount > 0 ? const Color(0xFFD97706) : PosTheme.blue),
                     const SizedBox(width: 7),
                     Text(
-                      _pendingKitchen.isNotEmpty ? '传后厨(${_pendingKitchen.length})' : '传后厨',
+                      _pendingCount > 0 ? '传后厨($_pendingCount)' : '传后厨',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
-                        color: _pendingKitchen.isNotEmpty ? const Color(0xFFD97706) : PosTheme.blue,
+                        color: _pendingCount > 0 ? const Color(0xFFD97706) : PosTheme.blue,
                       ),
                     ),
                   ]),
