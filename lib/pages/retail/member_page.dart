@@ -5,7 +5,7 @@ import '../../core/theme.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
-/// 零售版 · 会员页：列表/查询/添加/充值/扣款/最近消费
+/// 零售版 · 会员页：列表/查询/添加/充值（v3.3.120 消费记录入口已移除）
 class MemberPage extends StatefulWidget {
   const MemberPage({super.key});
   @override
@@ -200,43 +200,6 @@ class _MemberPageState extends State<MemberPage> {
     _load();
   }
 
-  // ==================== 最近消费（仅最近 5 条） ====================
-  Future<void> _showOrders() async {
-    if (selected == null) return;
-    loadingDialog(context, '查询中…');
-    List orders = [];
-    String? err;
-    try {
-      final all = await Api.vipOrders(int.tryParse('${selected!['id']}') ?? 0);
-      orders = all.take(5).toList();
-    } on ApiError catch (e) {
-      err = e.message;
-    }
-    if (!mounted) return;
-    Navigator.pop(context);
-    showDialog(context: context, builder: (_) => AlertDialog(
-      title: Text('最近消费 · ${selected!['name'] ?? selected!['phone']}（最近5条）'),
-      content: SizedBox(width: 520, height: 380, child: err != null
-          ? Center(child: Text(err, style: const TextStyle(color: PosTheme.red)))
-          : orders.isEmpty
-              ? const EmptyView('暂无消费记录')
-              : ListView.separated(
-                  itemCount: orders.length,
-                  separatorBuilder: (_, __) => const Divider(color: PosTheme.line),
-                  itemBuilder: (_, i) {
-                    final o = orders[i];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text('${o['order_number'] ?? ''}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                      subtitle: Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? ''}', style: const TextStyle(fontSize: 12.5)),
-                      trailing: Text('¥${Fmt.money(o['total'])}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                    );
-                  },
-                )),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
-    ));
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(children: [
@@ -275,11 +238,11 @@ class _MemberPageState extends State<MemberPage> {
                     ]),
                   ),
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                     child: Row(children: [
-                      Expanded(child: StatTile(label: '会员总数', value: '${list.length}', icon: Icons.groups, color: PosTheme.blue)),
+                      Expanded(child: _statCard('会员总数', '${list.length}', Icons.groups, PosTheme.blue)),
                       const SizedBox(width: 10),
-                      Expanded(child: StatTile(label: '余额合计', value: '¥${Fmt.money(_sumAmount())}', icon: Icons.account_balance_wallet_outlined, color: PosTheme.green)),
+                      Expanded(child: _statCard('余额合计', '¥${Fmt.money(_sumAmount())}', Icons.account_balance_wallet_outlined, PosTheme.green)),
                     ]),
                   ),
                   const SizedBox(height: 8),
@@ -289,48 +252,53 @@ class _MemberPageState extends State<MemberPage> {
                         : list.isEmpty
                             ? const EmptyView('暂无会员')
                             : ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
                                 itemCount: list.length,
                                 itemBuilder: (_, i) {
                                   final v = list[i];
                                   final on = selected != null && '${selected!['id']}' == '${v['id']}';
+                                  // 卡片式行（v3.3.120）：固定圆角头像 + 昵称/手机号/金额三段平分
                                   return InkWell(
-                                    borderRadius: BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(12),
                                     onTap: () => setState(() => selected = v),
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      margin: const EdgeInsets.only(bottom: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                                       decoration: BoxDecoration(
-                                        color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
-                                        borderRadius: BorderRadius.circular(10),
+                                        gradient: on
+                                            ? const LinearGradient(begin: Alignment.centerLeft, end: Alignment.centerRight, colors: [Color(0xFFFFF1E8), Color(0xFFFFF8F3)])
+                                            : null,
+                                        color: on ? null : Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: on ? PosTheme.accent.withOpacity(0.4) : PosTheme.line.withOpacity(0.7),
+                                          width: on ? 1.4 : 1,
+                                        ),
+                                        boxShadow: on
+                                            ? [BoxShadow(color: PosTheme.accent.withOpacity(0.10), blurRadius: 10, offset: const Offset(0, 3))]
+                                            : null,
                                       ),
-                                      // 单行布局（v3.3.118）：头像 · 昵称 · 手机号 · 金额，一行居中，超出省略号
                                       child: Row(children: [
-                                        _VipAvatar(avatarUrl: _avatarUrl(v), radius: 17, fallbackText: _avatarChar(v), highlight: on),
+                                        _VipAvatar(avatarUrl: _avatarUrl(v), radius: 19, rounded: true, fallbackText: _avatarChar(v), highlight: on),
                                         const SizedBox(width: 12),
+                                        // 昵称 / 手机号 / 金额 三段平分（超出省略号）
                                         Expanded(
-                                          child: Row(children: [
-                                            Flexible(
-                                              flex: 5,
-                                              child: Text(
-                                                '${v['name'] ?? ''}',
-                                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 10),
-                                            Flexible(
-                                              flex: 4,
-                                              child: Text(
-                                                '${v['phone'] ?? ''}',
-                                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
-                                              ),
-                                            ),
-                                          ]),
+                                          child: Text(
+                                            '${v['name'] ?? ''}',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                                          ),
                                         ),
                                         const SizedBox(width: 10),
-                                        Flexible(
-                                          flex: 2,
+                                        Expanded(
+                                          child: Text(
+                                            '${v['phone'] ?? ''}',
+                                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(fontSize: 13, color: PosTheme.textSub),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
                                           child: Text(
                                             '¥${Fmt.money(v['amount'])}',
                                             maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.right,
@@ -365,7 +333,7 @@ class _MemberPageState extends State<MemberPage> {
     return AppCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          _VipAvatar(avatarUrl: _avatarUrl(v), radius: 28, fallbackText: _avatarChar(v), showRing: true),
+          _VipAvatar(avatarUrl: _avatarUrl(v), radius: 28, rounded: true, fallbackText: _avatarChar(v), showRing: true),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('${v['name'] ?? '未命名会员'}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
@@ -387,8 +355,40 @@ class _MemberPageState extends State<MemberPage> {
         ]),
         const Spacer(),
         BigButton('充值', onTap: _recharge, height: 50),
-        const SizedBox(height: 10),
-        BigButton('消费记录（最近5条）', onTap: _showOrders, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
+      ]),
+    );
+  }
+
+  /// 左侧统计卡（v3.3.120）：同色渐变底 + 浅描边 + 圆角图标块
+  Widget _statCard(String k, String v, IconData icon, Color c) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [c.withOpacity(0.12), c.withOpacity(0.04)],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.withOpacity(0.18)),
+      ),
+      child: Row(children: [
+        Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [c, c.withOpacity(0.75)]),
+            borderRadius: BorderRadius.circular(9),
+            boxShadow: [BoxShadow(color: c.withOpacity(0.25), blurRadius: 6, offset: const Offset(0, 2))],
+          ),
+          child: Icon(icon, size: 18, color: Colors.white),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(k, style: const TextStyle(fontSize: 11.5, color: PosTheme.textSub)),
+          const SizedBox(height: 2),
+          Text(v, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: c)),
+        ])),
       ]),
     );
   }
@@ -418,18 +418,21 @@ class _MemberPageState extends State<MemberPage> {
 // ==================== 会员头像（微信头像 → 默认头像图） ====================
 /// 优先显示微信头像（wx_vip.avatar），加载中显示姓名首字占位，
 /// 无头像 / 加载失败回退到 assets/avatar_default.png 默认头像图
+/// rounded=true 时为固定圆角方形（微信样式），否则圆形
 class _VipAvatar extends StatefulWidget {
   final String avatarUrl;
   final double radius;
   final String fallbackText;
   final bool highlight; // 列表选中态：默认头像底色带主题色
   final bool showRing;  // 详情面板：外圈描边
+  final bool rounded;   // 圆角方形（v3.3.120），false=圆形
   const _VipAvatar({
     required this.avatarUrl,
     required this.radius,
     required this.fallbackText,
     this.highlight = false,
     this.showRing = false,
+    this.rounded = false,
   });
   @override
   State<_VipAvatar> createState() => _VipAvatarState();
@@ -438,17 +441,30 @@ class _VipAvatar extends StatefulWidget {
 class _VipAvatarState extends State<_VipAvatar> {
   bool failed = false;
 
-  /// 默认头像图（圆裁 + 选中态淡主题描边）
+  /// 圆角半径：圆角方形 = 边长 × 0.28（微信头像比例）
+  double get _cornerRadius => widget.radius * 2 * 0.28;
+
+  /// 按形状裁切
+  Widget _clip(Widget child) {
+    if (!widget.rounded) return ClipOval(child: child);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(_cornerRadius),
+      child: child,
+    );
+  }
+
+  /// 默认头像图（裁切 + 选中态淡主题描边）
   Widget _defaultAvatar() {
-    final img = ClipOval(
-      child: Image.asset('assets/avatar_default.png', fit: BoxFit.cover,
+    final img = _clip(
+      Image.asset('assets/avatar_default.png', fit: BoxFit.cover,
           width: widget.radius * 2, height: widget.radius * 2),
     );
     if (!widget.showRing) return img;
     return Container(
       padding: const EdgeInsets.all(2.5),
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        shape: widget.rounded ? BoxShape.rectangle : BoxShape.circle,
+        borderRadius: widget.rounded ? BorderRadius.circular(_cornerRadius + 2.5) : null,
         border: Border.all(color: PosTheme.accent.withOpacity(0.35), width: 1.6),
       ),
       child: img,
@@ -457,7 +473,25 @@ class _VipAvatarState extends State<_VipAvatar> {
 
   /// 姓名首字占位（加载中 / 微信头像为空前的兜底）
   Widget _charAvatar() {
-    return CircleAvatar(
+    final box = Container(
+      width: widget.radius * 2,
+      height: widget.radius * 2,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: (widget.highlight ? PosTheme.accent : PosTheme.blue).withOpacity(0.14),
+        shape: widget.rounded ? BoxShape.rectangle : BoxShape.circle,
+        borderRadius: widget.rounded ? BorderRadius.circular(_cornerRadius) : null,
+      ),
+      child: Text(
+        widget.fallbackText,
+        style: TextStyle(
+          fontSize: widget.radius * 0.82,
+          color: widget.highlight ? PosTheme.accent : PosTheme.blue,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+    return widget.rounded ? box : CircleAvatar(
       radius: widget.radius,
       backgroundColor: (widget.highlight ? PosTheme.accent : PosTheme.blue).withOpacity(0.14),
       child: Text(
@@ -475,8 +509,8 @@ class _VipAvatarState extends State<_VipAvatar> {
   Widget build(BuildContext context) {
     final url = widget.avatarUrl;
     if (url.isEmpty || failed) return _defaultAvatar();
-    return ClipOval(
-      child: SizedBox(
+    return _clip(
+      SizedBox(
         width: widget.radius * 2,
         height: widget.radius * 2,
         child: Image.network(
