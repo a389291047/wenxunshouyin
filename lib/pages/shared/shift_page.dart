@@ -7,7 +7,6 @@ import '../../core/print_prefs.dart';
 import '../../core/session.dart';import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
 import '../../ui/widgets.dart';
-import '../dining/dining_page.dart' show DiningJiaobanDialog;
 
 /// 交班页（零售/餐饮共用，主从布局）：
 /// 左卡 = 当班信息 + 营业数据 + 云打印/USB打印交班单
@@ -223,9 +222,9 @@ class _ShiftPageState extends State<ShiftPage> {
                             if (Session.hangye == 2 && ((double.tryParse('${stats['canyin']}') ?? 0) > 0 || (double.tryParse('${stats['lingshou']}') ?? 0) > 0)) ...[
                               const SizedBox(height: 10),
                               Row(children: [
-                                Expanded(child: StatTile(label: '堂食营业', value: '¥${Fmt.money(stats['canyin'])}', icon: Icons.restaurant, color: const Color(0xFFF97316))),
+                                Expanded(child: StatTile(label: '开台营业额', value: '¥${Fmt.money(stats['canyin'])}', icon: Icons.restaurant, color: const Color(0xFFF97316))),
                                 const SizedBox(width: 10),
-                                Expanded(child: StatTile(label: '零售营业', value: '¥${Fmt.money(stats['lingshou'])}', icon: Icons.storefront_outlined, color: PosTheme.green)),
+                                Expanded(child: StatTile(label: '堂食营业额', value: '¥${Fmt.money(stats['lingshou'])}', icon: Icons.storefront_outlined, color: PosTheme.green)),
                               ]),
                             ],
                             const Divider(height: 24, color: PosTheme.line),
@@ -235,12 +234,6 @@ class _ShiftPageState extends State<ShiftPage> {
                               const SizedBox(height: 9),
                               BigButton('USB打印交班单', onTap: _usbPrintShift,
                                   color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
-                            ],
-                            // 餐饮版：餐饮交班对账（v3.3.77 从点餐页顶栏移入）
-                            if (Session.hangye == 2) ...[
-                              const SizedBox(height: 9),
-                              BigButton('餐饮交班对账（今日堂食）', onTap: () => showDialog(context: context, builder: (_) => const DiningJiaobanDialog()),
-                                  color: const Color(0xFFEDFFF5), textColor: PosTheme.green, height: 46),
                             ],
                           ]),
                         ),
