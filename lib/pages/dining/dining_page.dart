@@ -433,11 +433,11 @@ class _DiningPageState extends State<DiningPage> {
               Text('消费 ¥${Fmt.money(t['zongjine'] ?? 0)}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.95))),
               if (notStarted) ...[
                 const SizedBox(height: 1),
-                Text('菜品 $kTotal 道待传后厨 · 点击传后厨', maxLines: 1, overflow: TextOverflow.ellipsis,
+                Text('菜品 $kTotal 道待传后厨 · 点击进入起菜', maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
               ] else if (partially) ...[
                 const SizedBox(height: 1),
-                Text('$kPending 道未起菜 · 点击传后厨', maxLines: 1, overflow: TextOverflow.ellipsis,
+                Text('$kPending 道未起菜 · 点击进入起菜', maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
               ],
               if (mergeText.isNotEmpty) ...[
@@ -817,8 +817,6 @@ class _DiningPageState extends State<DiningPage> {
   // ==================== 就餐中桌台操作 ====================
   Future<void> _tableActionSheet(Map t) async {
     final kaitaiId = '${t['kaitai_id'] ?? ''}';
-    // 未传后厨菜品数（v3.3.112）：有未起菜时面板顶部展示「一键传后厨」
-    final kPending = int.tryParse('${t['kitchen_pending'] ?? 0}') ?? 0;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
@@ -827,10 +825,6 @@ class _DiningPageState extends State<DiningPage> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('${t['title']} · 就餐中', textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
           const SizedBox(height: 18),
-          if (kPending > 0) ...[
-            BigButton('传后厨 · 起菜（$kPending 道未起）', onTap: () { Navigator.pop(context); _chuanHouchu(t, kaitaiId, kPending); }, height: 50, color: const Color(0xFFFFF7ED), textColor: const Color(0xFFC2410C)),
-            const SizedBox(height: 10),
-          ],
           BigButton('查看账单 / 加菜 / 结账', onTap: () { Navigator.pop(context); _dishPanel(t, kaitaiId); }, height: 50),
           const SizedBox(height: 10),
           Row(children: [
@@ -846,22 +840,6 @@ class _DiningPageState extends State<DiningPage> {
   }
 
   // ==================== 已预定桌台操作 ====================
-
-  /// 一键传后厨/起菜（v3.3.112）：预约转桌台的菜品需收银员确认后才传后厨
-  Future<void> _chuanHouchu(Map t, String kaitaiId, int kPending) async {
-    if (kaitaiId.isEmpty) return;
-    final ok = await confirm(context, '${t['title']} · 确认传后厨',
-        '共 $kPending 道菜品将立即起菜，确认后请同步打印后厨小票。');
-    if (!ok) return;
-    try {
-      await Api.tableChuanHouchu(wenxunId: Session.wenxunId, kaitaiId: kaitaiId);
-      if (!mounted) return;
-      toast(context, '已传后厨');
-      _load();
-    } on ApiError catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    }
-  }
 
   Future<void> _bookedActionSheet(Map t) async {
     final bookInfo = '${('${t['book_operator_name'] ?? '-'}')}  ${('${t['book_time'] ?? ''}')}'.trim();
@@ -1063,6 +1041,17 @@ class _DiningPageState extends State<DiningPage> {
 
   // ==================== 点菜 / 账单面板 ====================
   Future<void> _dishPanel(Map t, String kaitaiId) async {
+    // 进入桌台即传后厨（v3.3.113）：该桌有「未传后厨」的菜品（预约转来的）时，
+    // 打开账单面板前自动起菜，无需手动确认；正常点餐桌台不受影响（无未传菜品）
+    final kPending = int.tryParse('${t['kitchen_pending'] ?? 0}') ?? 0;
+    if (kPending > 0 && kaitaiId.isNotEmpty) {
+      try {
+        await Api.tableChuanHouchu(wenxunId: Session.wenxunId, kaitaiId: kaitaiId);
+        if (mounted) toast(context, '已传后厨 · 起菜 $kPending 道');
+      } catch (_) {
+        // 传后厨失败不阻塞账单面板
+      }
+    }
     await showDialog(context: context, builder: (_) => _TableBillDialog(table: t, kaitaiId: kaitaiId));
     _load();
   }
