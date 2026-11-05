@@ -16,9 +16,25 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.8
+          flutter-version: 3.44.9
           channel: stable
           cache: true
+
+      - name: Apply Win7-compatible engine (if present)
+        shell: pwsh
+        run: |
+          # windows/win7/flutter_windows.dll 为社区 Win7 兼容引擎
+          # （基于 Flutter 3.44.9 打补丁，同一 DLL 在 Win10/11 行为不变）。
+          # 文件存在则替换引擎缓存，产物即可在 Win7 SP1（需 KB4474419 补丁）运行；
+          # 不存在则跳过，按官方引擎出包。
+          $dll = "windows/win7/flutter_windows.dll"
+          if (Test-Path $dll) {
+            $dst = Join-Path $env:FLUTTER_ROOT "bin\cache\artifacts\engine\windows-x64-release\flutter_windows.dll"
+            Copy-Item $dll $dst -Force
+            Write-Host "Win7 engine DLL applied -> $dst"
+          } else {
+            Write-Host "windows/win7/flutter_windows.dll not found, using stock engine"
+          }
 
       - name: Pub get
         run: flutter pub get
