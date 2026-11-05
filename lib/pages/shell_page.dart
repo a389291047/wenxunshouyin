@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/preorder_badge.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import '../ui/widgets.dart';
@@ -9,6 +10,7 @@ import 'shared/shift_page.dart';
 import 'shared/settings_page.dart';
 import 'dining/dining_page.dart';
 import 'dining/dining_orders_page.dart';
+import 'dining/preorder_page.dart';
 import 'delivery/delivery_page.dart';
 import 'fresh/fresh_cashier_page.dart';
 import 'login_page.dart';
@@ -37,6 +39,7 @@ class _ShellPageState extends State<ShellPage> {
     if (_isDining) {
       return const [
         _NavItem(Icons.restaurant_menu, '点餐', _Retail.diningHome),
+        _NavItem(Icons.event_available, '预约', _Retail.diningPreorder),
         _NavItem(Icons.badge_outlined, '会员', _Retail.member),
         _NavItem(Icons.receipt_long, '订单', _Retail.diningOrders),
         _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
@@ -68,10 +71,11 @@ class _ShellPageState extends State<ShellPage> {
     if (_isDining) {
       switch (i) {
         case 0: return const DiningPage();
-        case 1: return const MemberPage(); // 餐饮版会员：复用零售会员界面
-        case 2: return const DiningOrdersPage();
-        case 3: return const DeliveryPage();
-        case 4: return const ShiftPage();
+        case 1: return const PreorderPage(); // 预约点餐（v3.3.104 移到左侧菜单）
+        case 2: return const MemberPage(); // 餐饮版会员：复用零售会员界面
+        case 3: return const DiningOrdersPage();
+        case 4: return const DeliveryPage();
+        case 5: return const ShiftPage();
         default: return const SettingsPage();
       }
     }
@@ -140,7 +144,32 @@ class _ShellPageState extends State<ShellPage> {
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           child: Column(children: [
-                            Icon(e.value.icon, size: 24, color: on ? Colors.white : Colors.white60),
+                            Stack(clipBehavior: Clip.none, children: [
+                              Icon(e.value.icon, size: 24, color: on ? Colors.white : Colors.white60),
+                              // 预约待安排红点（v3.3.104）
+                              if (e.value.tag == _Retail.diningPreorder)
+                                Positioned(
+                                  right: -14,
+                                  top: -6,
+                                  child: ValueListenableBuilder<int>(
+                                    valueListenable: PreorderBadge.count,
+                                    builder: (_, n, __) => n <= 0
+                                        ? const SizedBox.shrink()
+                                        : Container(
+                                            constraints: const BoxConstraints(minWidth: 16),
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEF4444),
+                                              borderRadius: BorderRadius.circular(9),
+                                            ),
+                                            child: Text('$n',
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                    fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+                                          ),
+                                  ),
+                                ),
+                            ]),
                             const SizedBox(height: 4),
                             Text(e.value.label,
                                 style: TextStyle(
@@ -219,6 +248,7 @@ class _Retail {
   static const shift = 'shift';
   static const settings = 'settings';
   static const diningHome = 'dining_home';
+  static const diningPreorder = 'dining_preorder';
   static const diningOrders = 'dining_orders';
   static const delivery = 'delivery';
 }

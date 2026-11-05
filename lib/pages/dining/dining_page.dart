@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
 import '../../core/session.dart';
@@ -12,7 +13,6 @@ import '../../ui/receipt_preview.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import 'dining_modes.dart';
-import 'preorder_page.dart';
 import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 
 /// 餐饮版 · 点餐主页（中餐 / 面馆 / 快餐通用）
@@ -30,7 +30,7 @@ class _DiningPageState extends State<DiningPage> {
   bool loading = true;
   String? error;
   String region = ''; // 区域筛选：'' = 全部区域
-  int _preorderWaiting = 0; // 预约点餐待安排数量（v3.3.102）
+  // 预约点餐入口已移到左侧菜单「预约」（v3.3.104），顶部不再显示按钮与角标
 
   // 所有区域（去重、保序）
   List<String> get _regions {
@@ -98,7 +98,7 @@ class _DiningPageState extends State<DiningPage> {
     }
   }
 
-  /// 预约点餐待安排数量（统一入口提交的预约不绑桌台，桌台角标统计不到，v3.3.102）
+  /// 预约点餐待安排数量（写入左侧导航「预约」红点，v3.3.104）
   Future<void> _loadPreorderCount() async {
     try {
       final r = await Api.preorderList(wenxunId: Session.wenxunId, status: '0');
@@ -112,16 +112,10 @@ class _DiningPageState extends State<DiningPage> {
       } else if (c is List && c.isNotEmpty) {
         n = int.tryParse('${c[0]}') ?? 0;
       }
-      setState(() => _preorderWaiting = n);
+      PreorderBadge.count.value = n;
     } catch (_) {
       // 预约模块异常不影响桌台
     }
-  }
-
-  Future<void> _openPreorders() async {
-    await Navigator.push(context, MaterialPageRoute(builder: (_) => const PreorderPage()));
-    if (!mounted) return;
-    _load();
   }
 
   @override
@@ -199,41 +193,9 @@ class _DiningPageState extends State<DiningPage> {
           _legend('已预定 ${tables.where((t) => '${t['status']}' == '1').length}', PosTheme.amber),
           const SizedBox(width: 12),
           _legend('待清台 ${tables.where((t) => '${t['status']}' == '4').length}', const Color(0xFFF97316)),
-          if (_preorderWaiting > 0) ...[
-            const SizedBox(width: 12),
-            // 预约点餐待安排（v3.3.102）：点击打开预约点餐模块
-            InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: _openPreorders,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEDEC),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.5)),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.notifications_active, size: 14, color: Color(0xFFEF4444)),
-                  const SizedBox(width: 5),
-                  Text('预约待安排 $_preorderWaiting',
-                      style: const TextStyle(fontSize: 12.5, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
-                ]),
-              ),
-            ),
-          ],
           const SizedBox(width: 14),
-          // 预约点餐（顾客统一链接提交的预约，v3.3.102）
-          OutlinedButton.icon(
-            onPressed: _openPreorders,
-            style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-                foregroundColor: _preorderWaiting > 0 ? PosTheme.accent : PosTheme.textSub,
-                side: BorderSide(color: _preorderWaiting > 0 ? PosTheme.accent : PosTheme.line)),
-            icon: const Icon(Icons.event_available_outlined, size: 17),
-            label: Text(_preorderWaiting > 0 ? '预约点餐 $_preorderWaiting' : '预约点餐'),
-          ),
-          const SizedBox(width: 10),
           // 桌台点餐二维码（顾客扫码自助点餐入口，v3.3.101）
+          // 预约点餐入口已移到左侧菜单「预约」（v3.3.104）
           OutlinedButton.icon(
             onPressed: _qrCodeSheet,
             style: OutlinedButton.styleFrom(
