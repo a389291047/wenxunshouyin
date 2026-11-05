@@ -57,21 +57,6 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
-# === Win7 兼容：flutter_tts 走 SAPI(ISpVoice) 分支 ===
-# flutter_tts 的 Windows 实现按 WINAPI_FAMILY 条件编译：
-#   默认桌面构建 WINAPI_FAMILY=DESKTOP_APP → WinRT（Windows.Media.SpeechSynthesis，仅 Win10+，
-#   其 DLL 导入表含 Win8+ 符号，导致 Win7 上进程启动即失败）
-#   定义 WINAPI_FAMILY=PC_APP → 走 #else 的 SAPI 分支（ISpVoice，Win7 系统自带 sapi.dll）
-if (TARGET flutter_tts_plugin)
-  target_compile_definitions(flutter_tts_plugin PRIVATE WINAPI_FAMILY=WINAPI_FAMILY_PC_APP)
-  # SAPI 分支非上游默认编译路径，放宽「警告即错误」，避免 sphelper.h 等历史头文件警告卡 CI
-  get_target_property(_dsz_tts_opts flutter_tts_plugin COMPILE_OPTIONS)
-  if (_dsz_tts_opts)
-    list(REMOVE_ITEM _dsz_tts_opts "/WX")
-    set_target_properties(flutter_tts_plugin PROPERTIES COMPILE_OPTIONS "${_dsz_tts_opts}")
-  endif ()
-endif ()
-
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

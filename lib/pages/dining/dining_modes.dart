@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_tts/flutter_tts.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/print_prefs.dart';
@@ -527,7 +526,6 @@ class PaihaoDialog extends StatefulWidget {
 }
 
 class _PaihaoDialogState extends State<PaihaoDialog> {
-  final FlutterTts _tts = FlutterTts();
   List list = [];
   int waiting = 0;
   bool loading = true;
@@ -556,11 +554,7 @@ class _PaihaoDialogState extends State<PaihaoDialog> {
   }
 
   Future<void> _speak(String text) async {
-    try {
-      await _tts.setLanguage('zh-CN');
-      await _tts.setSpeechRate(0.45);
-      await _tts.speak(text);
-    } catch (_) {}
+    // 语音播报已停用（Windows 7 兼容，移除 flutter_tts）
   }
 
   Future<void> _take() async {

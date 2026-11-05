@@ -1,19 +1,18 @@
-import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 收银语音播报（系统原生 TTS：macOS AVSpeechSynthesizer /
-/// Windows SAPI / Android 系统TTS，离线可用，无费用）。
-/// 设置页「语音播报」开关控制，收款成功时播报「微信收款X元Y角」。
+/// 语音播报（已停用）。
+/// 为兼容 Windows 7 移除了 flutter_tts 插件（其 Windows 实现依赖 Win8+ API），
+/// 本类保留原有 API 作为静默空实现，收款流程调用不受影响；
+/// 设置页「语音播报」开关仍可保存偏好，但不再发声。
 class VoiceService {
   VoiceService._();
   static final VoiceService instance = VoiceService._();
 
   static const prefEnabled = 'voice_enabled';
 
-  FlutterTts? _tts;
   bool? _enabledCache;
 
-  /// 是否开启语音播报（默认开启）
+  /// 是否开启语音播报（默认开启；当前版本静默不发声）
   Future<bool> enabled() async {
     if (_enabledCache != null) return _enabledCache!;
     final sp = await SharedPreferences.getInstance();
@@ -25,40 +24,15 @@ class VoiceService {
     _enabledCache = v;
     final sp = await SharedPreferences.getInstance();
     await sp.setBool(prefEnabled, v);
-    if (!v) stop();
   }
 
-  FlutterTts get _engine {
-    if (_tts != null) return _tts!;
-    final t = FlutterTts();
-    t.setLanguage('zh-CN');
-    t.setSpeechRate(0.45); // 语速适中，收银场景清晰易听
-    t.setVolume(1.0);
-    t.setPitch(1.0);
-    t.awaitSpeakCompletion(false); // 异步播报，不阻塞收银
-    _tts = t;
-    return t;
-  }
+  /// 播报文本（当前版本静默空实现）
+  Future<void> speak(String text) async {}
 
-  /// 播报文本（未开启时静默忽略；异常吞掉不影响业务）
-  Future<void> speak(String text) async {
-    try {
-      if (!await enabled()) return;
-      await _engine.speak(text);
-    } catch (_) {}
-  }
+  /// 收款成功播报（当前版本静默空实现）
+  Future<void> pay(String method, double amount) async {}
 
-  /// 收款成功播报：如「微信收款，8元8角」
-  Future<void> pay(String method, double amount) async {
-    if (!await enabled()) return;
-    await speak('${method.isEmpty ? '收款' : method}收款，${money(amount)}');
-  }
-
-  void stop() {
-    try {
-      _tts?.stop();
-    } catch (_) {}
-  }
+  void stop() {}
 
   /// 金额转口语读法：8.80 → 「8元8角」；12.00 → 「12元」；0.05 → 「5分」
   static String money(double v) {
