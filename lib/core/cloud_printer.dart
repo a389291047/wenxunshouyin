@@ -85,7 +85,7 @@ class CloudPrinter {
     // 同名同做法合并数量（v3.3.71：做法不同不合并，分行走菜）
     final merged = <String, Map<String, dynamic>>{};
     for (final g in cart) {
-      final name = '${g['goods_name'] ?? g['name'] ?? ''}';
+      final name = '${g['goods_name'] ?? g['goods_title'] ?? g['name'] ?? ''}';
       final note = '${g['remark'] ?? ''}'.trim();
       final qty = int.tryParse('${g['quantity']}') ?? 0;
       if (name.isEmpty || qty <= 0) continue;

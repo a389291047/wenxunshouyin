@@ -1751,6 +1751,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         final remain = (int.tryParse('${m['quantity']}') ?? 0) - (int.tryParse('${m['refund_num']}') ?? 0);
         if (remain <= 0) continue;
         m['quantity'] = remain;
+        // 后端明细行字段是 goods_title，打印模板读 goods_name，必须映射（v3.3.116 修复合计件数 0）
+        m['goods_name'] = '${m['goods_title'] ?? m['goods_name'] ?? ''}';
         m['cat_id'] = '${m['cat_id'] ?? _catOf(m['goods_id'])}';
         items.add(m);
       }
