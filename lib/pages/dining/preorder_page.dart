@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 
 import '../../core/api.dart';
 import '../../core/preorder_badge.dart';
@@ -788,6 +792,31 @@ class _PreorderPageState extends State<PreorderPage> {
 
   // ==================== 门店预约码 ====================
 
+  /// 保存二维码图片到本机（下载目录，失败退回文档目录）
+  Future<void> _saveQrToLocal(BuildContext ctx) async {
+    final url = Api.preorderQrUrl(wenxunId: Session.wenxunId);
+    loadingDialog(ctx, '正在保存…');
+    try {
+      final resp = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200 || resp.bodyBytes.isEmpty) {
+        throw '二维码下载失败（${resp.statusCode}）';
+      }
+      Directory? dir = await getDownloadsDirectory();
+      dir ??= await getApplicationDocumentsDirectory();
+      final shop = Session.shopName.trim().replaceAll(RegExp(r'[\\/:*?"<>|]'), '');
+      final path = '${dir.path}${Platform.pathSeparator}预约点餐码${shop.isEmpty ? '' : '-$shop'}.png';
+      final file = File(path);
+      await file.writeAsBytes(resp.bodyBytes);
+      if (!ctx.mounted) return;
+      Navigator.pop(ctx); // 关 loading
+      toast(ctx, '已保存：$path');
+    } catch (e) {
+      if (!ctx.mounted) return;
+      Navigator.pop(ctx); // 关 loading
+      toast(ctx, '保存失败：$e', error: true);
+    }
+  }
+
   Future<void> _unionQr() async {
     await showDialog(
       context: context,
@@ -798,12 +827,17 @@ class _PreorderPageState extends State<PreorderPage> {
               width: 440,
               padding: const EdgeInsets.all(22),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Text('门店预约点餐码', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 6),
-                const Text('所有顾客扫同一个码：选菜 → 填手机号 → 提交预约\n收银员在「预约点餐」里安排开台后，菜品进账单，再点「传后厨」出票',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12.5, color: PosTheme.textHint, height: 1.6)),
-                const SizedBox(height: 16),
+                // 顶部：店铺名称 + 副标题（v3.3.121）
+                Text(
+                  Session.shopName.trim().isEmpty ? '预约点餐' : Session.shopName.trim(),
+                  textAlign: TextAlign.center,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 5),
+                const Text('预 约 点 餐',
+                    style: TextStyle(fontSize: 13.5, color: PosTheme.accent, fontWeight: FontWeight.w600, letterSpacing: 2)),
+                const SizedBox(height: 14),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
@@ -821,11 +855,15 @@ class _PreorderPageState extends State<PreorderPage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 18),
-                SizedBox(
-                  width: 160,
-                  child: BigButton('关闭', onTap: () => Navigator.pop(ctx), height: 42),
-                ),
+                const SizedBox(height: 14),
+                // 使用说明：默认折叠，点击展开（v3.3.121）
+                const _QrUsageHint(),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(
+                    child: BigButton('保存到本地电脑', onTap: () => _saveQrToLocal(ctx), height: 44),
+                  ),
+                ]),
               ]),
             ),
             // 右上角关闭按钮
@@ -841,6 +879,49 @@ class _PreorderPageState extends State<PreorderPage> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 使用说明（默认折叠，点击展开/收起）
+class _QrUsageHint extends StatefulWidget {
+  const _QrUsageHint();
+  @override
+  State<_QrUsageHint> createState() => _QrUsageHintState();
+}
+
+class _QrUsageHintState extends State<_QrUsageHint> {
+  bool open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() => open = !open),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.info_outline, size: 15, color: PosTheme.textHint),
+            const SizedBox(width: 5),
+            const Text('使用说明', style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+            const Spacer(),
+            Icon(open ? Icons.expand_less : Icons.expand_more, size: 17, color: PosTheme.textHint),
+          ]),
+          if (open) ...[
+            const SizedBox(height: 6),
+            const Text(
+              '所有顾客扫同一个码：选菜 → 填手机号 → 提交预约\n收银员在「预约点餐」里安排开台后，菜品进账单，再点「传后厨」出票',
+              style: TextStyle(fontSize: 12.5, color: PosTheme.textHint, height: 1.6),
+            ),
+          ],
+        ]),
       ),
     );
   }
