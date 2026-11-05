@@ -767,9 +767,23 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool syncStatus = true}) async {
     setState(() => loading = true);
     try {
+      // 实时同步易联云在线/缺纸状态（v3.3.122）：逐台查 getprintstatus 并回写库，
+      // 失败（网络/token）不阻塞，展示库里旧值
+      if (syncStatus) {
+        try {
+          final fresh = await Api.printerStatusSync(Session.wenxunId);
+          if (!mounted) return;
+          if (fresh.isNotEmpty) {
+            setState(() { printers = fresh; loading = false; });
+            return;
+          }
+        } on ApiError {
+          // 同步失败 → 落回读取本地库
+        }
+      }
       final p = await CloudPrinter.list();
       if (!mounted) return;
       setState(() { printers = p; loading = false; });
@@ -950,7 +964,7 @@ class _SettingsPageState extends State<SettingsPage> {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${p['name']}', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
-              Text('终端号 ${p['machine_code']} · ${_printTypeName(p['print_type'])}',
+              Text('终端号 ${p['machine_code']} · ${_printTypeName(p['print_type'])}${_syncTimeSuffix(p)}',
                   style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
             ])),
             TagChip('${p['is_online'] == 1 ? '在线' : '离线'}', color: '${p['is_online']}' == '1' ? PosTheme.green : PosTheme.textHint),
@@ -970,6 +984,13 @@ class _SettingsPageState extends State<SettingsPage> {
             style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       ),
     ]));
+  }
+
+  /// 状态同步时间后缀（v3.3.122）：显示易联云实时查询的完成时间
+  String _syncTimeSuffix(Map p) {
+    final t = '${p['last_status_time'] ?? ''}';
+    if (t.length < 16 || t.startsWith('1970') || t.startsWith('0000')) return '';
+    return ' · 状态同步 ${t.substring(11, 16)}';
   }
 
   Widget _accountCard() {

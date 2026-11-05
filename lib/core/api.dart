@@ -376,6 +376,15 @@ class Api {
     return (r['yilianyun'] ?? []) as List;
   }
 
+  /// 云打印机实时状态同步（v3.3.122）：后端逐台查易联云 getprintstatus，
+  /// token 过期自动刷新并回写库；返回 data.list（字段同 printers，is_online/has_paper 为实时值）
+  static Future<List> printerStatusSync(int wenxunId) async {
+    final r = await post('/api/printer/statusList', {'wenxun_id': wenxunId});
+    final d = r['data'];
+    if (d is Map && d['list'] is List) return d['list'] as List;
+    return [];
+  }
+
   /// 云打印（易联云）：content 为小票文本，\n 分行
   static Future<Map<String, dynamic>> cloudPrint({
     required int wenxunId,
