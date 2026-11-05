@@ -130,6 +130,7 @@ class _PreorderPageState extends State<PreorderPage> {
           height: size,
           alignment: Alignment.center,
           decoration: const BoxDecoration(
+            shape: BoxShape.circle,
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -140,8 +141,7 @@ class _PreorderPageState extends State<PreorderPage> {
               style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w800, color: Colors.white)),
         );
     if (url.trim().isEmpty) return fallback();
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size / 5),
+    return ClipOval(
       child: Image.network(
         url.trim(),
         width: size,
@@ -348,7 +348,6 @@ class _PreorderPageState extends State<PreorderPage> {
     final avatar = '${r['avatar'] ?? ''}'.trim();
     final arrive = '${r['arrive_time'] ?? ''}'.trim();
     final people = int.tryParse('${r['people_num'] ?? 0}') ?? 0;
-    final total = double.tryParse('${r['total'] ?? 0}') ?? 0;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
@@ -388,30 +387,17 @@ class _PreorderPageState extends State<PreorderPage> {
                 Text(phone.isNotEmpty ? phone : '未留手机号',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: phone.isNotEmpty ? PosTheme.blue : PosTheme.textHint,
-                        fontWeight: FontWeight.w600)),
+                    style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
               ]),
             ),
           ]),
           const SizedBox(height: 8),
           Row(children: [
             if (people > 0) ...[
-              _pill(Icons.people_alt_outlined, '$people 人', PosTheme.blue),
+              _pill(Icons.people_alt_outlined, '$people 人', PosTheme.textHint),
               const SizedBox(width: 6),
             ],
             if (arrive.isNotEmpty) Flexible(child: _pill(Icons.schedule, arrive, PosTheme.green)),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFFFF8A50), Color(0xFFFF5A1F)]),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text('¥${Fmt.money(total)}',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.white)),
-            ),
           ]),
         ]),
       ),
@@ -479,11 +465,11 @@ class _PreorderPageState extends State<PreorderPage> {
                       child: Text(phone,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 13.5, color: PosTheme.blue, fontWeight: FontWeight.w700)),
+                          style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
                     ),
                   if (people > 0) ...[
                     const SizedBox(width: 8),
-                    _pill(Icons.people_alt_outlined, '$people 人', PosTheme.blue),
+                    _pill(Icons.people_alt_outlined, '$people 人', PosTheme.textHint),
                   ],
                   if (arrive.isNotEmpty) ...[
                     const SizedBox(width: 8),
@@ -549,11 +535,19 @@ class _PreorderPageState extends State<PreorderPage> {
           _gradientLine(),
         ]),
       ),
-      // 菜品清单
+      // 菜品清单（弱化背景，衬托白色头部）
       Expanded(
         child: Container(
           margin: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFFAFBFC), Color(0xFFF4F5F8)],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFEDEEF2)),
+          ),
           child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 14, 18, 10),
@@ -568,14 +562,39 @@ class _PreorderPageState extends State<PreorderPage> {
                     style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
               ]),
             ),
-            const Divider(height: 1, color: PosTheme.line),
+            Divider(height: 1, color: Colors.grey.withOpacity(0.15)),
+            // 表头：菜品名称 / 单价 / 数量 / 小计
+            if (items.isNotEmpty)
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.65),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(0),
+                    topRight: Radius.circular(0),
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                child: _dishCols(
+                  name: const Text('菜品名称',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
+                  price: const Text('单价',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
+                  qty: const Text('数量',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
+                  sub: const Text('小计',
+                      textAlign: TextAlign.right,
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
+                ),
+              ),
             Expanded(
               child: items.isEmpty
                   ? const Center(child: Text('该预约没有菜品', style: TextStyle(color: PosTheme.textHint)))
                   : ListView.separated(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       itemCount: items.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF3F4F7)),
+                      separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.withOpacity(0.12)),
                       itemBuilder: (_, i) => _dishRow(items[i]),
                     ),
             ),
@@ -620,7 +639,22 @@ class _PreorderPageState extends State<PreorderPage> {
     ]);
   }
 
-  /// 菜品行：名称 / 数量 / 小计 三等分（各占 1/3，超长省略号，不换行不变形）
+  /// 四列布局：菜品名称 / 单价 / 数量 / 小计（表头与数据行共用，保证对齐）
+  Widget _dishCols({required Widget name, required Widget price, required Widget qty, required Widget sub}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(flex: 4, child: name),
+        const SizedBox(width: 12),
+        Expanded(flex: 2, child: price),
+        Expanded(flex: 2, child: Center(child: qty)),
+        const SizedBox(width: 12),
+        SizedBox(width: 92, child: sub),
+      ],
+    );
+  }
+
+  /// 菜品行：名称 / 单价 / 数量 / 小计 四列（超长省略号，不换行不变形）
   Widget _dishRow(Map<String, dynamic> it) {
     final title = '${it['goods_name'] ?? it['goods_title'] ?? ''}';
     final price = double.tryParse('${it['unit_price'] ?? 0}') ?? 0;
@@ -628,36 +662,25 @@ class _PreorderPageState extends State<PreorderPage> {
     final sub = double.tryParse('${it['sub_total'] ?? 0}') ?? (price * qty);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 2),
-              Text('单价 ¥${Fmt.money(price)}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-            ]),
-          ),
-          Expanded(
-            child: Text('× $qty',
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
-          ),
-          Expanded(
-            child: Text('¥${Fmt.money(sub)}',
-                textAlign: TextAlign.right,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-          ),
-        ],
+      child: _dishCols(
+        name: Text(title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+        price: Text('¥${Fmt.money(price)}',
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+        qty: Text('× $qty',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
+        sub: Text('¥${Fmt.money(sub)}',
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
       ),
     );
   }
