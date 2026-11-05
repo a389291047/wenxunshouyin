@@ -156,7 +156,45 @@ class _DiningPageState extends State<DiningPage> {
           _legend('已预定 ${tables.where((t) => '${t['status']}' == '1').length}', PosTheme.amber),
           const SizedBox(width: 12),
           _legend('待清台 ${tables.where((t) => '${t['status']}' == '4').length}', const Color(0xFFF97316)),
+          if (_pendingTotal > 0) ...[
+            const SizedBox(width: 12),
+            // 顾客扫码待确认预点单（v3.3.101）：点击进入确认面板
+            InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () {
+                final withPending = tables
+                    .where((e) => (int.tryParse('${e['pending'] ?? 0}') ?? 0) > 0)
+                    .toList();
+                if (withPending.isNotEmpty) _pendingSheet(withPending.first);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEDEC),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.5)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.notifications_active, size: 14, color: Color(0xFFEF4444)),
+                  const SizedBox(width: 5),
+                  Text('顾客待确认 $_pendingTotal',
+                      style: const TextStyle(fontSize: 12.5, color: Color(0xFFEF4444), fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            ),
+          ],
           const SizedBox(width: 14),
+          // 桌台点餐二维码（顾客扫码自助点餐入口，v3.3.101）
+          OutlinedButton.icon(
+            onPressed: _qrCodeSheet,
+            style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+                foregroundColor: PosTheme.blue,
+                side: const BorderSide(color: PosTheme.blue)),
+            icon: const Icon(Icons.qr_code_2, size: 17),
+            label: const Text('点餐码'),
+          ),
+          const SizedBox(width: 10),
           // 餐饮交班对账入口已移到「交班页」（v3.3.77）
           OutlinedButton.icon(
             onPressed: _load,
@@ -280,6 +318,7 @@ class _DiningPageState extends State<DiningPage> {
 
   Widget _tableCard(Map t) {
     final st = int.tryParse('${t['status']}') ?? 0;
+    final pending = int.tryParse('${t['pending'] ?? 0}') ?? 0; // 顾客扫码待确认预点单数（v3.3.101）
     final c = statusColor[st] ?? PosTheme.textHint;
     final open = st == 0 || st == 3;
     final busy = st == 2;
@@ -299,6 +338,11 @@ class _DiningPageState extends State<DiningPage> {
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: () {
+          // 有顾客扫码预点单：优先处理确认开台（v3.3.101）
+          if (pending > 0) {
+            _pendingSheet(t);
+            return;
+          }
           if (open) {
             // 扫码点餐桌（状态3）若顾客已下单（有开台号），直接进账单面板；
             // 空闲桌弹操作面板（开台点餐/预定桌台/预约点餐）；扫码未下单桌直接开台
@@ -329,7 +373,11 @@ class _DiningPageState extends State<DiningPage> {
                     ? busyGradient
                     : null,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: (cleared || busy) ? Colors.white.withOpacity(0.35) : c.withOpacity(0.45), width: 1.6),
+            border: Border.all(
+                color: pending > 0
+                    ? const Color(0xFFEF4444)
+                    : (cleared || busy) ? Colors.white.withOpacity(0.35) : c.withOpacity(0.45),
+                width: pending > 0 ? 2 : 1.6),
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
@@ -337,6 +385,12 @@ class _DiningPageState extends State<DiningPage> {
               const SizedBox(width: 7),
               Text(statusText[st]!, style: TextStyle(fontSize: 12, color: (cleared || busy) ? Colors.white : c, fontWeight: FontWeight.w600)),
               const Spacer(),
+              if (pending > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(color: const Color(0xFFEF4444), borderRadius: BorderRadius.circular(20)),
+                  child: Text('顾客预点 $pending', style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w800)),
+                ),
             ]),
             const Spacer(),
             Text('${t['title']}', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: (cleared || busy) ? Colors.white : null)),
@@ -362,6 +416,298 @@ class _DiningPageState extends State<DiningPage> {
                     style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.85))),
               ],
             ],
+          ]),
+        ),
+      ),
+    );
+  }
+
+  // ==================== 顾客扫码预点餐（v3.3.101） ====================
+
+  /// 全店待确认的顾客预点单总数（顶栏提示用）
+  int get _pendingTotal => tables.fold<int>(
+      0, (s, t) => s + (int.tryParse('${t['pending'] ?? 0}') ?? 0));
+
+  /// 顾客扫码预点单确认面板（一桌可能有多条，逐条同意/拒绝）
+  Future<void> _pendingSheet(Map t) async {
+    List<Map<String, dynamic>> rows;
+    try {
+      final r = await Api.preorderPending(wenxunId: Session.wenxunId);
+      final data = (r['data'] ?? {}) as Map;
+      rows = ((data['list'] ?? []) as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((e) => '${e['table_id']}' == '${t['id']}')
+          .toList();
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+      return;
+    }
+    if (!mounted) return;
+    if (rows.isEmpty) {
+      toast(context, '该桌暂无待确认的预点单');
+      _load();
+      return;
+    }
+    await showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Container(
+          width: 580,
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Text('${t['title']} · 顾客预点单', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const Spacer(),
+              IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+            ]),
+            const Text('顾客扫码提交，确认后才会下单到厨房并出票', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+            const SizedBox(height: 12),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: rows.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (_, i) {
+                  final r = rows[i];
+                  final items = ((r['items'] ?? []) as List)
+                      .whereType<Map>()
+                      .map((e) => Map<String, dynamic>.from(e))
+                      .toList();
+                  final total = double.tryParse('${r['total'] ?? 0}') ?? 0;
+                  final people = int.tryParse('${r['people_num']}') ?? 0;
+                  final remark = '${r['remark'] ?? ''}';
+                  return Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF9F6),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: PosTheme.accent.withOpacity(0.3)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Text('${r['create_time'] ?? ''}', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                        if (people > 0) ...[
+                          const SizedBox(width: 8),
+                          Text('$people 人', style: const TextStyle(fontSize: 11.5, color: PosTheme.blue, fontWeight: FontWeight.w600)),
+                        ],
+                        const Spacer(),
+                        Text('¥${Fmt.money(total)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                      ]),
+                      const SizedBox(height: 6),
+                      ...items.map((it) {
+                        final sub = double.tryParse('${it['sub_total'] ?? 0}') ?? 0;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 1.5),
+                          child: Row(children: [
+                            Expanded(child: Text('${it['goods_name'] ?? it['goods_title'] ?? ''}', style: const TextStyle(fontSize: 13))),
+                            Text('×${it['quantity']}', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 66,
+                              child: Text('¥${Fmt.money(sub)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                            ),
+                          ]),
+                        );
+                      }),
+                      if (remark.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text('备注：$remark', style: const TextStyle(fontSize: 12, color: PosTheme.amber)),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(children: [
+                        Expanded(
+                          child: BigButton('拒绝',
+                              onTap: () => _rejectPending(ctx, r),
+                              color: const Color(0xFFF4F5F7), textColor: PosTheme.textSub, height: 40),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: BigButton('同意并开台',
+                              onTap: () => _approvePending(ctx, r, t, people), height: 40),
+                        ),
+                      ]),
+                    ]),
+                  );
+                },
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// 同意顾客预点单：开台/追加菜品 → 后厨+前台出票 → 刷新桌台
+  Future<void> _approvePending(BuildContext ctx, Map r, Map t, int people) async {
+    Navigator.pop(ctx);
+    final pnum = people > 0 ? people : (int.tryParse('${t['kaitai_people'] ?? 1}') ?? 1);
+    loadingDialog(context, '开台中…');
+    try {
+      final res = await Api.preorderApprove(
+        wenxunId: Session.wenxunId,
+        preorderId: int.tryParse('${r['id']}') ?? 0,
+        peopleNum: pnum,
+        operatorId: Session.staffId,
+        operatorName: Session.staffName,
+      );
+      if (!mounted) return;
+      Navigator.pop(context); // loading
+      if ('${res['code']}' != '200') {
+        toast(context, '${res['msg'] ?? '开台失败'}', error: true);
+        return;
+      }
+      final d = (res['data'] ?? {}) as Map;
+      final items = ((d['items'] ?? []) as List)
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+      toast(context, '${res['msg'] ?? '已同意并开台'}');
+      // 出票：后厨按分类路由（可多台分单）+ 前台整单一张（与 v3.3.99 规则一致）
+      if (items.isNotEmpty) _printScannedOrder(items, t);
+      setState(() {});
+      _load();
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
+
+  /// 拒绝顾客预点单
+  Future<void> _rejectPending(BuildContext ctx, Map r) async {
+    Navigator.pop(ctx);
+    final ok = await confirm(context, '拒绝预点单', '拒绝后顾客所点菜品不会开台，确定？');
+    if (!ok || !mounted) return;
+    try {
+      final res = await Api.preorderReject(
+        wenxunId: Session.wenxunId,
+        preorderId: int.tryParse('${r['id']}') ?? 0,
+        operatorId: Session.staffId,
+        operatorName: Session.staffName,
+      );
+      if (!mounted) return;
+      toast(context, '${res['msg'] ?? '已拒绝'}');
+      _load();
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
+  }
+
+  /// 顾客扫码预点菜品出票（后厨分单路由 + 前台整单）
+  Future<void> _printScannedOrder(List<Map<String, dynamic>> items, Map t) async {
+    try {
+      final cart = items
+          .map((e) => <String, dynamic>{
+                'goods_id': e['goods_id'],
+                'goods_name': '${e['goods_name'] ?? e['goods_title'] ?? ''}',
+                'goods_image': e['goods_image'] ?? '',
+                'unit_price': e['unit_price'] ?? 0,
+                'quantity': e['quantity'] ?? 0,
+                'cat_id': '${e['cat_id'] ?? ''}',
+              })
+          .toList();
+      final tableTitle = '${t['title'] ?? ''}';
+      final quyu = '${t['quyu'] ?? ''}';
+      if (await PrintPrefs.on('kitchen')) {
+        final routes = await PrinterRoute.routes('${Session.wenxunId}');
+        final byPrinter = <String, List<Map<String, dynamic>>>{};
+        final fallback = <Map<String, dynamic>>[];
+        for (final it in cart) {
+          final catId = '${it['cat_id']}';
+          String? target;
+          if (catId.isNotEmpty && catId != 'null' && catId != '0') {
+            for (final e in routes.entries) {
+              if (e.value.contains(catId)) {
+                target = e.key;
+                break;
+              }
+            }
+          }
+          if (target != null) {
+            byPrinter.putIfAbsent(target, () => []).add(it);
+          } else {
+            fallback.add(it);
+          }
+        }
+        final futures = <Future>[];
+        byPrinter.forEach((code, list) {
+          futures.add(CloudPrinter.printTo(
+              code,
+              CloudPrinter.kitchenTicket(
+                  tableTitle: tableTitle, tableQuyu: quyu, cart: list, isAdd: true, title: '后厨单')));
+        });
+        if (fallback.isNotEmpty) {
+          futures.add(CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+              tableTitle: tableTitle, tableQuyu: quyu, cart: fallback, isAdd: true, title: '后厨单')));
+        }
+        await Future.wait(futures);
+      }
+      if (await PrintPrefs.on('front')) {
+        final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
+        await CloudPrinter.printFront(
+            CloudPrinter.kitchenTicket(
+                tableTitle: tableTitle, tableQuyu: quyu, cart: cart, title: '前台单'),
+            machineCode: code);
+      }
+    } catch (_) {
+      // 打印失败不影响开台
+    }
+  }
+
+  /// 桌台点餐二维码（顾客扫码自助点餐入口）
+  Future<void> _qrCodeSheet() async {
+    if (tables.isEmpty) {
+      toast(context, '暂无桌台', error: true);
+      return;
+    }
+    final picked = await showDialog<Map>(
+      context: context,
+      builder: (_) => TablePickDialog(tables: tables, title: '选择桌台生成点餐码'),
+    );
+    if (picked == null || !mounted) return;
+    final tid = int.tryParse('${picked['id']}') ?? 0;
+    if (tid <= 0) return;
+    final url = Api.tableOrderUrl(wenxunId: Session.wenxunId, tableId: tid);
+    await showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(22),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('${picked['title']} · 点餐码',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            const Text('顾客用微信/手机相机扫码即可自助点餐，提交后需收银员确认开台',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                Api.tableQrUrl(wenxunId: Session.wenxunId, tableId: tid),
+                width: 250,
+                height: 250,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Container(
+                  width: 250,
+                  height: 250,
+                  color: const Color(0xFFF4F5F7),
+                  alignment: Alignment.center,
+                  child: const Text('二维码加载失败\n请检查网络后重试',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SelectableText(url,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 10.5, color: PosTheme.textHint)),
+            const SizedBox(height: 16),
+            BigButton('关闭',
+                onTap: () => Navigator.pop(ctx),
+                color: const Color(0xFFF4F5F7), textColor: PosTheme.textSub, height: 42),
           ]),
         ),
       ),

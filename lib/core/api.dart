@@ -628,6 +628,53 @@ class Api {
     });
   }
 
+  // ==================== 顾客扫码预点餐（v3.3.101） ====================
+
+  /// 顾客扫码提交的待确认预点单列表：data.list / data.counts / data.count
+  static Future<Map<String, dynamic>> preorderPending({required int wenxunId}) async {
+    return post('/api/diancan/pendingList', {'wenxun_id': wenxunId});
+  }
+
+  /// 同意并开台（未开台自动开台，已开台追加菜品）：data.kaitai_id / items / is_new
+  static Future<Map<String, dynamic>> preorderApprove({
+    required int wenxunId,
+    required int preorderId,
+    required int peopleNum,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/diancan/preorderApprove', {
+      'wenxun_id': wenxunId,
+      'preorder_id': preorderId,
+      'people_num': peopleNum,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
+  /// 拒绝顾客预点单
+  static Future<Map<String, dynamic>> preorderReject({
+    required int wenxunId,
+    required int preorderId,
+    required int operatorId,
+    required String operatorName,
+  }) async {
+    return post('/api/diancan/preorderReject', {
+      'wenxun_id': wenxunId,
+      'preorder_id': preorderId,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+  }
+
+  /// 桌台点餐二维码图片地址（顾客扫码入口）
+  static String tableQrUrl({required int wenxunId, required int tableId}) =>
+      '$base/api/diancan/qr?wenxun_id=$wenxunId&table_id=$tableId';
+
+  /// 桌台点餐 H5 链接（顾客手机直接打开）
+  static String tableOrderUrl({required int wenxunId, required int tableId}) =>
+      '$base/h5/diancan.html?wenxun_id=$wenxunId&table_id=$tableId';
+
   /// 堂食结算（先吃后付统一收款；pay1Type 传 '挂账' 时登记挂账台账，稍后核销）
   static Future<Map<String, dynamic>> tableSettle({
     required int wenxunId,
