@@ -3337,6 +3337,17 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                 decoration: BoxDecoration(color: const Color(0xFFFFF3ED), borderRadius: BorderRadius.circular(8)),
                 child: Text('菜品合计 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.accent)),
               ),
+              const Spacer(),
+              // 关闭按钮（v3.3.151 由底部「取消」移入右上角）
+              InkWell(
+                onTap: () => Navigator.pop(context),
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+                  child: const Icon(Icons.close, size: 20, color: PosTheme.textSub),
+                ),
+              ),
             ]),
           ),
           // ===== 左右卡片 =====
@@ -3630,19 +3641,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
               border: Border(top: BorderSide(color: PosTheme.line)),
             ),
             child: Row(children: [
-              const Text('左侧优惠选填，可直接点「确认收款」', style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
               const Spacer(),
-              InkWell(
-                onTap: () => Navigator.pop(context),
-                borderRadius: BorderRadius.circular(14),
-                child: Container(
-                  height: 54,
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  alignment: Alignment.center,
-                  child: const Text('取消', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
-                ),
-              ),
-              const SizedBox(width: 14),
               // 大结算按钮：渐变 + 大字号 + 大热区（触屏友好）
               Builder(builder: (_) {
                 final blocked = method == null || (method == '现金' && _cash < finalTotal); // 现金不足禁止确认
