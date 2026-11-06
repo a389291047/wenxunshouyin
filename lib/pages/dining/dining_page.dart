@@ -64,7 +64,7 @@ Future<void> diningPrintKitchenRouted({
     if (cats.isEmpty) continue;
     emit(e.key, e.value, kitchenItems.where((it) => cats.contains('${it['cat_id'] ?? ''}')).toList());
   }
-  // 未分配分类的菜 → 兜底/双打机；没有则默认后厨打印机（旧行为）
+  // 未分配分类的菜 → 兜底/双打机
   final fallback = kitchenItems.where((it) => !taken.contains(it)).toList();
   if (fallback.isNotEmpty) {
     final backups = kitchens.where((e) => e.value.allCats).toList();
@@ -72,6 +72,10 @@ Future<void> diningPrintKitchenRouted({
       for (final e in backups) {
         emit(e.key, e.value, fallback);
       }
+    } else if (kitchens.isNotEmpty) {
+      // 分类没匹配到任何绑定机（cat_id 反查失败等）：仍按绑定的后厨机方式出票，
+      // 保留一菜一切/字体设置，不再退回「默认打印机整单一张」（v3.3.134 修复）
+      emit(kitchens.first.key, kitchens.first.value, fallback);
     } else {
       futures.add(CloudPrinter.printKitchen(ticket(fallback)));
     }
@@ -1723,7 +1727,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         m['quantity'] = remain;
         // 后端明细行字段是 goods_title，打印模板读 goods_name，必须映射（v3.3.116 修复合计件数 0）
         m['goods_name'] = '${m['goods_title'] ?? m['goods_name'] ?? ''}';
-        m['cat_id'] = '${m['cat_id'] ?? _catOf(m['goods_id'])}';
+        if ('${m['cat_id'] ?? ''}'.isEmpty) m['cat_id'] = _catOf(m['goods_id']); // 空串也反查（v3.3.134）
         items.add(m);
       }
     }
