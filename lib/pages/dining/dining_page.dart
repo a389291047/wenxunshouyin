@@ -2409,9 +2409,33 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       color: const Color(0xFFF7F8FA),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        itemCount: cats.length,
+        itemCount: cats.length + 1, // 第 0 位固定「无码菜品」（v3.3.147 从底部移入）
         itemBuilder: (_, i) {
-          final c = cats[i];
+          if (i == 0) {
+            // 无码菜品（临时菜/时价菜手动录入）：固定在分类第一位，功能不变
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: _noCodeDish,
+                child: Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFFFF7A45), PosTheme.accent]),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.keyboard_outlined, size: 17, color: Colors.white),
+                    SizedBox(width: 5),
+                    Text('无码菜品', maxLines: 1,
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white)),
+                  ]),
+                ),
+              ),
+            );
+          }
+          final c = cats[i - 1];
           final on = catId == c['id'];
           return Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
@@ -2607,24 +2631,6 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                 ),
               ),
               const SizedBox(width: 12),
-              // 无码菜品（临时菜/时价菜手动录入）
-              InkWell(
-                onTap: _noCodeDish,
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFF2ED),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
-                  ),
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.keyboard_outlined, size: 19, color: PosTheme.accent),
-                    SizedBox(width: 7),
-                    Text('无码菜品', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                  ]),
-                ),
-              ),
             ]),
           ),
         ),
