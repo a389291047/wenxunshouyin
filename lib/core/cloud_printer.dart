@@ -99,7 +99,7 @@ class CloudPrinter {
         merged[key] = {'goods_name': name, 'remark': note, 'quantity': qty};
       }
     }
-    String f(String line) => font.isEmpty ? line : '<$font>$line</$font>';
+    String f(String line) => font.isEmpty ? line : '<${font.toUpperCase()}>$line</${font.toUpperCase()}>';
     final sb = StringBuffer();
     sb.writeln('<FS2><center>${isAdd ? '加菜单' : title}</center></FS2>');
     sb.writeln('--------------------------------');
@@ -131,7 +131,7 @@ class CloudPrinter {
     List<String> extraLines = const [],
     String font = '',
   }) {
-    String f(String line) => font.isEmpty ? line : '<$font>$line</$font>';
+    String f(String line) => font.isEmpty ? line : '<${font.toUpperCase()}>$line</${font.toUpperCase()}>';
     final sb = StringBuffer();
     sb.writeln('<FS2><center>预结单</center></FS2>');
     sb.writeln('--------------------------------');
