@@ -902,41 +902,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _testPrint(Map p) async {
-    loadingDialog(context, '发送测试小票…');
-    try {
-      // 已绑定前台/后厨的机：按本机绑定配置（含字体大小）打对应测试单，直接看字体效果
-      final cfg = printerCfgs['${p['machine_code']}'];
-      final bound = Session.hangye == 2 && cfg != null && cfg.role.isNotEmpty;
-      final content = bound
-          ? '${CloudPrinter.kitchenTicket(
-              tableTitle: '大厅8',
-              tableQuyu: '大厅',
-              isAdd: cfg.role == 'kitchen',
-              title: cfg.role == 'kitchen' ? '后厨测试单' : '前台测试单',
-              remark: '测试：菜名字体大小',
-              cart: [
-                {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '微辣·少麻'},
-                {'goods_name': '米饭', 'quantity': 4},
-                {'goods_name': '酸辣土豆丝', 'quantity': 1},
-              ],
-              font: cfg.font,
-            )}打印正常，可开始出票'
-          : '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\n打印机：${p['name']}\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银';
-      await Api.cloudPrint(
-        wenxunId: Session.wenxunId,
-        machineCode: '${p['machine_code']}',
-        content: content,
-      );
-      if (!mounted) return;
-      Navigator.pop(context);
-      toast(context, '测试小票已发送');
-    } on ApiError catch (e) {
-      if (mounted) Navigator.pop(context);
-      toast(context, e.message, error: true);
-    }
-  }
-
   // ==================== 左右布局（v3.3.79）：左侧导航菜单 + 右侧内容 ====================
   String _nav = 'store';
 
@@ -1124,12 +1089,6 @@ class _SettingsPageState extends State<SettingsPage> {
                   style: OutlinedButton.styleFrom(foregroundColor: PosTheme.blue, side: const BorderSide(color: PosTheme.blue)),
                   child: Text(role.isEmpty ? '配置' : '修改'),
                 ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                onPressed: () => _testPrint(p),
-                style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
-                child: const Text('测试打印'),
-              ),
             ]),
           );
         }),
