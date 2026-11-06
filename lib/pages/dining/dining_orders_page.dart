@@ -313,12 +313,35 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
     final parts = <String>[
       '${o['order_sn'] ?? ''}'.isEmpty ? '未结算' : '${o['order_sn']}',
       Fmt.date(o['create_time']),
-      '${((o['goods_list'] ?? []) as List).length} 项',
+      '${_mergedGoods(((o['goods_list'] ?? []) as List)).length} 项',
     ];
     final pay = '${o['pay1_type'] ?? ''}';
     if (pay.isNotEmpty && pay != 'null') parts.add(pay);
     return parts.join(' · ');
   }
+
+  /// 同名同价菜品合并显示（加菜每份一条明细，逐行显示会重复）
+  List<Map<String, dynamic>> _mergedGoods(List goods) {
+    final list = <Map<String, dynamic>>[];
+    final idx = <String, int>{};
+    for (final raw in goods) {
+      final g = Map<String, dynamic>.from(raw as Map);
+      final key = '${g['goods_title']}|${g['unit_price']}|${g['remark'] ?? ''}';
+      if (idx.containsKey(key)) {
+        final m = list[idx[key]!];
+        m['quantity'] = (double.tryParse('${m['quantity']}') ?? 0) +
+            (double.tryParse('${g['quantity']}') ?? 0);
+        m['sub_total'] = (double.tryParse('${m['sub_total']}') ?? 0) +
+            (double.tryParse('${g['sub_total']}') ?? 0);
+      } else {
+        idx[key] = list.length;
+        list.add(g);
+      }
+    }
+    return list;
+  }
+
+  String _qtyFmt(num v) => v == v.roundToDouble() ? '${v.round()}' : '$v';
 
   Widget _tableDetailPanel(Map o) {
     final goods = (o['goods_list'] ?? []) as List;
@@ -362,18 +385,21 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             const SizedBox(height: 8),
             const Divider(height: 1, color: PosTheme.line),
             const SizedBox(height: 6),
-            ...goods.map((g) => Padding(
+            ..._mergedGoods(goods).map((g) {
+              final qty = double.tryParse('${g['quantity']}') ?? 0;
+              return Padding(
               padding: const EdgeInsets.symmetric(vertical: 5),
               child: Row(children: [
                 Expanded(child: Text('${g['goods_title']}',
                     style: const TextStyle(fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                Text('¥${Fmt.money(g['unit_price'])} ×${g['quantity']}',
+                Text('¥${Fmt.money(g['unit_price'])} ×${_qtyFmt(qty)}',
                     style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
                 const SizedBox(width: 12),
                 SizedBox(width: 64, child: Text('¥${Fmt.money(g['sub_total'])}',
                     textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w600))),
               ]),
-            )),
+            );
+            }),
             const Divider(height: 14, color: PosTheme.line),
             // ===== 费用明细（菜品 + 附加费 + 优惠）=====
             ..._feeRows(o),
