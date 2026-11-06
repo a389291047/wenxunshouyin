@@ -152,6 +152,14 @@ class _SettingsPageState extends State<SettingsPage> {
             Text(it['desc']!, style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
             const SizedBox(height: 7),
           ])),
+          // 「设置」按钮：仅对有专属配置项的小票类型显示（v3.3.136），点开弹窗逐项设置
+          if (_hasTicketSettings(key))
+            TextButton.icon(
+              onPressed: () => _showTicketSettingsDialog(key, it['label']!),
+              style: TextButton.styleFrom(foregroundColor: PosTheme.accent, padding: const EdgeInsets.symmetric(horizontal: 8)),
+              icon: const Icon(Icons.tune, size: 15),
+              label: const Text('设置'),
+            ),
           TextButton.icon(
             onPressed: () => _previewTicket(key, it['label']!),
             style: TextButton.styleFrom(foregroundColor: PosTheme.blue, padding: const EdgeInsets.symmetric(horizontal: 10)),
@@ -176,52 +184,87 @@ class _SettingsPageState extends State<SettingsPage> {
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 10),
       ...rows,
-      // 后厨小票明细行开关（v3.3.135，餐饮专属，存云端随门店同步）
-      if (Session.hangye == 2) ...[
-        const SizedBox(height: 10),
-        Container(height: 1, color: PosTheme.line),
-        const SizedBox(height: 10),
-        const Text('后厨小票明细行（加菜单/后厨单）',
-            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
-        const SizedBox(height: 2),
-        const Text('菜品行、做法备注必打（无开关）；以下各行按需开关，设置随门店云端同步。',
-            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-        const SizedBox(height: 6),
-        ...[
-          ('table', '桌台行', '如「桌台: 茶楼3 (茶楼)」'),
-          ('time', '时间行', '如下单时间'),
-          ('staff', '点单人行', '如「点单: 张三」'),
-          ('count', '合计件数行', '如「合计件数: 4」'),
-        ].map((it) => Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
-              decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-              child: Row(children: [
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const SizedBox(height: 6),
-                  Text(it.$2, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
-                      color: kitchenTicketOpts[it.$1] ?? true ? PosTheme.textMain : PosTheme.textHint)),
-                  Text(it.$3, style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
-                  const SizedBox(height: 6),
-                ])),
-                Switch(
-                  value: kitchenTicketOpts[it.$1] ?? true,
-                  activeColor: PosTheme.accent,
-                  onChanged: (v) async {
-                    final next = Map<String, bool>.from(kitchenTicketOpts);
-                    next[it.$1] = v;
-                    setState(() => kitchenTicketOpts = next);
-                    final ok = await PrinterRoute.setKitchenTicketOpts('${Session.wenxunId}', next);
-                    if (mounted) {
-                      setState(() => cloudSyncOk = ok);
-                      if (!ok) toast(context, '已在本机生效，云端同步失败（联网后会自动补传）', error: true);
-                    }
-                  },
-                ),
-              ]),
-            )),
-      ],
     ]));
+  }
+
+  /// 哪些小票类型有专属设置（行内显示「设置」按钮）。后期给其它小票加开关，在这里登记即可。
+  bool _hasTicketSettings(String key) {
+    if (Session.hangye != 2) return false;
+    return key == 'kitchen'; // 后厨单/加菜单：明细行开关
+  }
+
+  /// 小票专属设置弹窗（v3.3.136）：按小票类型分发；保存即云端同步，预览实时生效
+  Future<void> _showTicketSettingsDialog(String key, String label) async {
+    if (key == 'kitchen') return _showKitchenDetailDialog(label);
+  }
+
+  /// 后厨单/加菜单 · 明细行开关弹窗（菜品行、做法备注必打无开关；存云端随门店同步）
+  Future<void> _showKitchenDetailDialog(String label) async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        Widget opt(String k, String title, String desc) {
+          final on = kitchenTicketOpts[k] ?? true;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+            decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const SizedBox(height: 7),
+                Text(title, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
+                    color: on ? PosTheme.textMain : PosTheme.textHint)),
+                Text(desc, style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                const SizedBox(height: 7),
+              ])),
+              Switch(
+                value: on,
+                activeColor: PosTheme.accent,
+                onChanged: (v) async {
+                  setD(() {
+                    final next = Map<String, bool>.from(kitchenTicketOpts);
+                    next[k] = v;
+                    kitchenTicketOpts = next;
+                  });
+                  final ok = await PrinterRoute.setKitchenTicketOpts('${Session.wenxunId}', kitchenTicketOpts);
+                  if (mounted) {
+                    setState(() => cloudSyncOk = ok);
+                    if (!ok) toast(context, '已在本机生效，云端同步失败（联网后会自动补传）', error: true);
+                  }
+                },
+              ),
+            ]),
+          );
+        }
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          titlePadding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+          contentPadding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+          actionsPadding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
+          title: Text('$label · 明细行设置', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+          content: SizedBox(
+            width: 380,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('菜品行、做法备注必打（无开关）；以下各行按需开关，设置随门店云端同步。',
+                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              const SizedBox(height: 10),
+              opt('table', '桌台行', '如「桌台: 茶楼3 (茶楼)」'),
+              opt('time', '时间行', '如下单时间'),
+              opt('staff', '点单人行', '如「点单: 张三」'),
+              opt('count', '合计件数行', '如「合计件数: 4」'),
+            ]),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('完成', style: TextStyle(color: PosTheme.accent, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        );
+      }),
+    );
   }
 
   /// 生成各类小票的示例内容（预览 / 测试打印共用）
