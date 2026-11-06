@@ -2013,6 +2013,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     final invoiceTitle = '${adj['invoice_title'] ?? ''}';
     final invoiceNo = '${adj['invoice_no'] ?? ''}';
     final remark = '${adj['order_remark'] ?? ''}';
+    final cashRecv = (adj['cash_received'] as double?) ?? 0;   // 现金实收（v3.3.150）
+    final cashChange = (adj['cash_change'] as double?) ?? 0;   // 现金找零
     setState(() => orderRemark = remark);
 
     // 2. 会员余额 / 挂账校验
@@ -2089,6 +2091,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         if (discountRate != 10) extra.add('整单折扣: $discountRate 折');
         if (quiling > 0) extra.add('抹零: -¥${Fmt.money(quiling)}');
         if (jifenNum > 0) extra.add('积分抵扣: $jifenNum 分 (-¥${Fmt.money(jifenDeduct)})');
+        if (picked == '现金' && cashRecv > 0) extra.add('实收现金: ¥${Fmt.money(cashRecv)}　找零: ¥${Fmt.money(cashChange)}');
         if (remark.isNotEmpty) extra.add('整单备注: $remark');
         if (invoiceTitle.isNotEmpty) extra.add('发票: $invoiceTitle${invoiceNo.isNotEmpty ? '（税号 $invoiceNo）' : ''}');
         if (await PrintPrefs.on('dining')) {
@@ -2115,6 +2118,9 @@ class _TableBillDialogState extends State<_TableBillDialog> {
               const Text('结账成功', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
               Text('¥${Fmt.money(total)} · $picked', style: const TextStyle(fontSize: 17, color: PosTheme.textSub)),
+              if (picked == '现金' && cashRecv > 0)
+                Text('实收 ¥${Fmt.money(cashRecv)} · 找零 ¥${Fmt.money(cashChange)}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF22B573))),
               if (orderSn.isNotEmpty) Text('单号 $orderSn', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
               const SizedBox(height: 20),
               SizedBox(width: 220, child: BigButton('完成', onTap: () => Navigator.pop(dctx), height: 46)),
@@ -3219,12 +3225,15 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   final remarkCtrl = TextEditingController();
   final invoiceCtrl = TextEditingController();
   final invoiceNoCtrl = TextEditingController();
+  final cashCtrl = TextEditingController(); // 现金实收（v3.3.150 找零）
   double rate = 10; // 10 = 不打折
   int moling = 0;   // 0 不抹零 1 抹角 2 抹元
   bool useJifen = false;
   bool remarkOpen = false; // 整单备注默认折叠（v3.3.144）
   String? method;
   Map? vip; // 弹窗内选择的会员（选择后解锁「会员余额」支付与积分抵扣）
+
+  double get _cash => double.tryParse(cashCtrl.text.trim()) ?? 0;
 
   static const payIcons = {
     '现金': Icons.payments_outlined, '微信支付': Icons.chat,
@@ -3244,7 +3253,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     '会员余额': PosTheme.accentDeep, '挂账': Color(0xFFC23A22),
   };
   static const paySubs = {
-    '现金': '即时到账', '微信支付': '扫码 / 收款码', '支付宝': '扫码 / 收款码',
+    '现金': '即时到账 · 支持找零', '微信支付': '记账模式 · 星驿付待接入', '支付宝': '记账模式 · 星驿付待接入',
     '会员余额': '余额扣款 · 积分抵扣', '挂账': '记账后补款',
   };
 
@@ -3400,7 +3409,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
             Expanded(
               child: Container(
               padding: const EdgeInsets.fromLTRB(24, 16, 26, 10),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              child: SingleChildScrollView(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 // 应收金额（渐变面板）
                 Container(
                   width: double.infinity,
@@ -3516,7 +3525,100 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     ),
                   ),
                 ],
-              ]),
+                // 现金找零面板（v3.3.150）：实收可收整钱，自动算找零
+                if (method == '现金') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FBF5),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF22B573).withOpacity(0.3)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('实收现金', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: cashCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        onChanged: (_) => setState(() {}),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22B573)),
+                        decoration: const InputDecoration(
+                          hintText: '0.00', isDense: true,
+                          prefixText: '¥ ',
+                          prefixStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22B573)),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // 常用面额快捷键：直接按面额收，自动算找零
+                      Wrap(spacing: 6, runSpacing: 6, children: [
+                        _cashQuick('刚好', finalTotal),
+                        _cashQuick('¥50', 50),
+                        _cashQuick('¥100', 100),
+                        _cashQuick('¥200', 200),
+                        _cashQuick('¥500', 500),
+                      ]),
+                      const SizedBox(height: 8),
+                      if (_cash >= finalTotal)
+                        Row(children: [
+                          const Text('找零', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                          const Spacer(),
+                          Text('¥${Fmt.money(_cash - finalTotal)}',
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF22B573))),
+                        ])
+                      else
+                        const Row(children: [
+                          Icon(Icons.error_outline, size: 16, color: PosTheme.red),
+                          SizedBox(width: 4),
+                          Text('实收现金不足应收金额', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: PosTheme.red)),
+                        ]),
+                    ]),
+                  ),
+                ],
+                // 微信/支付宝：记账模式提示 + 星驿付收款预留区（v3.3.150）
+                if (method == '微信支付' || method == '支付宝') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F8FF),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF1677FF).withOpacity(0.25)),
+                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Row(children: [
+                        Icon(Icons.info_outline, size: 16, color: payColors[method]),
+                        const SizedBox(width: 5),
+                        Text('记账模式 · 应收 ¥${Fmt.money(finalTotal)}',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text('仅记录本笔收款金额，暂不发起线上支付；星驿付扫码收款接入后，此处直接展示收款码 / 扫顾客付款码完成真实收款',
+                          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                      const SizedBox(height: 10),
+                      // 星驿付收款区预留位
+                      Container(
+                        width: double.infinity,
+                        height: 72,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF1677FF).withOpacity(0.3)),
+                        ),
+                        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                          Icon(Icons.qr_code_2, size: 22, color: const Color(0xFF1677FF).withOpacity(0.55)),
+                          const SizedBox(width: 7),
+                          Text('星驿付收款区（预留）',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: const Color(0xFF1677FF).withOpacity(0.65))),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ],
+              ])),
               ),
             ),
           ])),
@@ -3542,8 +3644,10 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
               ),
               const SizedBox(width: 14),
               // 大结算按钮：渐变 + 大字号 + 大热区（触屏友好）
-              InkWell(
-                onTap: method == null
+              Builder(builder: (_) {
+                final blocked = method == null || (method == '现金' && _cash < finalTotal); // 现金不足禁止确认
+                return InkWell(
+                onTap: blocked
                     ? null
                     : () => Navigator.pop(context, {
                           'final': finalTotal,
@@ -3560,29 +3664,38 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                           'order_remark': remarkCtrl.text.trim(),
                           'method': method,
                           'vip': vip,
+                          'cash_received': method == '现金' ? _cash : 0.0,
+                          'cash_change': method == '现金' ? (_cash - finalTotal).clamp(0, double.maxFinite).toDouble() : 0.0,
                         }),
                 borderRadius: BorderRadius.circular(16),
                 child: Opacity(
-                  opacity: method == null ? 0.45 : 1,
+                  opacity: blocked ? 0.45 : 1,
                   child: Container(
                     height: 58,
                     padding: const EdgeInsets.symmetric(horizontal: 40),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(colors: [PosTheme.accent, PosTheme.accentDeep]),
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: method == null ? null : [
+                      boxShadow: blocked ? null : [
                         BoxShadow(color: PosTheme.accent.withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 4)),
                       ],
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       const Icon(Icons.check_circle_outline, size: 22, color: Colors.white),
                       const SizedBox(width: 9),
-                      Text(method == null ? '请选择支付方式' : '确认收款 · ¥${Fmt.money(finalTotal)}',
-                          style: const TextStyle(fontSize: 17.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                      Text(
+                        method == null
+                            ? '请选择支付方式'
+                            : method == '现金' && _cash < finalTotal
+                                ? '实收现金不足'
+                                : '确认收款 · ¥${Fmt.money(finalTotal)}',
+                        style: const TextStyle(fontSize: 17.5, fontWeight: FontWeight.w800, color: Colors.white),
+                      ),
                     ]),
                   ),
                 ),
-              ),
+                );
+              }),
             ]),
           ),
         ]),
@@ -3601,6 +3714,23 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     );
   }
 
+  /// 现金快捷面额：一键按面额实收（刚好 = 按应收金额）
+  Widget _cashQuick(String label, double v) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () => setState(() => cashCtrl.text = v.toStringAsFixed(2)),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF22B573).withOpacity(0.4)),
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: Color(0xFF22B573))),
+      ),
+    );
+  }
+
   /// 支付方式大卡片：每种方式独立品牌色，选中整卡彩色渐变 + 白字（v3.3.146）
   Widget _payCard(String m) {
     final on = method == m;
@@ -3608,7 +3738,15 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     final cd = payDarks[m] ?? c;
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () => setState(() => method = m),
+      onTap: () {
+        setState(() {
+          method = m;
+          // 现金支付：默认按应收金额预填实收（可改大收整钱，自动算找零）
+          if (m == '现金' && cashCtrl.text.trim().isEmpty) {
+            cashCtrl.text = finalTotal.toStringAsFixed(2);
+          }
+        });
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
