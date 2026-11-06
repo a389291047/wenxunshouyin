@@ -1160,11 +1160,6 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ]),
         ),
-      const Padding(
-        padding: EdgeInsets.only(top: 4),
-        child: Text('打印类型：1 收银小票 · 2 后厨热菜 · 3 面点 · 4 凉菜 · 5 传菜 · 7 交班单（前台/后厨绑定在上方「配置」里设置）',
-            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-      ),
     ]));
   }
 
