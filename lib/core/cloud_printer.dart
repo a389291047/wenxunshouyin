@@ -74,6 +74,8 @@ class CloudPrinter {
   }
 
   /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
+  /// [font] 字体大小（v3.3.126）：''=标准 / 'fs'=加大(中文32高) / 'fs2'=特大(中文48高)，
+  /// 只放大菜品行/做法行/合计行；标题本就是 FS2 大字。标签云打印/USB（ESC/POS）通用。
   static String kitchenTicket({
     required String tableTitle,
     required String tableQuyu,
@@ -81,6 +83,7 @@ class CloudPrinter {
     String remark = '',
     String title = '后厨单',
     bool isAdd = false,
+    String font = '',
   }) {
     // 同名同做法合并数量（v3.3.71：做法不同不合并，分行走菜）
     final merged = <String, Map<String, dynamic>>{};
@@ -96,6 +99,7 @@ class CloudPrinter {
         merged[key] = {'goods_name': name, 'remark': note, 'quantity': qty};
       }
     }
+    String f(String line) => font.isEmpty ? line : '<$font>$line</$font>';
     final sb = StringBuffer();
     sb.writeln('<FS2><center>${isAdd ? '加菜单' : title}</center></FS2>');
     sb.writeln('--------------------------------');
@@ -108,12 +112,12 @@ class CloudPrinter {
     merged.forEach((_, g) {
       final qty = g['quantity'] as int;
       count += qty;
-      sb.writeln('${g['goods_name']}  x$qty');
+      sb.writeln(f('${g['goods_name']}  x$qty'));
       final note = '${g['remark'] ?? ''}'.trim();
-      if (note.isNotEmpty) sb.writeln('  <<$note>>');
+      if (note.isNotEmpty) sb.writeln(f('  <<$note>>'));
     });
     sb.writeln('--------------------------------');
-    sb.writeln('合计件数: $count');
+    sb.writeln(f('合计件数: $count'));
     return sb.toString();
   }
 

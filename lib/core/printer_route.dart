@@ -10,22 +10,26 @@ import 'api.dart';
 ///         后厨机 whole=整单合并一张  split=一菜一切（每个菜品一张）
 /// - cats：后厨机负责的商品分类（可多台分工，同分类绑多台=双打备份）
 /// - allCats：后厨机同时接收未分配分类的菜（兜底/同单双打）
+/// - font：后厨票字体大小（v3.3.126）：''=标准 / 'fs'=加大(32高) / 'fs2'=特大(48高)
 class PrinterCfg {
   String role;
   String mode;
   List<String> cats;
   bool allCats;
+  String font;
 
-  PrinterCfg({this.role = '', this.mode = 'whole', List<String>? cats, this.allCats = false})
+  PrinterCfg({this.role = '', this.mode = 'whole', List<String>? cats, this.allCats = false, this.font = ''})
       : cats = cats ?? <String>[];
 
-  Map<String, dynamic> toJson() => {'role': role, 'mode': mode, 'cats': cats, 'allCats': allCats};
+  Map<String, dynamic> toJson() =>
+      {'role': role, 'mode': mode, 'cats': cats, 'allCats': allCats, if (font.isNotEmpty) 'font': font};
 
   static PrinterCfg fromJson(Map<String, dynamic> j) => PrinterCfg(
         role: '${j['role'] ?? ''}',
         mode: '${j['mode'] ?? 'whole'}',
         cats: ((j['cats'] ?? const []) as List).map((e) => '$e').toList(),
         allCats: j['allCats'] == true,
+        font: '${j['font'] ?? ''}',
       );
 }
 

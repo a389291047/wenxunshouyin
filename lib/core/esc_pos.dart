@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fast_gbk/fast_gbk.dart';
@@ -38,19 +37,20 @@ class EscPos {
         out.add([0x0A]);
         continue;
       }
-      // 标记识别（剥标签前）：center=居中，fs2=倍大，fb=加粗
+      // 标记识别（剥标签前）：center=居中，fs2=倍大，fs=加高一档，fb=加粗
       final lower = t.toLowerCase();
       final center = lower.contains('<center>') || lower.contains('<cb>');
       final double = lower.contains('<fs2>') || lower.contains('<cb>');
+      final big = !double && lower.contains('<fs>'); // <FS> 中文32高（默认24），按倍高渲染
       final bold = lower.contains('<fb>') || lower.contains('<cb>') || lower.contains('<bold>');
       final text = t.replaceAll(_tagRe, '');
       if (text.isEmpty) {
         out.add([0x0A]);
         continue;
       }
-      if (center || double || bold) {
+      if (center || double || big || bold) {
         for (final line in _wrap(text, double ? width ~/ 2 : width)) {
-          _text(out, line, center: center, double: double, bold: bold);
+          _text(out, line, center: center, double: double, bold: bold, big: big);
           out.add([0x0A]);
         }
         if (double) out.add([0x0A]); // 倍大标题后空一行
@@ -98,9 +98,9 @@ class EscPos {
   }
 
   static void _text(BytesBuilder out, String s,
-      {bool center = false, bool double = false, bool bold = false}) {
+      {bool center = false, bool double = false, bool bold = false, bool big = false}) {
     out.add([0x1B, 0x61, center ? 1 : 0]); // ESC a n 对齐
-    out.add([0x1D, 0x21, double ? 0x11 : 0x00]); // GS ! n 倍大
+    out.add([0x1D, 0x21, double ? 0x11 : (big ? 0x10 : 0x00)]); // GS ! n 倍大（fs=倍高）
     out.add([0x1B, 0x45, bold ? 1 : 0]); // ESC E n 加粗
     out.add(gbk.encode(s));
     if (double || bold || center) {

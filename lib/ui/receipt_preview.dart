@@ -314,6 +314,9 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
       final isMoney = moneyRe.hasMatch(trimmed);
       // 居中提示行（※ 开头）单独处理
       final isTip = trimmed.startsWith('※') || trimmed.startsWith('谢谢惠顾');
+      // 字体大小标签（v3.3.126）：<FS> 加大一档 / <FS2> 特大（预览同步呈现，实机以打印机为准）
+      final lowLine = rawTrim.toLowerCase();
+      final fsDelta = lowLine.contains('<fs2>') ? 4.0 : (lowLine.contains('<fs>') ? 2.0 : 0.0);
 
       out.add(Padding(
         padding: EdgeInsets.only(top: isTip ? 3 : 0.5, bottom: isTip ? 3 : 0.5),
@@ -323,11 +326,13 @@ class _ReceiptPreviewDialogState extends State<ReceiptPreviewDialog> {
           style: TextStyle(
             fontFamily: 'Menlo',
             fontFamilyFallback: const ['Menlo', 'Courier New', 'monospace'],
-            fontSize: isNote ? s.fontSize - 0.8 : s.fontSize,
+            fontSize: fsDelta > 0
+                ? s.fontSize + fsDelta
+                : (isNote ? s.fontSize - 0.8 : s.fontSize),
             height: 1.62,
             letterSpacing: 0.1,
             color: isNote ? PosTheme.textHint : (isTip ? PosTheme.textSub : const Color(0xFF23262D)),
-            fontWeight: isMoney ? FontWeight.w700 : FontWeight.w400,
+            fontWeight: isMoney || fsDelta > 0 ? FontWeight.w700 : FontWeight.w400,
             fontStyle: isTip ? FontStyle.italic : FontStyle.normal,
           ),
         ),

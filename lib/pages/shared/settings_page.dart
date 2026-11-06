@@ -455,6 +455,7 @@ class _SettingsPageState extends State<SettingsPage> {
       mode: old?.mode ?? 'whole',
       cats: List<String>.from(old?.cats ?? const <String>[]),
       allCats: old?.allCats ?? false,
+      font: old?.font ?? '',
     );
     await showDialog(
       context: context,
@@ -510,6 +511,38 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           );
         }
+        Widget fontOpt(String value, String label, String desc) {
+          final sel = cfg.font == value;
+          return InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setD(() => cfg.font = value),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: sel ? PosTheme.accent.withOpacity(0.08) : const Color(0xFFF7F8FA),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: sel ? PosTheme.accent : PosTheme.line, width: sel ? 1.5 : 1),
+              ),
+              child: Row(children: [
+                SizedBox(
+                  width: 110,
+                  child: Text(label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: value == 'fs2' ? 16 : value == 'fs' ? 14 : 12.5,
+                        fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+                        color: sel ? PosTheme.accent : PosTheme.textMain,
+                      )),
+                ),
+                const SizedBox(width: 10),
+                Expanded(child: Text(desc, style: const TextStyle(fontSize: 11, color: PosTheme.textHint))),
+                Icon(sel ? Icons.check_circle : Icons.radio_button_off,
+                    size: 18, color: sel ? PosTheme.accent : PosTheme.textHint),
+              ]),
+            ),
+          );
+        }
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: Row(children: [
@@ -536,6 +569,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   modeOpt('whole', '整单打印', '本机负责的菜合并打一张小票'),
                   modeOpt('split', '一菜一切', '每个菜品单独打一张小票，方便分拣'),
                 ],
+              ],
+              if (cfg.role == 'kitchen') ...[
+                const SizedBox(height: 6),
+                const Text('字体大小（菜名/做法/合计行）', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                fontOpt('', '标准', '默认字号，一页能放下更多菜品'),
+                fontOpt('fs', '加大', '菜名放大一档（高32），出餐口远看更清楚'),
+                fontOpt('fs2', '特大', '菜名两倍大（高48），嘈杂后厨最醒目，每页菜品变少'),
               ],
               if (cfg.role == 'kitchen') ...[
                 const SizedBox(height: 6),
@@ -633,6 +674,8 @@ class _SettingsPageState extends State<SettingsPage> {
       final bits = <String>[mode];
       bits.add(n > 0 ? '$n 个分类' : '未分配分类');
       if (c.allCats) bits.add('兜底双打');
+      if (c.font == 'fs') bits.add('加大字');
+      if (c.font == 'fs2') bits.add('特大字');
       return bits.join(' · ');
     }
     return mode;
@@ -850,10 +893,28 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _testPrint(Map p) async {
     loadingDialog(context, '发送测试小票…');
     try {
+      // 后厨绑定机：按本机绑定配置（含字体大小）打一张后厨测试单，直接看字体效果
+      final cfg = printerCfgs['${p['machine_code']}'];
+      final isKitchen = Session.hangye == 2 && cfg != null && cfg.role == 'kitchen';
+      final content = isKitchen
+          ? '${CloudPrinter.kitchenTicket(
+              tableTitle: '大厅8',
+              tableQuyu: '大厅',
+              isAdd: true,
+              title: '后厨测试单',
+              remark: '测试：菜名字体大小',
+              cart: [
+                {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '微辣·少麻'},
+                {'goods_name': '米饭', 'quantity': 4},
+                {'goods_name': '酸辣土豆丝', 'quantity': 1},
+              ],
+              font: cfg.font,
+            )}打印正常，可开始出票'
+          : '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\n打印机：${p['name']}\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银';
       await Api.cloudPrint(
         wenxunId: Session.wenxunId,
         machineCode: '${p['machine_code']}',
-        content: '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\n打印机：${p['name']}\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
+        content: content,
       );
       if (!mounted) return;
       Navigator.pop(context);

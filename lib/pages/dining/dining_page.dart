@@ -42,9 +42,9 @@ Future<void> diningPrintKitchenRouted({
   if (kitchenItems.isEmpty) return;
   final cfgs = await PrinterRoute.printerCfgs(wid);
   final kitchens = cfgs.entries.where((e) => e.value.role == 'kitchen').toList();
-  String ticket(List<Map<String, dynamic>> cart) => CloudPrinter.kitchenTicket(
+  String ticket(List<Map<String, dynamic>> cart, {String font = ''}) => CloudPrinter.kitchenTicket(
       tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
-      isAdd: isAdd, title: title, remark: remark);
+      isAdd: isAdd, title: title, remark: remark, font: font);
   final futures = <Future>[];
   final taken = <Map<String, dynamic>>[]; // 已被分类绑定的菜
   void emit(String code, PrinterCfg cfg, List<Map<String, dynamic>> list) {
@@ -52,10 +52,10 @@ Future<void> diningPrintKitchenRouted({
     taken.addAll(list);
     if (cfg.mode == PrinterRoute.modeSplit) {
       for (final it in list) {
-        futures.add(CloudPrinter.printTo(code, ticket([it])));
+        futures.add(CloudPrinter.printTo(code, ticket([it], font: cfg.font)));
       }
     } else {
-      futures.add(CloudPrinter.printTo(code, ticket(list)));
+      futures.add(CloudPrinter.printTo(code, ticket(list, font: cfg.font)));
     }
   }
   // 按分类分工：同分类绑多台 = 双打备份
