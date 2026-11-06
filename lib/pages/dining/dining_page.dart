@@ -2616,7 +2616,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                     ),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.local_shipping_outlined, size: 19,
+                    Icon(Icons.restaurant_outlined, size: 19, // 餐具图标，适配中餐传后厨（v3.3.148 替换货车）
                         color: _pendingCount > 0 ? const Color(0xFFD97706) : PosTheme.blue),
                     const SizedBox(width: 7),
                     Text(
