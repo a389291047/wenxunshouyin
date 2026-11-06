@@ -19,10 +19,12 @@ import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 /// 桌台模式：桌台图 → 开台 → 点菜/加菜 → 结账 → 云打印
 /// 快捷模式：直接点单收款（外带/快餐），落 POS 订单
 
-/// 后厨出票共享路由（v3.3.123，两个页签/账单面板共用）：
-/// 1. 按「打印机分配」把菜品发到对应后厨打印机，未分配的走默认后厨打印机；
-/// 2. 后厨模式（设置 → 打印机分配）：整单打印（同机合并一张）/ 一菜一切（每个菜品一张票）；
-/// 3. 「米饭只打前台单」开启时过滤米饭类菜品（主食由前台单统一出，后厨不出）。
+/// 后厨出票共享路由（v3.3.124：按「云打印机」页的绑定配置）：
+/// 1. role=kitchen 的机各自出票：cats 非空时出自己分类的菜（同分类绑多台=双打备份）；
+///    cats 为空则不出票（除非开了「接收未分配分类」）；
+/// 2. 未分配分类的菜：发给所有开了「接收未分配分类」的后厨机，没有则走默认后厨打印机（旧行为兜底）；
+/// 3. 每台机按自己的出票方式：whole=整单合并一张 / split=一菜一切（每个菜品一张票）；
+/// 4. 「米饭只打前台单」开启时过滤米饭类菜品（主食由前台单统一出，后厨不出）。
 Future<void> diningPrintKitchenRouted({
   required List<Map<String, dynamic>> items,
   String tableTitle = '',
@@ -33,54 +35,93 @@ Future<void> diningPrintKitchenRouted({
 }) async {
   if (items.isEmpty) return;
   final wid = '${Session.wenxunId}';
-  // 米饭过滤（后厨不出米饭；前台单不受影响）
   final riceOnly = await PrinterRoute.riceFrontOnly(wid);
   final kitchenItems = riceOnly
       ? items.where((it) => !PrinterRoute.isRiceItem('${it['goods_name'] ?? ''}')).toList()
       : items;
   if (kitchenItems.isEmpty) return;
-  final mode = await PrinterRoute.kitchenMode(wid);
-  final routes = await PrinterRoute.routes(wid);
-  final byPrinter = <String, List<Map<String, dynamic>>>{};
-  final fallback = <Map<String, dynamic>>[];
-  for (final it in kitchenItems) {
-    final catId = '${it['cat_id'] ?? ''}';
-    String? target;
-    if (catId.isNotEmpty && catId != 'null' && catId != '0') {
-      for (final e in routes.entries) {
-        if (e.value.contains(catId)) { target = e.key; break; }
-      }
-    }
-    if (target != null) {
-      byPrinter.putIfAbsent(target, () => []).add(it);
-    } else {
-      fallback.add(it);
-    }
-  }
+  final cfgs = await PrinterRoute.printerCfgs(wid);
+  final kitchens = cfgs.entries.where((e) => e.value.role == 'kitchen').toList();
   String ticket(List<Map<String, dynamic>> cart) => CloudPrinter.kitchenTicket(
       tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
       isAdd: isAdd, title: title, remark: remark);
   final futures = <Future>[];
-  final oneTicket = mode == PrinterRoute.modeSplit; // 一菜一切
-  byPrinter.forEach((code, list) {
-    if (oneTicket) {
+  final taken = <Map<String, dynamic>>[]; // 已被分类绑定的菜
+  void emit(String code, PrinterCfg cfg, List<Map<String, dynamic>> list) {
+    if (list.isEmpty) return;
+    taken.addAll(list);
+    if (cfg.mode == PrinterRoute.modeSplit) {
       for (final it in list) {
         futures.add(CloudPrinter.printTo(code, ticket([it])));
       }
     } else {
       futures.add(CloudPrinter.printTo(code, ticket(list)));
     }
-  });
+  }
+  // 按分类分工：同分类绑多台 = 双打备份
+  for (final e in kitchens) {
+    final cats = e.value.cats;
+    if (cats.isEmpty) continue;
+    emit(e.key, e.value, kitchenItems.where((it) => cats.contains('${it['cat_id'] ?? ''}')).toList());
+  }
+  // 未分配分类的菜 → 兜底/双打机；没有则默认后厨打印机（旧行为）
+  final fallback = kitchenItems.where((it) => !taken.contains(it)).toList();
   if (fallback.isNotEmpty) {
-    if (oneTicket) {
-      for (final it in fallback) {
-        futures.add(CloudPrinter.printKitchen(ticket([it])));
+    final backups = kitchens.where((e) => e.value.allCats).toList();
+    if (backups.isNotEmpty) {
+      for (final e in backups) {
+        emit(e.key, e.value, fallback);
       }
     } else {
       futures.add(CloudPrinter.printKitchen(ticket(fallback)));
     }
   }
   await Future.wait(futures);
+}
+
+/// 前台单出票共享路由（v3.3.124）：
+/// - 绑定 role=front 的机：每台按自己的出票方式出（whole=主单一张 / split=每菜一张），
+///   绑定多台时全部出票（双打备份）；
+/// - 无前台绑定机：自动选机（收银小票类型优先），整单一张（旧行为）。
+Future<void> diningPrintFrontRouted({
+  required List<Map<String, dynamic>> items,
+  String tableTitle = '',
+  String tableQuyu = '',
+  bool isAdd = false,
+  String title = '前台单',
+  String remark = '',
+}) async {
+  if (items.isEmpty) return;
+  final wid = '${Session.wenxunId}';
+  final cfgs = await PrinterRoute.printerCfgs(wid);
+  final fronts = cfgs.entries.where((e) => e.value.role == 'front').toList();
+  String ticket(List<Map<String, dynamic>> cart) => CloudPrinter.kitchenTicket(
+      tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
+      isAdd: isAdd, title: title, remark: remark);
+  final futures = <Future>[];
+  if (fronts.isEmpty) {
+    futures.add(CloudPrinter.printFront(ticket(items)));
+  } else {
+    for (final e in fronts) {
+      if (e.value.mode == PrinterRoute.modeSplit) {
+        for (final it in items) {
+          futures.add(CloudPrinter.printTo(e.key, ticket([it])));
+        }
+      } else {
+        futures.add(CloudPrinter.printTo(e.key, ticket(items)));
+      }
+    }
+  }
+  await Future.wait(futures);
+}
+
+/// 预结单等场景取前台目标机：优先绑定的前台机，无绑定返回空 = 自动选机
+Future<String> diningFrontMachineCode() async {
+  final cfgs = await PrinterRoute.printerCfgs('${Session.wenxunId}');
+  for (final e in cfgs.entries) {
+    if (e.value.role == 'front') return e.key;
+  }
+  return await PrinterRoute.frontPrinter('${Session.wenxunId}');
 }
 
 class DiningPage extends StatefulWidget {
@@ -703,11 +744,7 @@ class _DiningPageState extends State<DiningPage> {
         );
       }
       if (await PrintPrefs.on('front')) {
-        final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
-        await CloudPrinter.printFront(
-            CloudPrinter.kitchenTicket(
-                tableTitle: tableTitle, tableQuyu: quyu, cart: cart, title: '前台单'),
-            machineCode: code);
+        await diningPrintFrontRouted(items: cart, tableTitle: tableTitle, tableQuyu: quyu);
       }
     } catch (_) {
       // 打印失败不影响开台
@@ -1705,14 +1742,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         await _printKitchenRouted(items, isAdd: true, title: '后厨单');
       }
       if (frontOn) {
-        // 前台单固定整单打印：本次待传菜品合并一张，不再一菜一出（v3.3.99）
-        final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
-        await CloudPrinter.printFront(CloudPrinter.kitchenTicket(
+        // 前台单走绑定配置（v3.3.124）：绑定前台机按各自方式出票（多台双打），无绑定自动选机整单一张
+        await diningPrintFrontRouted(
+          items: items,
           tableTitle: '${widget.table['title']}',
           tableQuyu: '${widget.table['quyu'] ?? ''}',
-          cart: items,
-          title: '前台单',
-        ), machineCode: code);
+        );
       }
       // 打印成功后：后端 is_xiachu 置 1（持久化，v3.3.115），
       // 之后再开面板数量归零；打印失败不会置 1，重开面板数量仍在
@@ -1895,7 +1930,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       cart: items,
       extraLines: [if (orderRemark.isNotEmpty) '备注: $orderRemark'],
     );
-    final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
+    final code = await diningFrontMachineCode();
     if (!mounted) return;
     await showDialog(
       context: context,
