@@ -53,6 +53,9 @@ class _SettingsPageState extends State<SettingsPage> {
   Map<String, List<String>> routeMap = {}; // machine_code → [cat_id]
   List cats = []; // 商品分类
   bool routeLoading = false;
+  // 后厨单模式（v3.3.123）：整单打印 / 一菜一切；米饭只打前台单
+  String kitchenMode = 'whole';
+  bool riceFrontOnly = false;
 
   @override
   void initState() {
@@ -71,11 +74,15 @@ class _SettingsPageState extends State<SettingsPage> {
     final mode = await PrinterRoute.frontMode(wid);
     final fp = await PrinterRoute.frontPrinter(wid);
     final r = await PrinterRoute.routes(wid);
+    final km = await PrinterRoute.kitchenMode(wid);
+    final rf = await PrinterRoute.riceFrontOnly(wid);
     if (!mounted) return;
     setState(() {
       frontMode = mode;
       frontPrinterCode = fp;
       routeMap = r;
+      kitchenMode = km;
+      riceFrontOnly = rf;
     });
     // 商品分类（后厨分单选择用）
     try {
@@ -491,7 +498,40 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 4),
       const Text('勾选每台后厨打印机负责的商品分类；点菜/加菜时该分类的菜自动发到对应打印机。未勾选分类的菜走默认后厨打印机。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 10),
+
+      // ===== 后厨单打印模式（v3.3.123） =====
+      const Text('后厨单打印模式', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
       const SizedBox(height: 8),
+      Row(children: [
+        _kitchenModeChip('whole', '整单打印', '同一台打印机的菜合并打一张小票'),
+        const SizedBox(width: 10),
+        _kitchenModeChip('split', '一菜一切', '每个菜品单独打一张小票，方便分拣'),
+      ]),
+      const SizedBox(height: 10),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('米饭只打前台单', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('开启后米饭等主食不出后厨票，只在前台单打印（名称含「米饭」的菜品均不进后厨）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: riceFrontOnly,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => riceFrontOnly = v);
+              await PrinterRoute.setRiceFrontOnly('${Session.wenxunId}', v);
+            },
+          ),
+        ]),
+      ),
+      const SizedBox(height: 10),
       if (cats.isEmpty)
         const Padding(
           padding: EdgeInsets.symmetric(vertical: 8),
@@ -562,6 +602,35 @@ class _SettingsPageState extends State<SettingsPage> {
       onTap: () async {
         setState(() => frontMode = value);
         await PrinterRoute.setFrontMode('${Session.wenxunId}', value);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: sel ? PosTheme.accent.withOpacity(0.08) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.line, width: sel ? 1.5 : 1),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(sel ? Icons.radio_button_checked : Icons.radio_button_off,
+                size: 17, color: sel ? PosTheme.accent : PosTheme.textHint),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: sel ? PosTheme.accent : PosTheme.textMain)),
+          ]),
+          const SizedBox(height: 3),
+          Text(desc, style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+        ]),
+      ),
+    ));
+  }
+
+  Widget _kitchenModeChip(String value, String label, String desc) {
+    final sel = kitchenMode == value;
+    return Expanded(child: InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () async {
+        setState(() => kitchenMode = value);
+        await PrinterRoute.setKitchenMode('${Session.wenxunId}', value);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

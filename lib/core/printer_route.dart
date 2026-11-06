@@ -60,4 +60,31 @@ class PrinterRoute {
     final r = await routes(wenxunId);
     return r.entries.where((e) => e.value.contains(catId)).map((e) => e.key).toList();
   }
+
+  // ==================== 后厨单模式（v3.3.123） ====================
+  /// 后厨单打印模式：whole=整单打印（同一台打印机上的菜合并一张票）
+  /// split=一菜一切（每个菜品条目单独一张票，出菜方便分拣）
+  static Future<String> kitchenMode(String wenxunId) async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getString(_k(wenxunId, 'kitchen_mode')) ?? modeWhole;
+  }
+
+  static Future<void> setKitchenMode(String wenxunId, String mode) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_k(wenxunId, 'kitchen_mode'), mode);
+  }
+
+  /// 米饭只打前台单：开启后米饭类商品不出后厨票（主食由前台单统一出，v3.3.123）
+  static Future<bool> riceFrontOnly(String wenxunId) async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getBool(_k(wenxunId, 'rice_front_only')) ?? false;
+  }
+
+  static Future<void> setRiceFrontOnly(String wenxunId, bool v) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(_k(wenxunId, 'rice_front_only'), v);
+  }
+
+  /// 米饭类商品判断（名称含「米饭」即视为主食，如 米饭/米饭(小)/紫米饭）
+  static bool isRiceItem(String goodsName) => goodsName.contains('米饭');
 }

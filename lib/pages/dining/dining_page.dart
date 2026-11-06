@@ -18,6 +18,71 @@ import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 /// 餐饮版 · 点餐主页（中餐 / 面馆 / 快餐通用）
 /// 桌台模式：桌台图 → 开台 → 点菜/加菜 → 结账 → 云打印
 /// 快捷模式：直接点单收款（外带/快餐），落 POS 订单
+
+/// 后厨出票共享路由（v3.3.123，两个页签/账单面板共用）：
+/// 1. 按「打印机分配」把菜品发到对应后厨打印机，未分配的走默认后厨打印机；
+/// 2. 后厨模式（设置 → 打印机分配）：整单打印（同机合并一张）/ 一菜一切（每个菜品一张票）；
+/// 3. 「米饭只打前台单」开启时过滤米饭类菜品（主食由前台单统一出，后厨不出）。
+Future<void> diningPrintKitchenRouted({
+  required List<Map<String, dynamic>> items,
+  String tableTitle = '',
+  String tableQuyu = '',
+  bool isAdd = true,
+  String title = '后厨单',
+  String remark = '',
+}) async {
+  if (items.isEmpty) return;
+  final wid = '${Session.wenxunId}';
+  // 米饭过滤（后厨不出米饭；前台单不受影响）
+  final riceOnly = await PrinterRoute.riceFrontOnly(wid);
+  final kitchenItems = riceOnly
+      ? items.where((it) => !PrinterRoute.isRiceItem('${it['goods_name'] ?? ''}')).toList()
+      : items;
+  if (kitchenItems.isEmpty) return;
+  final mode = await PrinterRoute.kitchenMode(wid);
+  final routes = await PrinterRoute.routes(wid);
+  final byPrinter = <String, List<Map<String, dynamic>>>{};
+  final fallback = <Map<String, dynamic>>[];
+  for (final it in kitchenItems) {
+    final catId = '${it['cat_id'] ?? ''}';
+    String? target;
+    if (catId.isNotEmpty && catId != 'null' && catId != '0') {
+      for (final e in routes.entries) {
+        if (e.value.contains(catId)) { target = e.key; break; }
+      }
+    }
+    if (target != null) {
+      byPrinter.putIfAbsent(target, () => []).add(it);
+    } else {
+      fallback.add(it);
+    }
+  }
+  String ticket(List<Map<String, dynamic>> cart) => CloudPrinter.kitchenTicket(
+      tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
+      isAdd: isAdd, title: title, remark: remark);
+  final futures = <Future>[];
+  final oneTicket = mode == PrinterRoute.modeSplit; // 一菜一切
+  byPrinter.forEach((code, list) {
+    if (oneTicket) {
+      for (final it in list) {
+        futures.add(CloudPrinter.printTo(code, ticket([it])));
+      }
+    } else {
+      futures.add(CloudPrinter.printTo(code, ticket(list)));
+    }
+  });
+  if (fallback.isNotEmpty) {
+    if (oneTicket) {
+      for (final it in fallback) {
+        futures.add(CloudPrinter.printKitchen(ticket([it])));
+      }
+    } else {
+      futures.add(CloudPrinter.printKitchen(ticket(fallback)));
+    }
+  }
+  await Future.wait(futures);
+}
+
 class DiningPage extends StatefulWidget {
   const DiningPage({super.key});
   @override
@@ -629,38 +694,13 @@ class _DiningPageState extends State<DiningPage> {
       final tableTitle = '${t['title'] ?? ''}';
       final quyu = '${t['quyu'] ?? ''}';
       if (await PrintPrefs.on('kitchen')) {
-        final routes = await PrinterRoute.routes('${Session.wenxunId}');
-        final byPrinter = <String, List<Map<String, dynamic>>>{};
-        final fallback = <Map<String, dynamic>>[];
-        for (final it in cart) {
-          final catId = '${it['cat_id']}';
-          String? target;
-          if (catId.isNotEmpty && catId != 'null' && catId != '0') {
-            for (final e in routes.entries) {
-              if (e.value.contains(catId)) {
-                target = e.key;
-                break;
-              }
-            }
-          }
-          if (target != null) {
-            byPrinter.putIfAbsent(target, () => []).add(it);
-          } else {
-            fallback.add(it);
-          }
-        }
-        final futures = <Future>[];
-        byPrinter.forEach((code, list) {
-          futures.add(CloudPrinter.printTo(
-              code,
-              CloudPrinter.kitchenTicket(
-                  tableTitle: tableTitle, tableQuyu: quyu, cart: list, isAdd: true, title: '后厨单')));
-        });
-        if (fallback.isNotEmpty) {
-          futures.add(CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-              tableTitle: tableTitle, tableQuyu: quyu, cart: fallback, isAdd: true, title: '后厨单')));
-        }
-        await Future.wait(futures);
+        await diningPrintKitchenRouted(
+          items: cart,
+          tableTitle: tableTitle,
+          tableQuyu: quyu,
+          isAdd: true,
+          title: '后厨单',
+        );
       }
       if (await PrintPrefs.on('front')) {
         final code = await PrinterRoute.frontPrinter('${Session.wenxunId}');
@@ -915,15 +955,15 @@ class _DiningPageState extends State<DiningPage> {
         final items = (r['data']?['items'] ?? []) as List;
         final remark = '${r['data']?['remark'] ?? ''}';
         toast(context, items.isEmpty ? '开台成功（该桌无预点菜品）' : '开台成功，正在向后厨打印 ${items.length} 项预点菜品');
-        // 后厨小票（不阻塞后续流程）
+        // 后厨小票（不阻塞后续流程；走共享路由：米饭过滤 + 整单/一菜一切）
         if (await PrintPrefs.on('kitchen')) {
-          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+          diningPrintKitchenRouted(
+            items: items.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList(),
             tableTitle: '${t['title']}',
             tableQuyu: '${t['quyu'] ?? ''}',
-            cart: items.map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e)).toList(),
             remark: remark,
             title: '预点出菜单',
-          )).catchError((_) => <String, dynamic>{});
+          ).catchError((_) => <String, dynamic>{});
         }
         await _load();
         if (!mounted) return;
@@ -1610,47 +1650,16 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     return '';
   }
 
-  /// 按分类路由打后厨小票：设置了「打印机分配」的分类发到指定打印机，
-  /// 未分配的菜品合并走默认后厨打印机（原行为兜底）
+  /// 按分类路由打后厨小票（v3.3.123 改走共享路由：米饭过滤 + 后厨模式整单/一菜一切）
   Future<void> _printKitchenRouted(List<Map<String, dynamic>> items, {bool isAdd = true, String title = '后厨单'}) async {
     if (items.isEmpty) return;
-    final routes = await PrinterRoute.routes('${Session.wenxunId}');
-    final byPrinter = <String, List<Map<String, dynamic>>>{};
-    final fallback = <Map<String, dynamic>>[];
-    for (final it in items) {
-      final catId = '${it['cat_id'] ?? ''}';
-      String? target;
-      if (catId.isNotEmpty && catId != 'null') {
-        for (final e in routes.entries) {
-          if (e.value.contains(catId)) { target = e.key; break; }
-        }
-      }
-      if (target != null) {
-        byPrinter.putIfAbsent(target, () => []).add(it);
-      } else {
-        fallback.add(it);
-      }
-    }
-    final futures = <Future<Map<String, dynamic>>>[];
-    byPrinter.forEach((code, list) {
-      futures.add(CloudPrinter.printTo(code, CloudPrinter.kitchenTicket(
-        tableTitle: '${widget.table['title']}',
-        tableQuyu: '${widget.table['quyu'] ?? ''}',
-        cart: list,
-        isAdd: isAdd,
-        title: title,
-      )));
-    });
-    if (fallback.isNotEmpty) {
-      futures.add(CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-        tableTitle: '${widget.table['title']}',
-        tableQuyu: '${widget.table['quyu'] ?? ''}',
-        cart: fallback,
-        isAdd: isAdd,
-        title: title,
-      )));
-    }
-    await Future.wait(futures);
+    await diningPrintKitchenRouted(
+      items: items,
+      tableTitle: '${widget.table['title']}',
+      tableQuyu: '${widget.table['quyu'] ?? ''}',
+      isAdd: isAdd,
+      title: title,
+    );
   }
 
   /// 传后厨（v3.3.115）：
@@ -1797,14 +1806,19 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       Navigator.pop(context); // loading
       if (err == null && left == 0) {
         toast(context, '已退：${b['goods_title']} ×$num');
-        // 退菜同步打后厨退菜票（不阻塞）
+        // 退菜同步打后厨退菜票（不阻塞；米饭只打前台单时退米饭不出后厨票）
         if (await PrintPrefs.on('retreat')) {
-          CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
-            tableTitle: '${widget.table['title']}',
-            tableQuyu: '${widget.table['quyu'] ?? ''}',
-            cart: [{'goods_name': b['goods_title'], 'quantity': num}],
-            title: '退菜单',
-          )).catchError((_) => <String, dynamic>{});
+          final riceOnly = await PrinterRoute.riceFrontOnly('${Session.wenxunId}');
+          if (riceOnly && PrinterRoute.isRiceItem('${b['goods_title']}')) {
+            // 米饭类不进后厨，跳过退菜单
+          } else {
+            CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+              tableTitle: '${widget.table['title']}',
+              tableQuyu: '${widget.table['quyu'] ?? ''}',
+              cart: [{'goods_name': b['goods_title'], 'quantity': num}],
+              title: '退菜单',
+            )).catchError((_) => <String, dynamic>{});
+          }
         }
         _loadBill();
       } else {
