@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api.dart';
+
 /// 单台云打印机的绑定配置（v3.3.124）：在「设置 → 云打印机」里直接绑定
 /// - role：front=前台单 / kitchen=后厨单 / 空=不参与点餐出票（只做收银小票等）
 /// - mode：前台机 whole=主单一张(整桌一张) split=每菜一张；
@@ -66,13 +68,101 @@ class PrinterRoute {
     return out;
   }
 
-  static Future<void> setPrinterCfgs(String wenxunId, Map<String, PrinterCfg> cfgs) async {
+  /// 保存按机配置：本机必成，返回云端同步是否成功
+  static Future<bool> setPrinterCfgs(String wenxunId, Map<String, PrinterCfg> cfgs) async {
     final sp = await SharedPreferences.getInstance();
     final data = <String, Map<String, dynamic>>{};
     cfgs.forEach((k, v) {
       if (v.role.isNotEmpty) data[k] = v.toJson(); // role 为空 = 不参与，不入库
     });
     await sp.setString(_k(wenxunId, 'printers'), jsonEncode(data));
+    return await pushToCloud(wenxunId);
+  }
+
+  // ==================== 云端同步（v3.3.125） ====================
+  // 配置存服务端 wx_printer_route（按商户一份）：换电脑 / 换收银员账号登录自动拉取，
+  // 本机 SharedPreferences 仍作为缓存与离线兜底，断网时照常出票。
+
+  /// 本机配置快照（含旧配置懒迁移结果），云端格式：{printers:{code:{...}}, rice:bool}
+  static Future<Map<String, dynamic>> localCfg(String wenxunId) async {
+    final cfgs = await printerCfgs(wenxunId);
+    final printers = <String, dynamic>{};
+    cfgs.forEach((k, v) {
+      if (v.role.isNotEmpty) printers[k] = v.toJson();
+    });
+    return {'printers': printers, 'rice': await riceFrontOnly(wenxunId)};
+  }
+
+  /// 云端配置写回本机（整份覆盖）
+  static Future<void> _applyCfg(String wenxunId, Map cfg) async {
+    final sp = await SharedPreferences.getInstance();
+    final out = <String, dynamic>{};
+    final p = cfg['printers'];
+    if (p is Map) {
+      p.forEach((k, v) {
+        if (v is Map) {
+          final c = PrinterCfg.fromJson(Map<String, dynamic>.from(v));
+          if (c.role.isNotEmpty) out['$k'] = c.toJson();
+        }
+      });
+    }
+    await sp.setString(_k(wenxunId, 'printers'), jsonEncode(out));
+    if (cfg.containsKey('rice')) {
+      await sp.setBool(_k(wenxunId, 'rice_front_only'), cfg['rice'] == true);
+    }
+    await sp.setBool(_k(wenxunId, 'cfg_dirty'), false);
+  }
+
+  /// 本机有未上传的改动（上次保存时断网）：下次同步先推本机，避免被云端旧配置覆盖
+  static Future<bool> _dirty(String wenxunId) async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getBool(_k(wenxunId, 'cfg_dirty')) ?? false;
+  }
+
+  static Future<void> _setDirty(String wenxunId, bool v) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(_k(wenxunId, 'cfg_dirty'), v);
+  }
+
+  /// 登录后 / 进入设置页时同步：本机有待上传改动 → 先推本机；
+  /// 否则云端有配置 → 覆盖本机；云端为空 → 上传本机（老用户首次迁移）。
+  /// 返回 true=同步成功；false=网络异常，继续用本机配置。
+  static Future<bool> syncFromCloud(String wenxunId) async {
+    final wid = int.tryParse(wenxunId) ?? 0;
+    if (wid <= 0) return false;
+    try {
+      // 断网时改过配置：本机为准，先补传，避免被云端旧值覆盖
+      if (await _dirty(wenxunId)) {
+        return await pushToCloud(wenxunId);
+      }
+      final remote = await Api.printerRouteCfg(wid);
+      final cfg = remote['cfg'];
+      if (cfg is Map && cfg.isNotEmpty) {
+        await _applyCfg(wenxunId, Map<String, dynamic>.from(cfg));
+        return true;
+      }
+      // 云端为空：把本机已有配置推上去（纯新装无配置则什么都不做，避免写空覆盖）
+      final local = await localCfg(wenxunId);
+      final hasData = (local['printers'] as Map).isNotEmpty || local['rice'] == true;
+      if (hasData) return await pushToCloud(wenxunId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 上传本机配置到云端；失败返回 false（不抛异常，本机配置照常生效，并标记待补传）
+  static Future<bool> pushToCloud(String wenxunId) async {
+    final wid = int.tryParse(wenxunId) ?? 0;
+    if (wid <= 0) return false;
+    try {
+      await Api.printerRouteCfgSave(wid, await localCfg(wenxunId));
+      await _setDirty(wenxunId, false);
+      return true;
+    } catch (_) {
+      await _setDirty(wenxunId, true);
+      return false;
+    }
   }
 
   // ==================== 米饭只打前台单（全局规则，v3.3.123） ====================
@@ -81,9 +171,11 @@ class PrinterRoute {
     return sp.getBool(_k(wenxunId, 'rice_front_only')) ?? false;
   }
 
-  static Future<void> setRiceFrontOnly(String wenxunId, bool v) async {
+  /// 米饭只打前台单开关：返回云端同步是否成功
+  static Future<bool> setRiceFrontOnly(String wenxunId, bool v) async {
     final sp = await SharedPreferences.getInstance();
     await sp.setBool(_k(wenxunId, 'rice_front_only'), v);
+    return await pushToCloud(wenxunId);
   }
 
   /// 米饭类商品判断（名称含「米饭」即视为主食，如 米饭/米饭(小)/紫米饭）

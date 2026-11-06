@@ -385,6 +385,26 @@ class Api {
     return [];
   }
 
+  /// 打印机路由配置读取（v3.3.125）：返回 {cfg, update_time}；
+  /// cfg 为 null = 该商户从未同步过（客户端可上传本机配置）
+  static Future<Map<String, dynamic>> printerRouteCfg(int wenxunId) async {
+    final r = await post('/api/printer/routeGet', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') {
+      final d = r['data'];
+      return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+    }
+    throw ApiError('${r['msg'] ?? '读取打印机配置失败'}');
+  }
+
+  /// 打印机路由配置保存到云端（整份覆盖）
+  static Future<void> printerRouteCfgSave(int wenxunId, Map<String, dynamic> cfg) async {
+    final r = await post('/api/printer/routeSave', {
+      'wenxun_id': wenxunId,
+      'cfg': jsonEncode(cfg),
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '保存打印机配置失败'}');
+  }
+
   /// 云打印（易联云）：content 为小票文本，\n 分行
   static Future<Map<String, dynamic>> cloudPrint({
     required int wenxunId,

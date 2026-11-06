@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/preorder_badge.dart';
+import '../core/printer_route.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import '../ui/widgets.dart';
@@ -28,6 +29,14 @@ class _ShellPageState extends State<ShellPage> {
   int _index = 0;
   bool get _isDining => Session.hangye == 2;
   bool get _isFresh => Session.hangye == 3;
+
+  @override
+  void initState() {
+    super.initState();
+    // v3.3.125：登录后（含自动登录）后台拉取云端打印机绑定配置，
+    // 换电脑/换收银员账号登录不必重设；失败静默，继续用本机缓存
+    if (_isDining) PrinterRoute.syncFromCloud('${Session.wenxunId}');
+  }
 
   String get _versionLabel {
     if (_isDining) return '餐饮版';

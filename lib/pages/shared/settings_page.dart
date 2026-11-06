@@ -52,6 +52,8 @@ class _SettingsPageState extends State<SettingsPage> {
   List cats = []; // 商品分类（后厨绑定配置用）
   bool routeLoading = false;
   Map<String, PrinterCfg> printerCfgs = {}; // machine_code → 绑定配置
+  bool cloudSyncing = false; // 正在与云端同步
+  bool cloudSyncOk = true; // 上次云端同步结果（false=断网，仅本机生效）
 
   @override
   void initState() {
@@ -64,15 +66,20 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadRoute();
   }
 
+  /// 加载打印机绑定配置：先与云端同步（换电脑/换账号自动拉取），再读本机缓存
   Future<void> _loadRoute() async {
     if (Session.hangye != 2) return;
     final wid = '${Session.wenxunId}';
+    if (mounted) setState(() => cloudSyncing = true);
+    final ok = await PrinterRoute.syncFromCloud(wid);
     final rf = await PrinterRoute.riceFrontOnly(wid);
     final pcs = await PrinterRoute.printerCfgs(wid);
     if (!mounted) return;
     setState(() {
       riceFrontOnly = rf;
       printerCfgs = pcs;
+      cloudSyncOk = ok;
+      cloudSyncing = false;
     });
     // 商品分类（后厨绑定配置选择用）
     try {
@@ -83,7 +90,7 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Future<void> _savePrinterCfg(String code, PrinterCfg cfg) async {
+  Future<bool> _savePrinterCfg(String code, PrinterCfg cfg) async {
     final next = Map<String, PrinterCfg>.from(printerCfgs);
     if (cfg.role.isEmpty) {
       next.remove(code);
@@ -91,7 +98,9 @@ class _SettingsPageState extends State<SettingsPage> {
       next[code] = cfg;
     }
     setState(() => printerCfgs = next);
-    await PrinterRoute.setPrinterCfgs('${Session.wenxunId}', next);
+    final ok = await PrinterRoute.setPrinterCfgs('${Session.wenxunId}', next);
+    if (mounted) setState(() => cloudSyncOk = ok);
+    return ok;
   }
 
   Future<void> _loadPrintPrefs() async {
@@ -593,10 +602,10 @@ class _SettingsPageState extends State<SettingsPage> {
               style: FilledButton.styleFrom(backgroundColor: PosTheme.accent),
               onPressed: () async {
                 Navigator.pop(ctx);
-                await _savePrinterCfg(code, cfg);
-                if (mounted) {
-                  toast(context, cfg.role.isEmpty ? '已解绑「${p['name']}」' : '「${p['name']}」已绑定为${cfg.role == 'front' ? '前台单' : '后厨单'}');
-                }
+                final ok = await _savePrinterCfg(code, cfg);
+                if (!mounted) return;
+                final base = cfg.role.isEmpty ? '已解绑「${p['name']}」' : '「${p['name']}」已绑定为${cfg.role == 'front' ? '前台单' : '后厨单'}';
+                toast(context, ok ? '$base · 已云端同步' : '$base（云端同步失败，仅本机生效）', error: !ok);
               },
               child: const Text('保存'),
             ),
@@ -992,6 +1001,7 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Text('点「配置」把打印机绑定为前台单/后厨单：可设出票方式（主单一张/分单/整单/一菜一切）、负责分类、兜底双打。',
               style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
         ),
+      if (isDining) _cloudSyncBar(),
       const SizedBox(height: 6),
       if (loading)
         const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: PosTheme.accent)))
@@ -1069,7 +1079,10 @@ class _SettingsPageState extends State<SettingsPage> {
               activeColor: PosTheme.accent,
               onChanged: (v) async {
                 setState(() => riceFrontOnly = v);
-                await PrinterRoute.setRiceFrontOnly('${Session.wenxunId}', v);
+                final ok = await PrinterRoute.setRiceFrontOnly('${Session.wenxunId}', v);
+                if (!mounted) return;
+                setState(() => cloudSyncOk = ok);
+                if (!ok) toast(context, '已在本机生效，云端同步失败（联网后请再切换一次）', error: true);
               },
             ),
           ]),
@@ -1080,6 +1093,34 @@ class _SettingsPageState extends State<SettingsPage> {
             style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       ),
     ]));
+  }
+
+  /// 云端同步状态条（v3.3.125）：换电脑/换账号登录后配置自动跟随
+  Widget _cloudSyncBar() {
+    final Color c = cloudSyncOk ? PosTheme.green : PosTheme.amber;
+    final String text = cloudSyncing
+        ? '正在从云端同步打印机配置…'
+        : cloudSyncOk
+            ? '配置已云端同步：换电脑或换收银员账号登录自动生效'
+            : '云端同步失败，当前配置仅本机生效（点此重试）';
+    return GestureDetector(
+      onTap: cloudSyncing ? null : () => _loadRoute(),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: c.withOpacity(0.07), borderRadius: BorderRadius.circular(8)),
+        child: Row(children: [
+          if (cloudSyncing)
+            const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 1.8, color: PosTheme.accent))
+          else
+            Icon(cloudSyncOk ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, size: 14, color: c),
+          const SizedBox(width: 6),
+          Expanded(child: Text(text, style: TextStyle(fontSize: 11.5, color: c))),
+          if (!cloudSyncing && !cloudSyncOk)
+            Icon(Icons.refresh, size: 13, color: c),
+        ]),
+      ),
+    );
   }
 
   /// 状态同步时间后缀（v3.3.122）：显示易联云实时查询的完成时间
