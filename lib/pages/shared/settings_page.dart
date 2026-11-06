@@ -627,9 +627,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   child: Row(children: [
                     const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       SizedBox(height: 8),
-                      Text('接收未分配分类（兜底/双打）', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                      Text('接收未分配分类', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
                       SizedBox(height: 2),
-                      Text('开启后没有分配到任何打印机的菜也发本机；多台都开=每台都打完整一份',
+                      Text('没分到分类的菜，本机也打一份（多台开启则每台各打一份）',
                           style: TextStyle(fontSize: 11, color: PosTheme.textHint)),
                       SizedBox(height: 8),
                     ])),
