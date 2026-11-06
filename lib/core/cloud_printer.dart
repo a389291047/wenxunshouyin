@@ -76,6 +76,48 @@ class CloudPrinter {
     return printCloud(content); // printCloud 内部已按绑定的前台机优先
   }
 
+  /// 预约单模板（v3.3.139）：顾客扫码提交预约后出单备菜核对（默认发前台/收银机）。
+  /// items 行字段：goods_name / goods_title、unit_price、quantity、sub_total（preorderList 下发结构）
+  static String preorderTicket({
+    required String name,
+    required String phone,
+    required int peopleNum,
+    required String arriveTime,
+    required String createTime,
+    required List<Map<String, dynamic>> items,
+    double total = 0,
+    String remark = '',
+  }) {
+    final sb = StringBuffer();
+    sb.writeln('<FS2><center>预约单</center></FS2>');
+    sb.writeln('--------------------------------');
+    if (name.isNotEmpty) sb.writeln('顾客: $name');
+    if (phone.isNotEmpty) sb.writeln('手机: $phone');
+    if (peopleNum > 0) sb.writeln('人数: $peopleNum 人');
+    if (arriveTime.isNotEmpty) sb.writeln('到店: $arriveTime');
+    if (createTime.isNotEmpty) sb.writeln('提交: $createTime');
+    if (items.isNotEmpty) sb.writeln('--------------------------------');
+    var count = 0;
+    var sum = 0.0;
+    for (final g in items) {
+      final title = '${g['goods_name'] ?? g['goods_title'] ?? ''}';
+      final qty = int.tryParse('${g['quantity'] ?? 0}') ?? 0;
+      final price = double.tryParse('${g['unit_price'] ?? 0}') ?? 0;
+      final sub = double.tryParse('${g['sub_total'] ?? 0}') ?? (price * qty);
+      if (title.isEmpty || qty <= 0) continue;
+      count += qty;
+      sum += sub;
+      sb.writeln('$title');
+      sb.writeln('  ¥${Fmt.money(price)} x$qty   ¥${Fmt.money(sub)}');
+    }
+    if (items.isNotEmpty) sb.writeln('--------------------------------');
+    sb.writeln('共 $count 项  合计: ¥${Fmt.money(total > 0 ? total : sum)}');
+    if (remark.isNotEmpty) sb.writeln('备注: $remark');
+    sb.writeln('※ 预约单仅供备菜核对 ※');
+    sb.writeln('※ 安排开台后请到该桌点「传后厨」出票 ※');
+    return sb.toString();
+  }
+
   /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
   /// [font] 字体大小（v3.3.126）：''=标准 / 'fs'=加大(中文32高) / 'fs2'=特大(中文48高)，
   /// 只放大菜品行/做法行/合计行；标题本就是 FS2 大字。标签云打印/USB（ESC/POS）通用。

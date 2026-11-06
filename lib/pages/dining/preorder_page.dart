@@ -5,7 +5,9 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/api.dart';
+import '../../core/preorder_auto_print.dart';
 import '../../core/preorder_badge.dart';
+import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/widgets.dart';
@@ -30,6 +32,7 @@ class _PreorderPageState extends State<PreorderPage> {
   Map counts = <String, dynamic>{'0': 0, '1': 0, '2': 0};
   List tables = [];
   int? selectedId;
+  bool bookingAuto = false; // 预约单自动打印开关（v3.3.139，PrintPrefs.booking_auto）
   final _searchCtrl = TextEditingController();
 
   @override
@@ -37,6 +40,29 @@ class _PreorderPageState extends State<PreorderPage> {
     super.initState();
     _load();
     _loadTables();
+    _loadBookingAuto();
+  }
+
+  Future<void> _loadBookingAuto() async {
+    final v = await PrintPrefs.on('booking_auto');
+    if (mounted) setState(() => bookingAuto = v);
+  }
+
+  /// 手动打印当前预约单（v3.3.139）：不受「预约单」开关限制（用户主动点击）
+  Future<void> _printBooking(Map<String, dynamic> r) async {
+    loadingDialog(context, '发送预约单…');
+    try {
+      await PreorderAutoPrint.printNow(r);
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '预约单已发送打印');
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, '打印失败：$e', error: true);
+    }
   }
 
   @override
@@ -70,6 +96,8 @@ class _PreorderPageState extends State<PreorderPage> {
         }
       });
       PreorderBadge.count.value = int.tryParse('${counts['0'] ?? 0}') ?? 0;
+      // 预约单自动打印检测（v3.3.139）：刷新后立即发现新预约出票
+      PreorderAutoPrint.check();
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() => error = e.message);
@@ -587,8 +615,30 @@ class _PreorderPageState extends State<PreorderPage> {
                 const SizedBox(width: 8),
                 Text('共 ${items.length} 项', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
                 const Spacer(),
-                const Text('安排开台后菜品自动入账，不会打印；打印请到该桌点「传后厨」',
-                    style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                // 打印预约单 + 自动打印开关（v3.3.139）
+                TextButton.icon(
+                  onPressed: items.isEmpty ? null : () => _printBooking(r),
+                  style: TextButton.styleFrom(foregroundColor: PosTheme.blue, padding: const EdgeInsets.symmetric(horizontal: 10)),
+                  icon: const Icon(Icons.print_outlined, size: 16),
+                  label: const Text('打印预约单'),
+                ),
+                const SizedBox(width: 6),
+                Transform.scale(
+                  scale: 0.85,
+                  child: Switch(
+                    value: bookingAuto,
+                    activeColor: PosTheme.accent,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onChanged: (v) async {
+                      setState(() => bookingAuto = v);
+                      await PrintPrefs.set('booking_auto', v);
+                      if (mounted) {
+                        toast(context, v ? '已开启：顾客提交预约后自动打印预约单' : '已关闭自动打印，可手动点「打印预约单」');
+                      }
+                    },
+                  ),
+                ),
+                const Text('自动打印', style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
               ]),
             ),
             Divider(height: 1, color: Colors.grey.withOpacity(0.15)),

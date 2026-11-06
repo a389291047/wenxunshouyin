@@ -42,6 +42,8 @@ class PrintPrefs {
      'members': 'front,prebill', 'preview': 'front'},
     {'label': '后厨单（含加菜/退菜/催菜/重打）', 'desc': '点菜加菜、退菜催菜、传后厨重打，均按「打印机分配」路由',
      'members': 'kitchen,retreat,urge,reprint', 'preview': 'kitchen'},
+    {'label': '预约单', 'desc': '顾客提交预约后出单备菜核对；预约详情页可开「自动打印」',
+     'members': 'booking', 'preview': 'booking'},
     {'label': '排队号票', 'desc': '排队取号小票',
      'members': 'queue', 'preview': 'queue'},
   ];

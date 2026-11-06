@@ -108,8 +108,13 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadPrintPrefs() async {
     final m = <String, bool>{};
-    for (final it in PrintPrefs.items) {
-      m[it['key']!] = await PrintPrefs.on(it['key']!);
+    final keys = <String>{for (final it in PrintPrefs.items) it['key']!};
+    // 合并组的成员 key 也要加载（v3.3.137/139：如 booking），否则组开关显示不准
+    for (final g in PrintPrefs.diningGroups) {
+      keys.addAll(g['members']!.split(','));
+    }
+    for (final k in keys) {
+      m[k] = await PrintPrefs.on(k);
     }
     if (mounted) setState(() => printOn = m);
   }
@@ -401,6 +406,23 @@ class _SettingsPageState extends State<SettingsPage> {
           showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
       case 'queue':
         return '<FS2><center>排队号</center></FS2>\n--------------------------------\n您的号码：\n<FS2><center>** 12 **</center></FS2>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
+      case 'booking':
+        // 预约单样票（v3.3.139）：顾客扫码提交预约后自动/手动出单备菜核对
+        return CloudPrinter.preorderTicket(
+          name: '漫满Love糊™',
+          phone: '18200192012',
+          peopleNum: 4,
+          arriveTime: '今天 12:00',
+          createTime: now,
+          remark: '靠窗位置',
+          items: const [
+            {'goods_name': '麻婆豆腐', 'unit_price': '5.00', 'quantity': 1, 'sub_total': '5.00'},
+            {'goods_name': '土豆丝', 'unit_price': '8.00', 'quantity': 1, 'sub_total': '8.00'},
+            {'goods_name': '海带汤', 'unit_price': '9.00', 'quantity': 1, 'sub_total': '9.00'},
+            {'goods_name': '紫菜蛋花汤', 'unit_price': '9.00', 'quantity': 1, 'sub_total': '9.00'},
+          ],
+          total: 31.00,
+        );
       case 'shift':
         return CloudPrinter.shiftReceipt(zongyingye: 3268.50, bishu: 42, vip: 860.00, xianjin: 1208.50, saoma: 1200.00, refundAmount: 66.00, refundCount: 1);
       case 'order':

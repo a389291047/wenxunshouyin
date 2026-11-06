@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/preorder_auto_print.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
@@ -263,6 +264,8 @@ class _DiningPageState extends State<DiningPage> {
         n = int.tryParse('${c[0]}') ?? 0;
       }
       PreorderBadge.count.value = n;
+      // 预约单自动打印检测（v3.3.139）：发现新待安排预约即出「预约单」，开关在打印设置
+      PreorderAutoPrint.check();
     } catch (_) {
       // 预约模块异常不影响桌台
     }
