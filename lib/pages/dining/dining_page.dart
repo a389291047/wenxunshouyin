@@ -2021,12 +2021,15 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       toast(context, '该桌还没有点菜品', error: true);
       return;
     }
-    // 1. 费用/优惠/积分/发票/整单备注（v3.3.71）
+    // 1. 合并弹窗（v3.3.143）：左卡=费用/优惠/积分/发票/整单备注，右卡=应收+支付方式，一次操作完成
+    final methods = ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
     final adj = await showDialog<Map>(
       context: context,
-      builder: (_) => _SettleAdjustDialog(goodsTotal: billTotal, vip: vip, initialRemark: orderRemark),
+      builder: (_) => _SettlePayDialog(goodsTotal: billTotal, vip: vip, initialRemark: orderRemark, methods: methods),
     );
     if (adj == null || !mounted) return;
+    final picked = '${adj['method'] ?? ''}';
+    if (picked.isEmpty) return;
     final finalTotal = (adj['final'] as double?) ?? billTotal;
     final kaitaiFee = (adj['kaitai_fee'] as double?) ?? 0;
     final teaFee = (adj['tea_fee'] as double?) ?? 0;
@@ -2041,13 +2044,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     final remark = '${adj['order_remark'] ?? ''}';
     setState(() => orderRemark = remark);
 
-    // 2. 选择支付方式
-    final methods = ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (_) => _DiningPayDialog(total: finalTotal, methods: methods, vip: vip),
-    );
-    if (picked == null || !mounted) return;
+    // 2. 会员余额 / 挂账校验
     if (picked == '会员余额') {
       if (vip == null) {
         toast(context, '请先选择会员', error: true);
@@ -2806,99 +2803,6 @@ class _DiningVipPickerState extends State<_DiningVipPicker> {
   }
 }
 
-// ==================== 餐饮收款弹窗 ====================
-class _DiningPayDialog extends StatefulWidget {
-  final double total;
-  final List<String> methods;
-  final Map? vip;
-  const _DiningPayDialog({required this.total, required this.methods, this.vip});
-  @override
-  State<_DiningPayDialog> createState() => _DiningPayDialogState();
-}
-
-class _DiningPayDialogState extends State<_DiningPayDialog> {
-  String? method;
-  final icons = {'现金': Icons.payments_outlined, '微信支付': Icons.chat, '支付宝': Icons.account_balance_wallet_outlined, '会员余额': Icons.badge_outlined, '挂账': Icons.receipt_long_outlined};
-  final colors = {'现金': PosTheme.green, '微信支付': PosTheme.green, '支付宝': PosTheme.blue, '会员余额': PosTheme.accent, '挂账': PosTheme.red};
-
-  IconData _iconOf(String m) => icons[m] ?? Icons.payments_outlined;
-  Color _colorOf(String m) => colors[m] ?? PosTheme.textSub;
-
-  double get _balance {
-    final a = double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0;
-    final g = double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0;
-    return a + g;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(children: [
-        const Text('结账收款', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
-        const Spacer(),
-        Text('¥${Fmt.money(widget.total)}', style: const TextStyle(fontSize: 26, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-      ]),
-      content: SizedBox(width: 400, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Wrap(
-          spacing: 10, runSpacing: 10,
-          children: widget.methods.map((m) {
-            final on = method == m;
-            return InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () => setState(() => method = m),
-              child: Container(
-                width: 186, padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: on ? _colorOf(m).withOpacity(0.1) : const Color(0xFFF7F8FA),
-                  border: Border.all(color: on ? _colorOf(m) : Colors.transparent, width: 1.4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(_iconOf(m), size: 20, color: _colorOf(m)),
-                  const SizedBox(width: 8),
-                  Text(m, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-                ]),
-              ),
-            );
-          }).toList(),
-        ),
-        if (method == '会员余额') ...[
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(color: const Color(0xFFFFF2ED), borderRadius: BorderRadius.circular(10)),
-            child: Text(
-              '会员「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额 ¥${Fmt.money(_balance)}　扣款后 ¥${Fmt.money((_balance - widget.total).clamp(0, double.maxFinite))}',
-              style: const TextStyle(fontSize: 13, color: PosTheme.accent),
-            ),
-          ),
-        ],
-        if (method == '挂账') ...[
-          const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(10)),
-            child: const Text(
-              '挂账不收款，桌台释放；账款进入「挂账台账」，稍后在餐饮页 → 点餐方式 → 挂账点餐 中核销收款',
-              style: TextStyle(fontSize: 13, color: PosTheme.red),
-            ),
-          ),
-        ],
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        ElevatedButton(
-          onPressed: method == null ? null : () => Navigator.pop(context, method),
-          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12)),
-          child: const Text('确认收款', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-        ),
-      ],
-    );
-  }
-}
-
 // ==================== 收银员预点餐弹窗 ====================
 /// 空闲桌：保存后自动预约（status→1）并挂预点菜品
 /// 已预定桌：可继续改菜（全量替换）
@@ -3379,16 +3283,20 @@ class _OrderRemarkDialogState extends State<_OrderRemarkDialog> {
 }
 
 // ==================== 结算优惠弹窗（v3.3.71）：费用/折扣/抹零/积分/发票/整单备注 ====================
-class _SettleAdjustDialog extends StatefulWidget {
+// ==================== 结账收款弹窗（v3.3.143 合并版） ====================
+/// 左卡：费用/折扣/抹零/积分/整单备注/发票（选填项收银员可全部跳过）
+/// 右卡：应收金额 + 支付方式，选中即点亮「确认收款」——少一步操作
+class _SettlePayDialog extends StatefulWidget {
   final double goodsTotal;
   final Map? vip;
   final String initialRemark;
-  const _SettleAdjustDialog({required this.goodsTotal, this.vip, required this.initialRemark});
+  final List<String> methods;
+  const _SettlePayDialog({required this.goodsTotal, this.vip, required this.initialRemark, required this.methods});
   @override
-  State<_SettleAdjustDialog> createState() => _SettleAdjustDialogState();
+  State<_SettlePayDialog> createState() => _SettlePayDialogState();
 }
 
-class _SettleAdjustDialogState extends State<_SettleAdjustDialog> {
+class _SettlePayDialogState extends State<_SettlePayDialog> {
   final kaitaiCtrl = TextEditingController();
   final teaCtrl = TextEditingController();
   final serviceCtrl = TextEditingController();
@@ -3399,6 +3307,17 @@ class _SettleAdjustDialogState extends State<_SettleAdjustDialog> {
   double rate = 10; // 10 = 不打折
   int moling = 0;   // 0 不抹零 1 抹角 2 抹元
   bool useJifen = false;
+  String? method;
+
+  static const payIcons = {
+    '现金': Icons.payments_outlined, '微信支付': Icons.chat,
+    '支付宝': Icons.account_balance_wallet_outlined, '会员余额': Icons.badge_outlined,
+    '挂账': Icons.receipt_long_outlined,
+  };
+  static const payColors = {
+    '现金': PosTheme.green, '微信支付': PosTheme.green, '支付宝': PosTheme.blue,
+    '会员余额': PosTheme.accent, '挂账': PosTheme.red,
+  };
 
   double _num(TextEditingController c) => double.tryParse(c.text.trim()) ?? 0;
   int get _points => int.tryParse('${widget.vip?['jifen'] ?? 0}') ?? 0; // 100积分=1元
@@ -3416,6 +3335,12 @@ class _SettleAdjustDialogState extends State<_SettleAdjustDialog> {
   double get jifenMax => useJifen && _points > 0 ? (_points / 100).floorToDouble().clamp(0, afterMoling).toDouble() : 0;
   double get finalTotal => (afterMoling - jifenMax).clamp(0.01, double.infinity).toDouble();
 
+  double get _balance {
+    final a = double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0;
+    final g = double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0;
+    return a + g;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3424,93 +3349,185 @@ class _SettleAdjustDialogState extends State<_SettleAdjustDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Row(children: [
-        const Text('结账 · 优惠与费用', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        const Spacer(),
-        Text('菜品 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 14, color: PosTheme.textSub)),
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: SizedBox(
+        width: 900, height: 560,
+        child: Column(children: [
+          // ===== 头部 =====
+          Container(
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 14),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
+            child: Row(children: [
+              const Icon(Icons.payments_outlined, size: 20, color: PosTheme.accent),
+              const SizedBox(width: 8),
+              const Text('结账收款', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 10),
+              Text('菜品合计 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+            ]),
+          ),
+          // ===== 左右卡片 =====
+          Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // ---------- 左卡：优惠与费用 ----------
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 14, 18, 6),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _section('附加费用（选填）', Row(children: [
+                    _feeField('开台费 ¥', kaitaiCtrl),
+                    const SizedBox(width: 8),
+                    _feeField('茶位费 ¥', teaCtrl),
+                    const SizedBox(width: 8),
+                    _feeField('服务费 ¥', serviceCtrl),
+                    const SizedBox(width: 8),
+                    _feeField('餐盒费 ¥', boxCtrl),
+                  ])),
+                  _section('整单折扣', Wrap(spacing: 8, runSpacing: 8, children: [10, 9.8, 9.5, 9, 8.8, 8].map((r) => _chip('$r 折', rate == r, () => setState(() => rate = r.toDouble()))).toList())),
+                  _section('抹零', Wrap(spacing: 8, children: [
+                    _chip('不抹零', moling == 0, () => setState(() => moling = 0)),
+                    _chip('抹角', moling == 1, () => setState(() => moling = 1)),
+                    _chip('抹元', moling == 2, () => setState(() => moling = 2)),
+                  ])),
+                  if (widget.vip != null)
+                    _section('积分抵扣（100 积分 = 1 元）', Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+                      child: Row(children: [
+                        Text('可用 ${_points} 分 · 可抵 ¥${Fmt.money(_points / 100)}',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: _points > 0 ? PosTheme.accent : PosTheme.textHint)),
+                        const Spacer(),
+                        Switch(value: useJifen, activeColor: PosTheme.accent, onChanged: _points > 0 ? (v) => setState(() => useJifen = v) : null),
+                      ]),
+                    )),
+                  _section('整单备注（选填）', TextField(controller: remarkCtrl, maxLines: 2, decoration: const InputDecoration(hintText: '如：先上凉菜、12:30 前出餐', isDense: true))),
+                  _section('发票（选填）', Row(children: [
+                    Expanded(child: TextField(controller: invoiceCtrl, decoration: const InputDecoration(hintText: '发票抬头', isDense: true))),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 160, child: TextField(controller: invoiceNoCtrl, decoration: const InputDecoration(hintText: '税号', isDense: true))),
+                  ])),
+                  const SizedBox(height: 4),
+                ]),
+              ),
+            ),
+            // 分隔线
+            Container(width: 1, color: PosTheme.line),
+            // ---------- 右卡：应收 + 支付方式 ----------
+            Container(
+              width: 320,
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('应收金额', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                const SizedBox(height: 2),
+                Text('¥${Fmt.money(finalTotal)}', style: const TextStyle(fontSize: 36, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+                Text('费用 +¥${Fmt.money(fees)} · 折扣 $rate 折 · 抹零 -¥${Fmt.money(quiling)}${jifenMax > 0 ? ' · 积分 -¥${Fmt.money(jifenMax)}' : ''}',
+                    style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                const SizedBox(height: 12),
+                const Text('支付方式', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8, runSpacing: 8,
+                  children: widget.methods.map(_payCard).toList(),
+                ),
+                if (method == '会员余额') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(color: const Color(0xFFFFF2ED), borderRadius: BorderRadius.circular(10)),
+                    child: Text(
+                      '会员「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额 ¥${Fmt.money(_balance)}　扣款后 ¥${Fmt.money((_balance - finalTotal).clamp(0, double.maxFinite))}',
+                      style: const TextStyle(fontSize: 12, color: PosTheme.accent),
+                    ),
+                  ),
+                ],
+                if (method == '挂账') ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(color: const Color(0xFFFFF1F0), borderRadius: BorderRadius.circular(10)),
+                    child: const Text(
+                      '挂账不收款，桌台释放；账款进入「挂账台账」，稍后核销收款',
+                      style: TextStyle(fontSize: 12, color: PosTheme.red),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
+          ])),
+          // ===== 底部操作 =====
+          Container(
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 16),
+            decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
+            child: Row(children: [
+              const Text('左侧优惠选填，可直接点「确认收款」', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              const Spacer(),
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: method == null
+                    ? null
+                    : () => Navigator.pop(context, {
+                          'final': finalTotal,
+                          'kaitai_fee': _num(kaitaiCtrl),
+                          'tea_fee': _num(teaCtrl),
+                          'service_fee': _num(serviceCtrl),
+                          'box_fee': _num(boxCtrl),
+                          'discount_rate': rate,
+                          'quiling': quiling,
+                          'jifen_num': (jifenMax * 100).round(),
+                          'jifen_deduct': jifenMax,
+                          'invoice_title': invoiceCtrl.text.trim(),
+                          'invoice_no': invoiceNoCtrl.text.trim(),
+                          'order_remark': remarkCtrl.text.trim(),
+                          'method': method,
+                        }),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: PosTheme.accent, foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFFE8E8EC),
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                ),
+                child: Text(method == null ? '请选择支付方式' : '确认收款 · ¥${Fmt.money(finalTotal)}',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _section(String label, Widget child) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        const SizedBox(height: 6),
+        child,
       ]),
-      content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // 附加费用
-        const Text('附加费用（选填）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-        const SizedBox(height: 6),
-        Row(children: [
-          _feeField('开台费 ¥', kaitaiCtrl),
-          const SizedBox(width: 8),
-          _feeField('茶位费 ¥', teaCtrl),
-          const SizedBox(width: 8),
-          _feeField('服务费 ¥', serviceCtrl),
-          const SizedBox(width: 8),
-          _feeField('餐盒费 ¥', boxCtrl),
-        ]),
-        const SizedBox(height: 14),
-        // 整单折扣
-        const Text('整单折扣', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-        const SizedBox(height: 6),
-        Wrap(spacing: 8, runSpacing: 8, children: [10, 9.8, 9.5, 9, 8.8, 8].map((r) => _chip('$r 折', rate == r, () => setState(() => rate = r.toDouble()))).toList()),
-        const SizedBox(height: 14),
-        // 抹零
-        const Text('抹零', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-        const SizedBox(height: 6),
-        Wrap(spacing: 8, children: [
-          _chip('不抹零', moling == 0, () => setState(() => moling = 0)),
-          _chip('抹角', moling == 1, () => setState(() => moling = 1)),
-          _chip('抹元', moling == 2, () => setState(() => moling = 2)),
-        ]),
-        const SizedBox(height: 14),
-        // 积分抵扣
-        if (widget.vip != null) ...[
-          Row(children: [
-            const Text('积分抵扣（100 积分 = 1 元）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-            const Spacer(),
-            Text('可用 ${_points} 分 · 可抵 ¥${Fmt.money(_points / 100)}', style: const TextStyle(fontSize: 12.5, color: PosTheme.accent, fontWeight: FontWeight.w600)),
-            const SizedBox(width: 10),
-            Switch(value: useJifen, activeColor: PosTheme.accent, onChanged: _points > 0 ? (v) => setState(() => useJifen = v) : null),
-          ]),
-        ],
-        const SizedBox(height: 10),
-        TextField(controller: remarkCtrl, maxLines: 2, decoration: const InputDecoration(hintText: '整单备注（选填）', isDense: true)),
-        const SizedBox(height: 10),
-        Row(children: [
-          Expanded(child: TextField(controller: invoiceCtrl, decoration: const InputDecoration(hintText: '发票抬头（选填）', isDense: true))),
-          const SizedBox(width: 8),
-          SizedBox(width: 150, child: TextField(controller: invoiceNoCtrl, decoration: const InputDecoration(hintText: '税号（选填）', isDense: true))),
-        ]),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(color: const Color(0xFFFFF8F4), borderRadius: BorderRadius.circular(12)),
-          child: Row(children: [
-            Text('费用 +¥${Fmt.money(fees)}　折扣 $rate 折　抹零 -¥${Fmt.money(quiling)}${jifenMax > 0 ? '　积分 -¥${Fmt.money(jifenMax)}' : ''}',
-                style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
-            const Spacer(),
-            const Text('应收', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
-            const SizedBox(width: 8),
-            Text('¥${Fmt.money(finalTotal)}', style: const TextStyle(fontSize: 24, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-          ]),
+    );
+  }
+
+  Widget _payCard(String m) {
+    final on = method == m;
+    final c = payColors[m] ?? PosTheme.textSub;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => setState(() => method = m),
+      child: Container(
+        width: 136, padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: BoxDecoration(
+          color: on ? c.withOpacity(0.1) : const Color(0xFFF7F8FA),
+          border: Border.all(color: on ? c : Colors.transparent, width: 1.4),
+          borderRadius: BorderRadius.circular(10),
         ),
-      ]))),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12)),
-          onPressed: () => Navigator.pop(context, {
-            'final': finalTotal,
-            'kaitai_fee': _num(kaitaiCtrl),
-            'tea_fee': _num(teaCtrl),
-            'service_fee': _num(serviceCtrl),
-            'box_fee': _num(boxCtrl),
-            'discount_rate': rate,
-            'quiling': quiling,
-            'jifen_num': (jifenMax * 100).round(),
-            'jifen_deduct': jifenMax,
-            'invoice_title': invoiceCtrl.text.trim(),
-            'invoice_no': invoiceNoCtrl.text.trim(),
-            'order_remark': remarkCtrl.text.trim(),
-          }),
-          child: const Text('去收款', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-        ),
-      ],
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(payIcons[m] ?? Icons.payments_outlined, size: 19, color: on ? c : PosTheme.textSub),
+          const SizedBox(width: 7),
+          Text(m, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on ? c : PosTheme.textMain)),
+        ]),
+      ),
     );
   }
 
