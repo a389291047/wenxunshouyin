@@ -3225,9 +3225,21 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     '支付宝': Icons.account_balance_wallet_outlined, '会员余额': Icons.badge_outlined,
     '挂账': Icons.receipt_long_outlined,
   };
+  // 每种支付方式一个品牌色（v3.3.146 彩色大卡片）
   static const payColors = {
-    '现金': PosTheme.green, '微信支付': PosTheme.green, '支付宝': PosTheme.blue,
-    '会员余额': PosTheme.accent, '挂账': PosTheme.red,
+    '现金': Color(0xFF22B573),      // 现金绿
+    '微信支付': Color(0xFF09BB07),  // 微信绿
+    '支付宝': Color(0xFF1677FF),    // 支付宝蓝
+    '会员余额': PosTheme.accent,    // 会员橙
+    '挂账': Color(0xFFE4573D),      // 挂账红
+  };
+  static const payDarks = {
+    '现金': Color(0xFF189B5B), '微信支付': Color(0xFF079B07), '支付宝': Color(0xFF0F5FD6),
+    '会员余额': PosTheme.accentDeep, '挂账': Color(0xFFC23A22),
+  };
+  static const paySubs = {
+    '现金': '即时到账', '微信支付': '扫码 / 收款码', '支付宝': '扫码 / 收款码',
+    '会员余额': '余额扣款 · 积分抵扣', '挂账': '记账后补款',
   };
 
   List<String> get _methods => ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
@@ -3280,7 +3292,8 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     return Dialog(
       backgroundColor: Colors.white,
       insetPadding: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      clipBehavior: Clip.antiAlias, // 内容（头部/底部渐变）按圆角裁剪
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: SizedBox(
         width: size.width * 0.95,
         height: size.height * 0.95,
@@ -3464,8 +3477,13 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                 const SizedBox(height: 12),
                 const Text('支付方式', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8, runSpacing: 8,
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 3.4,
                   children: _methods.map(_payCard).toList(),
                 ),
                 if (method == '会员余额') ...[
@@ -3577,24 +3595,41 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     );
   }
 
+  /// 支付方式大卡片：每种方式独立品牌色，选中整卡彩色渐变 + 白字（v3.3.146）
   Widget _payCard(String m) {
     final on = method == m;
     final c = payColors[m] ?? PosTheme.textSub;
+    final cd = payDarks[m] ?? c;
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       onTap: () => setState(() => method = m),
       child: Container(
-        width: 158, padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          gradient: on ? const LinearGradient(colors: [Color(0xFFFFF8F4), Color(0xFFFFF0E8)]) : null,
+          gradient: on ? LinearGradient(colors: [c, cd], begin: Alignment.topLeft, end: Alignment.bottomRight) : null,
           color: on ? null : const Color(0xFFF7F8FA),
-          border: Border.all(color: on ? c : Colors.transparent, width: 1.4),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? Colors.transparent : PosTheme.line),
+          boxShadow: on ? [BoxShadow(color: c.withOpacity(0.32), blurRadius: 10, offset: const Offset(0, 3))] : null,
         ),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(payIcons[m] ?? Icons.payments_outlined, size: 21, color: on ? c : PosTheme.textSub),
-          const SizedBox(width: 8),
-          Text(m, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: on ? c : PosTheme.textMain)),
+        child: Row(children: [
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              color: on ? Colors.white.withOpacity(0.22) : c.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(payIcons[m] ?? Icons.payments_outlined, size: 21, color: on ? Colors.white : c),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(m, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: on ? Colors.white : PosTheme.textMain)),
+            const SizedBox(height: 1),
+            Text(paySubs[m] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, color: on ? Colors.white.withOpacity(0.85) : PosTheme.textHint)),
+          ])),
+          if (on) const Icon(Icons.check_circle, size: 20, color: Colors.white),
         ]),
       ),
     );
