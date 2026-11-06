@@ -32,6 +32,37 @@ class PrintPrefs {
     }).toList();
   }
 
+  /// 餐饮小票合并组（v3.3.137）：同类小票合并成一行设置，避免列表过长。
+  /// members 逗号分隔；组开关开=全部成员开、关=全部成员关（出票逻辑仍按单个 key 判断，零改动）。
+  /// preview = 组行「预览」展示的代表样票 key；members 含 'kitchen' 的组显示「设置」按钮（明细行开关弹窗）。
+  static const List<Map<String, String>> diningGroups = [
+    {'label': '结账 / 补打小票', 'desc': '桌台结账、直连点餐、挂账结清、订单页补打（同是收银结账类小票）',
+     'members': 'dining,reorder', 'preview': 'dining'},
+    {'label': '前台单 / 预结单', 'desc': '点单完成发往前台；账单「预结单」先出单后结算（同发前台机）',
+     'members': 'front,prebill', 'preview': 'front'},
+    {'label': '后厨单（含加菜/退菜/催菜/重打）', 'desc': '点菜加菜、退菜催菜、传后厨重打，均按「打印机分配」路由',
+     'members': 'kitchen,retreat,urge,reprint', 'preview': 'kitchen'},
+    {'label': '排队号票', 'desc': '排队取号小票',
+     'members': 'queue', 'preview': 'queue'},
+  ];
+
+  /// 合并组开关状态：全部成员开才显示开
+  static Future<bool> groupOn(String members) async {
+    final sp = await SharedPreferences.getInstance();
+    for (final k in members.split(',')) {
+      if (!(sp.getBool('$_prefix$k') ?? true)) return false;
+    }
+    return true;
+  }
+
+  /// 写合并组开关：整组统一开/关
+  static Future<void> setGroup(String members, bool value) async {
+    final sp = await SharedPreferences.getInstance();
+    for (final k in members.split(',')) {
+      await sp.setBool('$_prefix$k', value);
+    }
+  }
+
   static const _prefix = 'print_on_';
 
   /// 某类型是否打印（默认全开）

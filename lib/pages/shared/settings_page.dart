@@ -114,54 +114,52 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) setState(() => printOn = m);
   }
 
-  /// 小票打印设置卡片（v3.3.78）：按行业分开（餐饮/零售）+ 每类独立开关 + 样式预览 + 测试打印
+  /// 小票打印设置卡片（v3.3.78，v3.3.137 合并组化）：餐饮按组合并（同类小票一行），零售保持逐项
   Widget _printPrefsCard() {
-    // 餐饮跟零售分开：餐饮版显示餐饮专属类，零售/生鲜版只显示零售专属类，通用类两边都显示
-    final visible = PrintPrefs.itemsForHangye(Session.hangye);
-    String? lastScope;
     final rows = <Widget>[];
-    for (final it in visible) {
-      final scope = it['scope'] ?? 'all';
-      if (scope != lastScope) {
-        final header = switch (scope) {
-          'dining' => '餐饮小票',
-          'retail' => '零售小票',
-          _ => '通用小票',
-        };
-        rows.add(Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Row(children: [
-            Container(width: 3, height: 12, decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(width: 6),
-            Text(header, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
-          ]),
-        ));
-        lastScope = scope;
-      }
-      final key = it['key']!;
-      final on = printOn[key] ?? true;
-      rows.add(Container(
+
+    void addHeader(String header) {
+      rows.add(Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 6),
+        child: Row(children: [
+          Container(width: 3, height: 12, decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 6),
+          Text(header, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+        ]),
+      ));
+    }
+
+    Widget ticketRow({
+      required String label,
+      required String desc,
+      required bool on,
+      required String previewKey,
+      String? settingsLabel,
+      VoidCallback? onSettings,
+      required Future<void> Function(bool) onToggle,
+    }) {
+      return Container(
         margin: const EdgeInsets.only(bottom: 7),
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
         child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SizedBox(height: 7),
-            Text(it['label']!, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on ? PosTheme.textMain : PosTheme.textHint)),
+            Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on ? PosTheme.textMain : PosTheme.textHint)),
             const SizedBox(height: 1),
-            Text(it['desc']!, style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            Text(desc, style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
             const SizedBox(height: 7),
           ])),
-          // 「设置」按钮：仅对有专属配置项的小票类型显示（v3.3.136），点开弹窗逐项设置
-          if (_hasTicketSettings(key))
+          // 「设置」按钮：仅对有专属配置项的组显示（v3.3.136），点开弹窗逐项设置
+          if (onSettings != null)
             TextButton.icon(
-              onPressed: () => _showTicketSettingsDialog(key, it['label']!),
+              onPressed: onSettings,
               style: TextButton.styleFrom(foregroundColor: PosTheme.accent, padding: const EdgeInsets.symmetric(horizontal: 8)),
               icon: const Icon(Icons.tune, size: 15),
-              label: const Text('设置'),
+              label: Text(settingsLabel ?? '设置'),
             ),
           TextButton.icon(
-            onPressed: () => _previewTicket(key, it['label']!),
+            onPressed: () => _previewTicket(previewKey, label),
             style: TextButton.styleFrom(foregroundColor: PosTheme.blue, padding: const EdgeInsets.symmetric(horizontal: 10)),
             icon: const Icon(Icons.visibility_outlined, size: 15),
             label: const Text('预览'),
@@ -169,36 +167,90 @@ class _SettingsPageState extends State<SettingsPage> {
           Switch(
             value: on,
             activeColor: PosTheme.accent,
-            onChanged: (v) async {
-              setState(() => printOn[key] = v);
-              await PrintPrefs.set(key, v);
-            },
+            onChanged: (v) => onToggle(v),
           ),
         ]),
-      ));
+      );
+    }
+
+    if (Session.hangye == 2) {
+      // 餐饮：同类小票合并为一组（v3.3.137），组开关整组生效，出票逻辑仍按单个 key 判断
+      addHeader('餐饮小票');
+      for (final g in PrintPrefs.diningGroups) {
+        final members = g['members']!;
+        final keys = members.split(',');
+        final isKitchenGroup = keys.contains('kitchen');
+        rows.add(ticketRow(
+          label: g['label']!,
+          desc: g['desc']!,
+          on: keys.every((k) => printOn[k] ?? true),
+          previewKey: g['preview']!,
+          onSettings: isKitchenGroup ? () => _showKitchenDetailDialog(g['label']!) : null,
+          onToggle: (v) async {
+            setState(() {
+              for (final k in keys) {
+                printOn[k] = v;
+              }
+            });
+            await PrintPrefs.setGroup(members, v);
+          },
+        ));
+      }
+      // 通用小票（餐饮版只显示交班单）
+      addHeader('通用小票');
+      for (final it in PrintPrefs.itemsForHangye(Session.hangye).where((x) => (x['scope'] ?? 'all') == 'all')) {
+        final key = it['key']!;
+        final on = printOn[key] ?? true;
+        rows.add(ticketRow(
+          label: it['label']!,
+          desc: it['desc']!,
+          on: on,
+          previewKey: key,
+          onToggle: (v) async {
+            setState(() => printOn[key] = v);
+            await PrintPrefs.set(key, v);
+          },
+        ));
+      }
+    } else {
+      // 零售/生鲜：保持逐项设置
+      String? lastScope;
+      for (final it in PrintPrefs.itemsForHangye(Session.hangye)) {
+        final scope = it['scope'] ?? 'all';
+        if (scope != lastScope) {
+          addHeader(switch (scope) {
+            'retail' => '零售小票',
+            _ => '通用小票',
+          });
+          lastScope = scope;
+        }
+        final key = it['key']!;
+        final on = printOn[key] ?? true;
+        rows.add(ticketRow(
+          label: it['label']!,
+          desc: it['desc']!,
+          on: on,
+          previewKey: key,
+          onToggle: (v) async {
+            setState(() => printOn[key] = v);
+            await PrintPrefs.set(key, v);
+          },
+        ));
+      }
     }
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _sectionTitle(Icons.receipt_long_outlined, '小票打印设置'),
       const SizedBox(height: 4),
-      const Text('按小票类型控制「打印 / 不打印」，云打印与 USB 直连同时生效。关闭后对应小票不再输出。',
-          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      Text(Session.hangye == 2
+          ? '同类小票已合并为一组，整组控制「打印 / 不打印」；组内「设置」可逐项配置明细，云打印与 USB 直连同时生效。'
+          : '按小票类型控制「打印 / 不打印」，云打印与 USB 直连同时生效。关闭后对应小票不再输出。',
+          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 10),
       ...rows,
     ]));
   }
 
-  /// 哪些小票类型有专属设置（行内显示「设置」按钮）。后期给其它小票加开关，在这里登记即可。
-  bool _hasTicketSettings(String key) {
-    if (Session.hangye != 2) return false;
-    return key == 'kitchen'; // 后厨单/加菜单：明细行开关
-  }
-
-  /// 小票专属设置弹窗（v3.3.136）：按小票类型分发；保存即云端同步，预览实时生效
-  Future<void> _showTicketSettingsDialog(String key, String label) async {
-    if (key == 'kitchen') return _showKitchenDetailDialog(label);
-  }
-
-  /// 后厨单/加菜单 · 明细行开关弹窗（菜品行、做法备注必打无开关；存云端随门店同步）
+  /// 后厨单组 · 明细行开关弹窗（菜品行、做法备注必打无开关；存云端随门店同步）
   Future<void> _showKitchenDetailDialog(String label) async {
     await showDialog(
       context: context,
