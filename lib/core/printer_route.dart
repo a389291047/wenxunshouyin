@@ -185,6 +185,12 @@ class PrinterRoute {
   /// 米饭类商品判断（名称含「米饭」即视为主食，如 米饭/米饭(小)/紫米饭）
   static bool isRiceItem(String goodsName) => goodsName.contains('米饭');
 
+  /// 指定角色（front/kitchen）已绑定的终端号集合（v3.3.130：兜底选机用，替代 print_type）
+  static Future<Set<String>> roleCodes(String wenxunId, String role) async {
+    final cfgs = await printerCfgs(wenxunId);
+    return cfgs.entries.where((e) => e.value.role == role).map((e) => e.key).toSet();
+  }
+
   // ==================== 旧分散配置（v3.3.82，仅供迁移读取） ====================
   static const modeWholeOld = modeWhole;
   static const modeSplitOld = modeSplit;

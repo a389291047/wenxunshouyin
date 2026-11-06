@@ -1106,7 +1106,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ]),
                 const SizedBox(height: 2),
-                Text('终端号 $code · ${_printTypeName(p['print_type'])}${_syncTimeSuffix(p)}',
+                Text('终端号 $code${_syncTimeSuffix(p)}',
                     style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
                 if (summary.isNotEmpty)
                   Padding(
@@ -1385,19 +1385,6 @@ class _SettingsPageState extends State<SettingsPage> {
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
       ),
     );
-  }
-
-  String _printTypeName(dynamic t) {
-    switch ('$t') {
-      case '1': return '收银小票';
-      case '2': return '后厨热菜';
-      case '3': return '面点';
-      case '4': return '凉菜';
-      case '5': return '传菜';
-      case '6': return '采购单';
-      case '7': return '交班单';
-      default: return '打印机';
-    }
   }
 
   Widget _sectionTitle(IconData icon, String text) {

@@ -3,13 +3,14 @@ import 'dart:convert';
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart' show Fmt;
+import 'printer_route.dart';
 import 'usb_printer.dart';
 
 /// 小票打印统一入口：设置了 USB 打印机并启用时走本地 USB 直连，
 /// 否则走云打印机（易联云协议，服务端 /shouyin/jiaoban/dayin 代理）。
 class CloudPrinter {
   /// 商户启用中的打印机列表
-  /// [{id, machine_code, msign, name, status, print_type, is_online, has_paper}]
+  /// [{id, machine_code, msign, name, status, is_online, has_paper}]
   static Future<List> list() => Api.printers(Session.wenxunId);
 
   /// 强制走云打印机（不做 USB 分流，交班单「云打印」按钮等场景用）
@@ -21,8 +22,9 @@ class CloudPrinter {
     if (usable.isEmpty) {
       throw ApiError('没有启用中的云打印机，请到「设置 → 云打印」添加');
     }
-    // 收银小票优先（print_type=1），其次任意第一台
-    final p = usable.firstWhere((x) => '${x['print_type']}' == '1',
+    // 绑定的前台机优先（v3.3.130 起 print_type 已废弃），其次第一台
+    final frontCodes = await PrinterRoute.roleCodes('${Session.wenxunId}', 'front');
+    final p = usable.firstWhere((x) => frontCodes.contains('${x['machine_code']}'),
         orElse: () => usable.first);
     return Api.cloudPrint(
       wenxunId: Session.wenxunId,
@@ -47,8 +49,9 @@ class CloudPrinter {
     if (usable.isEmpty) {
       throw ApiError('没有启用中的云打印机，请到「设置 → 云打印」添加');
     }
-    final kitchenTypes = {'2', '3', '4', '5'};
-    final p = usable.firstWhere((x) => kitchenTypes.contains('${x['print_type']}'),
+    // 绑定的后厨机优先（v3.3.130 起 print_type 已废弃），其次第一台
+    final kitchenCodes = await PrinterRoute.roleCodes('${Session.wenxunId}', 'kitchen');
+    final p = usable.firstWhere((x) => kitchenCodes.contains('${x['machine_code']}'),
         orElse: () => usable.first);
     return Api.cloudPrint(
       wenxunId: Session.wenxunId,
@@ -70,7 +73,7 @@ class CloudPrinter {
   static Future<Map<String, dynamic>> printFront(String content, {String? machineCode}) async {
     final code = (machineCode == null || machineCode.isEmpty) ? '' : machineCode;
     if (code.isNotEmpty) return printTo(code, content);
-    return printCloud(content); // printCloud 内部已按 print_type=1 优先
+    return printCloud(content); // printCloud 内部已按绑定的前台机优先
   }
 
   /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
@@ -157,7 +160,7 @@ class CloudPrinter {
     return sb.toString();
   }
 
-  /// 订单补打小票（v3.3.87）：USB 直连优先，云打印默认前台收银小票机（print_type=1）
+  /// 订单补打小票（v3.3.87）：USB 直连优先，云打印按绑定的前台机优先（无绑定取第一台）
   static Future<Map<String, dynamic>> printReorder(String content) => print(content);
 
   /// 堂食订单补打小票模板（v3.3.87）：从订单行重组结账单，含附加费/优惠明细
