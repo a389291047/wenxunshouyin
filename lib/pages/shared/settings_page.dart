@@ -177,6 +177,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   /// 生成各类小票的示例内容（预览 / 测试打印共用）
+  /// 某角色（front/kitchen）已绑定机的字体设置，供小票预览按真实配置呈现（v3.3.127）
+  String _fontOfRole(String role) {
+    for (final c in printerCfgs.values) {
+      if (c.role == role) return c.font;
+    }
+    return '';
+  }
+
   String _sampleTicket(String key) {
     final now = DateTime.now().toString().substring(0, 19);
     switch (key) {
@@ -198,13 +206,13 @@ class _SettingsPageState extends State<SettingsPage> {
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅', isAdd: true, cart: [
           {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '米饭', 'quantity': 4},
-        ]);
+        ], font: _fontOfRole('kitchen'));
       case 'front':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅', cart: [
           {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '清蒸鲈鱼', 'quantity': 1},
           {'goods_name': '米饭', 'quantity': 4},
-        ], title: '前台单');
+        ], title: '前台单', font: _fontOfRole('front'));
       case 'prebill':
         return CloudPrinter.prebillTicket(tableTitle: '大厅8', peopleNum: 4, goodsTotal: 128.00, cart: [
           {'goods_name': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
@@ -570,13 +578,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   modeOpt('split', '一菜一切', '每个菜品单独打一张小票，方便分拣'),
                 ],
               ],
-              if (cfg.role == 'kitchen') ...[
+              if (cfg.role.isNotEmpty) ...[
                 const SizedBox(height: 6),
-                const Text('字体大小（菜名/做法/合计行）', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                Text(cfg.role == 'kitchen' ? '字体大小（菜名/做法/合计行）' : '字体大小（菜名/合计行, 方便顾客核对）',
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 8),
                 fontOpt('', '标准', '默认字号，一页能放下更多菜品'),
-                fontOpt('fs', '加大', '菜名放大一档（高32），出餐口远看更清楚'),
-                fontOpt('fs2', '特大', '菜名两倍大（高48），嘈杂后厨最醒目，每页菜品变少'),
+                fontOpt('fs', '加大', '菜名放大一档（高32），看得更清楚'),
+                fontOpt('fs2', '特大', '菜名两倍大（高48），最醒目；每页菜品会变少'),
               ],
               if (cfg.role == 'kitchen') ...[
                 const SizedBox(height: 6),
@@ -678,6 +687,9 @@ class _SettingsPageState extends State<SettingsPage> {
       if (c.font == 'fs2') bits.add('特大字');
       return bits.join(' · ');
     }
+    // 前台单（v3.3.127）：主单一张/分单 + 字体
+    if (c.font == 'fs') return '$mode · 加大字';
+    if (c.font == 'fs2') return '$mode · 特大字';
     return mode;
   }
 
@@ -893,15 +905,15 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _testPrint(Map p) async {
     loadingDialog(context, '发送测试小票…');
     try {
-      // 后厨绑定机：按本机绑定配置（含字体大小）打一张后厨测试单，直接看字体效果
+      // 已绑定前台/后厨的机：按本机绑定配置（含字体大小）打对应测试单，直接看字体效果
       final cfg = printerCfgs['${p['machine_code']}'];
-      final isKitchen = Session.hangye == 2 && cfg != null && cfg.role == 'kitchen';
-      final content = isKitchen
+      final bound = Session.hangye == 2 && cfg != null && cfg.role.isNotEmpty;
+      final content = bound
           ? '${CloudPrinter.kitchenTicket(
               tableTitle: '大厅8',
               tableQuyu: '大厅',
-              isAdd: true,
-              title: '后厨测试单',
+              isAdd: cfg.role == 'kitchen',
+              title: cfg.role == 'kitchen' ? '后厨测试单' : '前台测试单',
               remark: '测试：菜名字体大小',
               cart: [
                 {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '微辣·少麻'},

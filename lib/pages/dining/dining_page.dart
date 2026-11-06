@@ -95,9 +95,9 @@ Future<void> diningPrintFrontRouted({
   final wid = '${Session.wenxunId}';
   final cfgs = await PrinterRoute.printerCfgs(wid);
   final fronts = cfgs.entries.where((e) => e.value.role == 'front').toList();
-  String ticket(List<Map<String, dynamic>> cart) => CloudPrinter.kitchenTicket(
+  String ticket(List<Map<String, dynamic>> cart, {String font = ''}) => CloudPrinter.kitchenTicket(
       tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
-      isAdd: isAdd, title: title, remark: remark);
+      isAdd: isAdd, title: title, remark: remark, font: font);
   final futures = <Future>[];
   if (fronts.isEmpty) {
     futures.add(CloudPrinter.printFront(ticket(items)));
@@ -105,10 +105,10 @@ Future<void> diningPrintFrontRouted({
     for (final e in fronts) {
       if (e.value.mode == PrinterRoute.modeSplit) {
         for (final it in items) {
-          futures.add(CloudPrinter.printTo(e.key, ticket([it])));
+          futures.add(CloudPrinter.printTo(e.key, ticket([it], font: e.value.font)));
         }
       } else {
-        futures.add(CloudPrinter.printTo(e.key, ticket(items)));
+        futures.add(CloudPrinter.printTo(e.key, ticket(items, font: e.value.font)));
       }
     }
   }
