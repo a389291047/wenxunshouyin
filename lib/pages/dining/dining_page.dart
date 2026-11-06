@@ -3285,24 +3285,38 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
         width: size.width * 0.95,
         height: size.height * 0.95,
         child: Column(children: [
-          // ===== 头部 =====
+          // ===== 头部（渐变） =====
           Container(
-            padding: const EdgeInsets.fromLTRB(22, 16, 22, 14),
-            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 14),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Color(0xFFFFF3ED), Colors.white], begin: Alignment.centerLeft, end: Alignment.centerRight),
+              border: Border(bottom: BorderSide(color: PosTheme.line)),
+            ),
             child: Row(children: [
-              const Icon(Icons.payments_outlined, size: 20, color: PosTheme.accent),
-              const SizedBox(width: 8),
-              const Text('结账收款', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+              Container(
+                width: 36, height: 36,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [PosTheme.accent, PosTheme.accentDeep]),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.payments_outlined, size: 20, color: Colors.white),
+              ),
               const SizedBox(width: 10),
-              Text('菜品合计 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+              const Text('结账收款', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: const Color(0xFFFFF3ED), borderRadius: BorderRadius.circular(8)),
+                child: Text('菜品合计 ¥${Fmt.money(widget.goodsTotal)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.accent)),
+              ),
             ]),
           ),
           // ===== 左右卡片 =====
           Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            // ---------- 左卡：优惠与费用 ----------
+            // ---------- 左卡：优惠与费用（左右各约45%） ----------
             Expanded(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(22, 14, 18, 6),
+                padding: const EdgeInsets.fromLTRB(26, 16, 22, 6),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   _section('附加费用（选填）', Row(children: [
                     _feeField('开台费 ¥', kaitaiCtrl),
@@ -3363,16 +3377,32 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
             ),
             // 分隔线
             Container(width: 1, color: PosTheme.line),
-            // ---------- 右卡：应收 + 支付方式 ----------
-            Container(
-              width: 320,
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+            // ---------- 右卡：会员 + 应收 + 支付方式（左右各约45%） ----------
+            Expanded(
+              child: Container(
+              padding: const EdgeInsets.fromLTRB(24, 16, 26, 10),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('应收金额', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-                const SizedBox(height: 2),
-                Text('¥${Fmt.money(finalTotal)}', style: const TextStyle(fontSize: 36, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-                Text('费用 +¥${Fmt.money(fees)} · 折扣 $rate 折 · 抹零 -¥${Fmt.money(quiling)}${jifenMax > 0 ? ' · 积分 -¥${Fmt.money(jifenMax)}' : ''}',
-                    style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                // 应收金额（渐变面板）
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFFFFF8F4), Color(0xFFFFF0E8)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFFE1D4)),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Row(children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 15, color: PosTheme.accent),
+                      SizedBox(width: 5),
+                      Text('应收金额', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                    ]),
+                    const SizedBox(height: 2),
+                    Text('¥${Fmt.money(finalTotal)}', style: const TextStyle(fontSize: 42, color: PosTheme.accent, fontWeight: FontWeight.w800, height: 1.15)),
+                    Text('费用 +¥${Fmt.money(fees)} · 折扣 $rate 折 · 抹零 -¥${Fmt.money(quiling)}${jifenMax > 0 ? ' · 积分 -¥${Fmt.money(jifenMax)}' : ''}',
+                        style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                  ]),
+                ),
                 const SizedBox(height: 12),
                 // 会员（v3.3.144：从已点账单底栏移入结账页）
                 Row(children: [
@@ -3395,17 +3425,17 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      padding: const EdgeInsets.symmetric(vertical: 15),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF7F8FA),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: PosTheme.line),
                       ),
                       child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                        Icon(Icons.person_add_alt, size: 18, color: PosTheme.textSub),
+                        Icon(Icons.person_add_alt, size: 19, color: PosTheme.textSub),
                         SizedBox(width: 7),
                         Text('选择会员（余额支付 / 积分抵扣）',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
                       ]),
                     ),
                   )
@@ -3463,19 +3493,33 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                   ),
                 ],
               ]),
+              ),
             ),
           ])),
-          // ===== 底部操作 =====
+          // ===== 底部操作（大按钮适配触屏） =====
           Container(
-            padding: const EdgeInsets.fromLTRB(22, 12, 22, 16),
-            decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
+            padding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.white, Color(0xFFFFF3ED)], begin: Alignment.centerLeft, end: Alignment.centerRight),
+              border: Border(top: BorderSide(color: PosTheme.line)),
+            ),
             child: Row(children: [
-              const Text('左侧优惠选填，可直接点「确认收款」', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              const Text('左侧优惠选填，可直接点「确认收款」', style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
               const Spacer(),
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: method == null
+              InkWell(
+                onTap: () => Navigator.pop(context),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  height: 54,
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
+                  alignment: Alignment.center,
+                  child: const Text('取消', style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                ),
+              ),
+              const SizedBox(width: 14),
+              // 大结算按钮：渐变 + 大字号 + 大热区（触屏友好）
+              InkWell(
+                onTap: method == null
                     ? null
                     : () => Navigator.pop(context, {
                           'final': finalTotal,
@@ -3493,13 +3537,27 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                           'method': method,
                           'vip': vip,
                         }),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: PosTheme.accent, foregroundColor: Colors.white,
-                  disabledBackgroundColor: const Color(0xFFE8E8EC),
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                borderRadius: BorderRadius.circular(16),
+                child: Opacity(
+                  opacity: method == null ? 0.45 : 1,
+                  child: Container(
+                    height: 58,
+                    padding: const EdgeInsets.symmetric(horizontal: 40),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [PosTheme.accent, PosTheme.accentDeep]),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: method == null ? null : [
+                        BoxShadow(color: PosTheme.accent.withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.check_circle_outline, size: 22, color: Colors.white),
+                      const SizedBox(width: 9),
+                      Text(method == null ? '请选择支付方式' : '确认收款 · ¥${Fmt.money(finalTotal)}',
+                          style: const TextStyle(fontSize: 17.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ]),
+                  ),
                 ),
-                child: Text(method == null ? '请选择支付方式' : '确认收款 · ¥${Fmt.money(finalTotal)}',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
               ),
             ]),
           ),
@@ -3523,19 +3581,20 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     final on = method == m;
     final c = payColors[m] ?? PosTheme.textSub;
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(12),
       onTap: () => setState(() => method = m),
       child: Container(
-        width: 136, padding: const EdgeInsets.symmetric(vertical: 13),
+        width: 158, padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: on ? c.withOpacity(0.1) : const Color(0xFFF7F8FA),
+          gradient: on ? const LinearGradient(colors: [Color(0xFFFFF8F4), Color(0xFFFFF0E8)]) : null,
+          color: on ? null : const Color(0xFFF7F8FA),
           border: Border.all(color: on ? c : Colors.transparent, width: 1.4),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(payIcons[m] ?? Icons.payments_outlined, size: 19, color: on ? c : PosTheme.textSub),
-          const SizedBox(width: 7),
-          Text(m, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: on ? c : PosTheme.textMain)),
+          Icon(payIcons[m] ?? Icons.payments_outlined, size: 21, color: on ? c : PosTheme.textSub),
+          const SizedBox(width: 8),
+          Text(m, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: on ? c : PosTheme.textMain)),
         ]),
       ),
     );
@@ -3552,16 +3611,17 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
 
   Widget _chip(String label, bool on, VoidCallback onTap) {
     return InkWell(
-      borderRadius: BorderRadius.circular(9),
+      borderRadius: BorderRadius.circular(10),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: on ? PosTheme.accent : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(9),
+          gradient: on ? const LinearGradient(colors: [PosTheme.accent, PosTheme.accentDeep]) : null,
+          color: on ? null : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
         ),
-        child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: on ? Colors.white : PosTheme.textSub)),
+        child: Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: on ? Colors.white : PosTheme.textSub)),
       ),
     );
   }
