@@ -79,6 +79,8 @@ class CloudPrinter {
   /// 后厨小票模板（按 菜名+做法备注 聚合同名菜品；仅菜品名+数量，不带价格）
   /// [font] 字体大小（v3.3.126）：''=标准 / 'fs'=加大(中文32高) / 'fs2'=特大(中文48高)，
   /// 只放大菜品行/做法行/合计行；标题本就是 FS2 大字。标签云打印/USB（ESC/POS）通用。
+  /// [showTable/showTime/showStaff/showCount] 明细行开关（v3.3.135，商户自定义，
+  /// 存云端 cfg.ticket；菜品行/做法行/备注无开关必打）。
   static String kitchenTicket({
     required String tableTitle,
     required String tableQuyu,
@@ -87,6 +89,10 @@ class CloudPrinter {
     String title = '后厨单',
     bool isAdd = false,
     String font = '',
+    bool showTable = true,
+    bool showTime = true,
+    bool showStaff = true,
+    bool showCount = true,
   }) {
     // 同名同做法合并数量（v3.3.71：做法不同不合并，分行走菜）
     final merged = <String, Map<String, dynamic>>{};
@@ -106,10 +112,10 @@ class CloudPrinter {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>${isAdd ? '加菜单' : title}</center></FS2>');
     sb.writeln('--------------------------------');
-    sb.writeln('桌台: $tableTitle${tableQuyu.isNotEmpty ? ' ($tableQuyu)' : ''}');
+    if (showTable) sb.writeln('桌台: $tableTitle${tableQuyu.isNotEmpty ? ' ($tableQuyu)' : ''}');
     if (remark.isNotEmpty) sb.writeln('备注: $remark');
-    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
-    sb.writeln('点单: ${Session.staffName}');
+    if (showTime) sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    if (showStaff) sb.writeln('点单: ${Session.staffName}');
     sb.writeln('--------------------------------');
     var count = 0;
     merged.forEach((_, g) {
@@ -120,7 +126,7 @@ class CloudPrinter {
       if (note.isNotEmpty) sb.writeln(f('  <<$note>>'));
     });
     sb.writeln('--------------------------------');
-    sb.writeln(f('合计件数: $count'));
+    if (showCount) sb.writeln(f('合计件数: $count'));
     return sb.toString();
   }
 

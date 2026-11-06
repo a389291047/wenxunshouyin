@@ -87,14 +87,14 @@ class PrinterRoute {
   // 配置存服务端 wx_printer_route（按商户一份）：换电脑 / 换收银员账号登录自动拉取，
   // 本机 SharedPreferences 仍作为缓存与离线兜底，断网时照常出票。
 
-  /// 本机配置快照（含旧配置懒迁移结果），云端格式：{printers:{code:{...}}, rice:bool}
+  /// 本机配置快照（含旧配置懒迁移结果），云端格式：{printers:{code:{...}}, rice:bool, ticket:{...}}
   static Future<Map<String, dynamic>> localCfg(String wenxunId) async {
     final cfgs = await printerCfgs(wenxunId);
     final printers = <String, dynamic>{};
     cfgs.forEach((k, v) {
       if (v.role.isNotEmpty) printers[k] = v.toJson();
     });
-    return {'printers': printers, 'rice': await riceFrontOnly(wenxunId)};
+    return {'printers': printers, 'rice': await riceFrontOnly(wenxunId), 'ticket': await kitchenTicketOpts(wenxunId)};
   }
 
   /// 云端配置写回本机（整份覆盖）
@@ -113,6 +113,12 @@ class PrinterRoute {
     await sp.setString(_k(wenxunId, 'printers'), jsonEncode(out));
     if (cfg.containsKey('rice')) {
       await sp.setBool(_k(wenxunId, 'rice_front_only'), cfg['rice'] == true);
+    }
+    final t = cfg['ticket'];
+    if (t is Map) {
+      for (final k in ['table', 'time', 'staff', 'count']) {
+        if (t.containsKey(k)) await sp.setBool(_k(wenxunId, 'kt_$k'), t[k] == true);
+      }
     }
     await sp.setBool(_k(wenxunId, 'cfg_dirty'), false);
   }
@@ -147,7 +153,10 @@ class PrinterRoute {
       }
       // 云端为空：把本机已有配置推上去（纯新装无配置则什么都不做，避免写空覆盖）
       final local = await localCfg(wenxunId);
-      final hasData = (local['printers'] as Map).isNotEmpty || local['rice'] == true;
+      final ticket = local['ticket'] as Map;
+      final hasData = (local['printers'] as Map).isNotEmpty ||
+          local['rice'] == true ||
+          ticket.values.any((v) => v != true);
       if (hasData) return await pushToCloud(wenxunId);
       return true;
     } catch (_) {
@@ -189,6 +198,22 @@ class PrinterRoute {
   static Future<Set<String>> roleCodes(String wenxunId, String role) async {
     final cfgs = await printerCfgs(wenxunId);
     return cfgs.entries.where((e) => e.value.role == role).map((e) => e.key).toSet();
+  }
+
+  // ==================== 后厨小票明细行开关（v3.3.135，存云端 cfg.ticket） ====================
+  /// 读取后厨小票的明细行显示开关（桌台/时间/点单人/合计件数，默认全打）。
+  /// 主副本在云端 wx_printer_route.cfg.ticket；本机缓存仅断网兜底。
+  static Future<Map<String, bool>> kitchenTicketOpts(String wenxunId) async {
+    final sp = await SharedPreferences.getInstance();
+    bool get(String k) => sp.getBool(_k(wenxunId, 'kt_$k')) ?? true;
+    return {'table': get('table'), 'time': get('time'), 'staff': get('staff'), 'count': get('count')};
+  }
+
+  /// 保存明细行开关并上传云端；返回云端同步是否成功
+  static Future<bool> setKitchenTicketOpts(String wenxunId, Map<String, bool> opts) async {
+    final sp = await SharedPreferences.getInstance();
+    opts.forEach((k, v) => sp.setBool(_k(wenxunId, 'kt_$k'), v));
+    return await pushToCloud(wenxunId);
   }
 
   // ==================== 旧分散配置（v3.3.82，仅供迁移读取） ====================

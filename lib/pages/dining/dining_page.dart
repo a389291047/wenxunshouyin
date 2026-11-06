@@ -42,9 +42,12 @@ Future<void> diningPrintKitchenRouted({
   if (kitchenItems.isEmpty) return;
   final cfgs = await PrinterRoute.printerCfgs(wid);
   final kitchens = cfgs.entries.where((e) => e.value.role == 'kitchen').toList();
+  final kt = await PrinterRoute.kitchenTicketOpts(wid); // 后厨明细行开关（v3.3.135 云端配置）
   String ticket(List<Map<String, dynamic>> cart, {String font = ''}) => CloudPrinter.kitchenTicket(
       tableTitle: tableTitle, tableQuyu: tableQuyu, cart: cart,
-      isAdd: isAdd, title: title, remark: remark, font: font);
+      isAdd: isAdd, title: title, remark: remark, font: font,
+      showTable: kt['table'] ?? true, showTime: kt['time'] ?? true,
+      showStaff: kt['staff'] ?? true, showCount: kt['count'] ?? true);
   final futures = <Future>[];
   final taken = <Map<String, dynamic>>[]; // 已被分类绑定的菜
   void emit(String code, PrinterCfg cfg, List<Map<String, dynamic>> list) {

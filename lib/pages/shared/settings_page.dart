@@ -52,6 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
   List cats = []; // 商品分类（后厨绑定配置用）
   bool routeLoading = false;
   Map<String, PrinterCfg> printerCfgs = {}; // machine_code → 绑定配置
+  Map<String, bool> kitchenTicketOpts = {}; // 后厨小票明细行开关（v3.3.135 云端）
   bool cloudSyncing = false; // 正在与云端同步
   bool cloudSyncOk = true; // 上次云端同步结果（false=断网，仅本机生效）
 
@@ -74,10 +75,12 @@ class _SettingsPageState extends State<SettingsPage> {
     final ok = await PrinterRoute.syncFromCloud(wid);
     final rf = await PrinterRoute.riceFrontOnly(wid);
     final pcs = await PrinterRoute.printerCfgs(wid);
+    final kt = await PrinterRoute.kitchenTicketOpts(wid);
     if (!mounted) return;
     setState(() {
       riceFrontOnly = rf;
       printerCfgs = pcs;
+      kitchenTicketOpts = kt;
       cloudSyncOk = ok;
       cloudSyncing = false;
     });
@@ -173,6 +176,51 @@ class _SettingsPageState extends State<SettingsPage> {
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 10),
       ...rows,
+      // 后厨小票明细行开关（v3.3.135，餐饮专属，存云端随门店同步）
+      if (Session.hangye == 2) ...[
+        const SizedBox(height: 10),
+        Container(height: 1, color: PosTheme.line),
+        const SizedBox(height: 10),
+        const Text('后厨小票明细行（加菜单/后厨单）',
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+        const SizedBox(height: 2),
+        const Text('菜品行、做法备注必打（无开关）；以下各行按需开关，设置随门店云端同步。',
+            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        const SizedBox(height: 6),
+        ...[
+          ('table', '桌台行', '如「桌台: 茶楼3 (茶楼)」'),
+          ('time', '时间行', '如下单时间'),
+          ('staff', '点单人行', '如「点单: 张三」'),
+          ('count', '合计件数行', '如「合计件数: 4」'),
+        ].map((it) => Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const SizedBox(height: 6),
+                  Text(it.$2, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
+                      color: kitchenTicketOpts[it.$1] ?? true ? PosTheme.textMain : PosTheme.textHint)),
+                  Text(it.$3, style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                  const SizedBox(height: 6),
+                ])),
+                Switch(
+                  value: kitchenTicketOpts[it.$1] ?? true,
+                  activeColor: PosTheme.accent,
+                  onChanged: (v) async {
+                    final next = Map<String, bool>.from(kitchenTicketOpts);
+                    next[it.$1] = v;
+                    setState(() => kitchenTicketOpts = next);
+                    final ok = await PrinterRoute.setKitchenTicketOpts('${Session.wenxunId}', next);
+                    if (mounted) {
+                      setState(() => cloudSyncOk = ok);
+                      if (!ok) toast(context, '已在本机生效，云端同步失败（联网后会自动补传）', error: true);
+                    }
+                  },
+                ),
+              ]),
+            )),
+      ],
     ]));
   }
 
@@ -206,7 +254,9 @@ class _SettingsPageState extends State<SettingsPage> {
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅', isAdd: true, cart: [
           {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '米饭', 'quantity': 4},
-        ], font: _fontOfRole('kitchen'));
+        ], font: _fontOfRole('kitchen'),
+          showTable: kitchenTicketOpts['table'] ?? true, showTime: kitchenTicketOpts['time'] ?? true,
+          showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
       case 'front':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅', cart: [
           {'goods_name': '水煮牛肉', 'quantity': 1, 'remark': '少辣'},
@@ -240,13 +290,19 @@ class _SettingsPageState extends State<SettingsPage> {
         });
       case 'retreat':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单', font: _fontOfRole('kitchen'));
+          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单', font: _fontOfRole('kitchen'),
+          showTable: kitchenTicketOpts['table'] ?? true, showTime: kitchenTicketOpts['time'] ?? true,
+          showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
       case 'urge':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '清蒸鲈鱼', 'quantity': 1}], title: '催菜单', font: _fontOfRole('kitchen'));
+          cart: const [{'goods_name': '清蒸鲈鱼', 'quantity': 1}], title: '催菜单', font: _fontOfRole('kitchen'),
+          showTable: kitchenTicketOpts['table'] ?? true, showTime: kitchenTicketOpts['time'] ?? true,
+          showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
       case 'reprint':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打', font: _fontOfRole('kitchen'));
+          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打', font: _fontOfRole('kitchen'),
+          showTable: kitchenTicketOpts['table'] ?? true, showTime: kitchenTicketOpts['time'] ?? true,
+          showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
       case 'queue':
         return '<FS2><center>排队号</center></FS2>\n--------------------------------\n您的号码：\n<FS2><center>** 12 **</center></FS2>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
       case 'shift':
