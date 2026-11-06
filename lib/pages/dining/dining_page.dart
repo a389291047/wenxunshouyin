@@ -3268,7 +3268,8 @@ class _PreorderDialogState extends State<_PreorderDialog> {
   }
 }
 
-// ==================== 做法备注弹窗（v3.3.71 长按点菜；v3.3.141 候选项=商户自定义「常用做法」+ 自定义） ====================
+// ==================== 做法备注弹窗（v3.3.71 长按点菜；v3.3.141 候选项=商户自定义「常用做法」；
+// v3.3.142 收银员只勾选不输入，做法由商户在「设置 → 常用做法」维护，保证点餐速度） ====================
 class _DishNoteDialog extends StatefulWidget {
   final String title;
   final String initial; // 编辑已有做法时回填（账单行「做」按钮用）
@@ -3281,25 +3282,11 @@ class _DishNoteDialog extends StatefulWidget {
 class _DishNoteDialogState extends State<_DishNoteDialog> {
   List<String> common = List<String>.from(PrinterRoute.defaultZuofa); // 先给默认，异步换商户自定义
   final Set<String> picked = {};
-  final customCtrl = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _load();
-    // 编辑已有做法：命中候选项的勾选，其余进自定义输入框
-    if (widget.initial.trim().isNotEmpty) {
-      final tokens = widget.initial.split('，').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      final rest = <String>[];
-      for (final t in tokens) {
-        if (common.contains(t)) {
-          picked.add(t);
-        } else {
-          rest.add(t);
-        }
-      }
-      customCtrl.text = rest.join('，');
-    }
   }
 
   Future<void> _load() async {
@@ -3307,12 +3294,10 @@ class _DishNoteDialogState extends State<_DishNoteDialog> {
     if (!mounted) return;
     setState(() {
       common = l;
-      // 回填时若先于加载完成，重算勾选（候选项变化）
+      // 回填：已有做法中命中候选项的勾选（不在候选里的旧自定义做法保存后会被丢弃）
       if (widget.initial.trim().isNotEmpty) {
-        final tokens = widget.initial.split('，').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-        final inCustom = tokens.where((t) => !l.contains(t)).toList();
+        final tokens = widget.initial.split('，').map((e) => e.trim()).where((e) => e.isNotEmpty);
         picked..clear()..addAll(tokens.where(l.contains));
-        customCtrl.text = inCustom.join('，');
       }
     });
   }
@@ -3341,22 +3326,14 @@ class _DishNoteDialogState extends State<_DishNoteDialog> {
             );
           }).toList(),
         ),
-        const SizedBox(height: 14),
-        TextField(
-          controller: customCtrl,
-          decoration: const InputDecoration(hintText: '自定义做法，如：微辣多醋', isDense: true),
-        ),
+        const SizedBox(height: 10),
+        Text('做法候选项由商户在「设置 → 常用做法」自定义', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        if (widget.initial.isEmpty)
-          TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('不带备注加菜')),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
-          onPressed: () {
-            final all = [...picked, if (customCtrl.text.trim().isNotEmpty) customCtrl.text.trim()];
-            Navigator.pop(context, all.join('，'));
-          },
+          onPressed: () => Navigator.pop(context, picked.join('，')),
           child: Text(widget.confirmText),
         ),
       ],
