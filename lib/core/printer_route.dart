@@ -94,7 +94,7 @@ class PrinterRoute {
     cfgs.forEach((k, v) {
       if (v.role.isNotEmpty) printers[k] = v.toJson();
     });
-    return {'printers': printers, 'rice': await riceFrontOnly(wenxunId), 'ticket': await kitchenTicketOpts(wenxunId)};
+    return {'printers': printers, 'rice': await riceFrontOnly(wenxunId), 'ticket': await kitchenTicketOpts(wenxunId), 'zuofa': await zuofaList(wenxunId)};
   }
 
   /// 云端配置写回本机（整份覆盖）
@@ -119,6 +119,9 @@ class PrinterRoute {
       for (final k in ['table', 'time', 'staff', 'count', 'merge']) {
         if (t.containsKey(k)) await sp.setBool(_k(wenxunId, 'kt_$k'), t[k] == true);
       }
+    }
+    if (cfg['zuofa'] is List) {
+      await sp.setString(_k(wenxunId, 'zuofa'), jsonEncode((cfg['zuofa'] as List).map((e) => '$e').toList()));
     }
     await sp.setBool(_k(wenxunId, 'cfg_dirty'), false);
   }
@@ -213,6 +216,34 @@ class PrinterRoute {
   static Future<bool> setKitchenTicketOpts(String wenxunId, Map<String, bool> opts) async {
     final sp = await SharedPreferences.getInstance();
     opts.forEach((k, v) => sp.setBool(_k(wenxunId, 'kt_$k'), v));
+    return await pushToCloud(wenxunId);
+  }
+
+  // ==================== 常用做法列表（v3.3.141，存云端 cfg.zuofa） ====================
+  /// 商户在「设置 → 常用做法」自定义；点餐长按/账单行「做」按钮弹窗的候选项。
+  /// 主副本在云端 wx_printer_route.cfg.zuofa；本机缓存仅断网兜底。
+  static const List<String> defaultZuofa = [
+    '少辣', '中辣', '微辣', '免辣', '多辣',
+    '不要香菜', '不要葱蒜', '不要蒜', '少盐', '清淡', '加麻', '打包',
+  ];
+
+  static Future<List<String>> zuofaList(String wenxunId) async {
+    final sp = await SharedPreferences.getInstance();
+    final raw = sp.getString(_k(wenxunId, 'zuofa'));
+    if (raw == null || raw.isEmpty) return List<String>.from(defaultZuofa);
+    try {
+      final l = (jsonDecode(raw) as List).map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toList();
+      return l.isEmpty ? List<String>.from(defaultZuofa) : l;
+    } catch (_) {
+      return List<String>.from(defaultZuofa);
+    }
+  }
+
+  /// 保存做法列表并上传云端；返回云端同步是否成功
+  static Future<bool> setZuofaList(String wenxunId, List<String> list) async {
+    final sp = await SharedPreferences.getInstance();
+    final clean = list.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    await sp.setString(_k(wenxunId, 'zuofa'), jsonEncode(clean));
     return await pushToCloud(wenxunId);
   }
 

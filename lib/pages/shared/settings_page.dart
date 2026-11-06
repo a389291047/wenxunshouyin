@@ -53,6 +53,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool routeLoading = false;
   Map<String, PrinterCfg> printerCfgs = {}; // machine_code → 绑定配置
   Map<String, bool> kitchenTicketOpts = {}; // 后厨小票明细行开关（v3.3.135 云端）
+  List<String> zuofaItems = []; // 常用做法列表（v3.3.141 云端，商户自定义）
+  final zuofaCtrl = TextEditingController();
   bool cloudSyncing = false; // 正在与云端同步
   bool cloudSyncOk = true; // 上次云端同步结果（false=断网，仅本机生效）
 
@@ -76,11 +78,13 @@ class _SettingsPageState extends State<SettingsPage> {
     final rf = await PrinterRoute.riceFrontOnly(wid);
     final pcs = await PrinterRoute.printerCfgs(wid);
     final kt = await PrinterRoute.kitchenTicketOpts(wid);
+    final zf = await PrinterRoute.zuofaList(wid);
     if (!mounted) return;
     setState(() {
       riceFrontOnly = rf;
       printerCfgs = pcs;
       kitchenTicketOpts = kt;
+      zuofaItems = zf;
       cloudSyncOk = ok;
       cloudSyncing = false;
     });
@@ -253,6 +257,97 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 10),
       ...rows,
     ]));
+  }
+
+  /// 常用做法卡片（v3.3.141，仅餐饮版）：商户自定义做法候选项，存云端随门店同步。
+  /// 点餐长按菜品 / 账单行「做」按钮的弹窗候选项即此列表。
+  Widget _zuofaCard() {
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle(Icons.restaurant_menu, '常用做法'),
+      const SizedBox(height: 4),
+      Text('收银员点餐时点击菜品「做」字从候选项选择，做法随菜品打到后厨小票，后厨照单出餐。候选项在此自定义，设置随门店云端同步。',
+          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 10),
+      if (!cloudSyncOk)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text('上次云端同步失败（断网），当前仅本机生效，联网后会自动补传。',
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.red)),
+        ),
+      Wrap(
+        spacing: 8, runSpacing: 8,
+        children: zuofaItems.map((s) => Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F8FA),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: PosTheme.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(s, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textMain)),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _zuofaRemove(s),
+              borderRadius: BorderRadius.circular(20),
+              child: const Icon(Icons.cancel_outlined, size: 17, color: PosTheme.textHint),
+            ),
+          ]),
+        )).toList(),
+      ),
+      if (zuofaItems.isEmpty)
+        Text('暂无做法候选项，可在下方添加（如：少辣、中辣、微辣）',
+            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+      const SizedBox(height: 14),
+      Row(children: [
+        SizedBox(
+          width: 220,
+          child: TextField(
+            controller: zuofaCtrl,
+            decoration: const InputDecoration(hintText: '输入做法名称，如：微辣', isDense: true),
+            onSubmitted: (_) => _zuofaAdd(),
+          ),
+        ),
+        const SizedBox(width: 10),
+        OutlinedButton.icon(
+          onPressed: _zuofaAdd,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('添加'),
+        ),
+        const SizedBox(width: 10),
+        TextButton(onPressed: _zuofaReset, child: const Text('恢复默认')),
+      ]),
+    ]));
+  }
+
+  Future<void> _zuofaSave(List<String> next) async {
+    setState(() => zuofaItems = next);
+    final ok = await PrinterRoute.setZuofaList('${Session.wenxunId}', next);
+    if (mounted) setState(() => cloudSyncOk = ok);
+    if (!ok) toast(context, '已在本机生效，云端同步失败（联网后会自动补传）', error: true);
+  }
+
+  Future<void> _zuofaAdd() async {
+    final v = zuofaCtrl.text.trim();
+    if (v.isEmpty) return;
+    if (zuofaItems.contains(v)) {
+      toast(context, '做法「$v」已存在');
+      return;
+    }
+    if (zuofaItems.length >= 30) {
+      toast(context, '做法候选项最多 30 个', error: true);
+      return;
+    }
+    zuofaCtrl.clear();
+    await _zuofaSave([...zuofaItems, v]);
+  }
+
+  Future<void> _zuofaRemove(String s) async {
+    await _zuofaSave(zuofaItems.where((e) => e != s).toList());
+  }
+
+  Future<void> _zuofaReset() async {
+    zuofaCtrl.clear();
+    await _zuofaSave(List<String>.from(PrinterRoute.defaultZuofa));
   }
 
   /// 后厨单组 · 明细行开关弹窗（菜品行、做法备注必打无开关；存云端随门店同步）
@@ -1085,6 +1180,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
+    {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
     {'key': 'account',  'icon': Icons.manage_accounts_outlined, 'label': '当前账号'},
@@ -1097,6 +1193,7 @@ class _SettingsPageState extends State<SettingsPage> {
     for (final it in _navDefs) {
       if (it['key'] == 'password' && Session.isCashierOnly) continue; // 收银员不显示权限密码
       if (it['key'] == 'usb' && !UsbPrinter.supported) continue;      // 不支持 USB 的设备不显示
+      if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
       list.add(it);
     }
     return list;
@@ -1108,6 +1205,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'cloud':   return _cloudCard();
       case 'usb':     return _usbCard();
       case 'receipt': return _printPrefsCard();
+      case 'zuofa':   return _zuofaCard();
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();
       case 'account': return _accountCard();

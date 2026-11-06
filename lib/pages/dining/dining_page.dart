@@ -1589,9 +1589,43 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     _addDish(g, note: note);
   }
 
+  /// 修改做法（v3.3.141）：账单行「做」按钮，仅未传后厨的明细可改
+  /// 保存后做法随「传后厨」一起打到后厨单（后厨票做法行必打）
+  Future<void> _editZuofa(Map b) async {
+    final note = await showDialog<String>(
+      context: context,
+      builder: (_) => _DishNoteDialog(
+        title: '${b['goods_title']}',
+        initial: '${b['remark'] ?? ''}',
+        confirmText: '保存做法',
+      ),
+    );
+    if (note == null || !mounted) return;
+    final ids = b['_items'] is List
+        ? (b['_items'] as List).map((it) => int.tryParse('${it['id']}') ?? 0).where((i) => i > 0).toList()
+        : [int.tryParse('${b['id']}') ?? 0];
+    if (ids.isEmpty) return;
+    try {
+      final r = await Api.tableItemZuofa(
+        wenxunId: Session.wenxunId,
+        kaitaiId: widget.kaitaiId,
+        itemIds: ids,
+        remark: note,
+      );
+      final updated = int.tryParse('${r['data']?['updated'] ?? 0}') ?? 0;
+      if ('${r['code']}' == '200' && updated > 0) {
+        toast(context, note.isEmpty ? '已清除做法' : '已保存做法：$note');
+        _loadBill();
+      } else {
+        toast(context, '${r['msg'] ?? '菜品已传后厨，做法不可修改'}', error: true);
+      }
+    } on ApiError catch (e) {
+      toast(context, e.message, error: true);
+    }
+  }
+
   /// 催菜：向后厨云打印机打催菜单（v3.3.71）
-  Future<void> _urge(Map b) async {
-    final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
+  Future<void> _urge(Map b) async {    final remain = (int.tryParse('${b['quantity']}') ?? 0) - (int.tryParse('${b['refund_num']}') ?? 0);
     if (remain <= 0) return;
     if (!await PrintPrefs.on('urge')) {
       toast(context, '催菜单打印已关闭（设置 → 小票打印设置）');
@@ -2360,9 +2394,13 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         Text('¥${Fmt.money(b['sub_total'])}', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700,
             color: allBack ? PosTheme.textHint : PosTheme.textMain)),
         const SizedBox(width: 10),
-        // 操作列：催菜 / 划菜 / 退菜（仅未结算且有剩余件数）
+        // 操作列：做（未传后厨可改做法）/ 催菜 / 划菜 / 退菜（仅未结算且有剩余件数）
         if (!allBack && unsettled)
           Row(mainAxisSize: MainAxisSize.min, children: [
+            if ('${b['is_xiachu'] ?? 1}' != '1') ...[
+              _rowBtn('做', const Color(0xFFFFF8EC), PosTheme.amber, onTap: () => _editZuofa(b)),
+              const SizedBox(width: 5),
+            ],
             _rowBtn('催', const Color(0xFFF0F6FF), PosTheme.blue, onTap: () => _urge(b)),
             const SizedBox(width: 5),
             _rowBtn(isChu ? '取消' : '划', isChu ? const Color(0xFFF2F3F7) : const Color(0xFFEDFFF5), isChu ? PosTheme.textSub : PosTheme.green, onTap: () => _chuhua(b)),
@@ -2370,7 +2408,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
             _rowBtn('退', const Color(0xFFFFF1F0), PosTheme.red, onTap: () => _retreat(b)),
           ])
         else
-          const SizedBox(width: 105),
+          const SizedBox(width: 143),
       ]),
     );
   }
@@ -3230,18 +3268,54 @@ class _PreorderDialogState extends State<_PreorderDialog> {
   }
 }
 
-// ==================== 做法备注点菜（v3.3.71）：常用口味 chips + 自定义 ====================
+// ==================== 做法备注弹窗（v3.3.71 长按点菜；v3.3.141 候选项=商户自定义「常用做法」+ 自定义） ====================
 class _DishNoteDialog extends StatefulWidget {
   final String title;
-  const _DishNoteDialog({required this.title});
+  final String initial; // 编辑已有做法时回填（账单行「做」按钮用）
+  final String confirmText;
+  const _DishNoteDialog({required this.title, this.initial = '', this.confirmText = '加菜'});
   @override
   State<_DishNoteDialog> createState() => _DishNoteDialogState();
 }
 
 class _DishNoteDialogState extends State<_DishNoteDialog> {
-  static const _common = ['免辣', '少辣', '多辣', '不要香菜', '不要葱蒜', '不要蒜', '少盐', '清淡', '加麻', '打包'];
+  List<String> common = List<String>.from(PrinterRoute.defaultZuofa); // 先给默认，异步换商户自定义
   final Set<String> picked = {};
   final customCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    // 编辑已有做法：命中候选项的勾选，其余进自定义输入框
+    if (widget.initial.trim().isNotEmpty) {
+      final tokens = widget.initial.split('，').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final rest = <String>[];
+      for (final t in tokens) {
+        if (common.contains(t)) {
+          picked.add(t);
+        } else {
+          rest.add(t);
+        }
+      }
+      customCtrl.text = rest.join('，');
+    }
+  }
+
+  Future<void> _load() async {
+    final l = await PrinterRoute.zuofaList('${Session.wenxunId}');
+    if (!mounted) return;
+    setState(() {
+      common = l;
+      // 回填时若先于加载完成，重算勾选（候选项变化）
+      if (widget.initial.trim().isNotEmpty) {
+        final tokens = widget.initial.split('，').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+        final inCustom = tokens.where((t) => !l.contains(t)).toList();
+        picked..clear()..addAll(tokens.where(l.contains));
+        customCtrl.text = inCustom.join('，');
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -3250,7 +3324,7 @@ class _DishNoteDialogState extends State<_DishNoteDialog> {
       content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Wrap(
           spacing: 8, runSpacing: 8,
-          children: _common.map((s) {
+          children: common.map((s) {
             final on = picked.contains(s);
             return InkWell(
               borderRadius: BorderRadius.circular(9),
@@ -3275,14 +3349,15 @@ class _DishNoteDialogState extends State<_DishNoteDialog> {
       ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('不带备注加菜')),
+        if (widget.initial.isEmpty)
+          TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('不带备注加菜')),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white),
           onPressed: () {
             final all = [...picked, if (customCtrl.text.trim().isNotEmpty) customCtrl.text.trim()];
             Navigator.pop(context, all.join('，'));
           },
-          child: const Text('加菜'),
+          child: Text(widget.confirmText),
         ),
       ],
     );

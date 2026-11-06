@@ -612,6 +612,21 @@ class Api {
     });
   }
 
+  /// 修改未传后厨明细的做法备注（v3.3.141）：itemIds=明细 id 列表，remark 空串=清除做法
+  static Future<Map<String, dynamic>> tableItemZuofa({
+    required int wenxunId,
+    required String kaitaiId,
+    required List<int> itemIds,
+    required String remark,
+  }) async {
+    return post('/api/tableorder/zuofa', {
+      'wenxun_id': wenxunId,
+      'kaitai_id': kaitaiId,
+      'item_ids': itemIds,
+      'remark': remark,
+    });
+  }
+
   /// 餐饮交班对账（今日堂食统计，v3.3.71）
   static Future<Map<String, dynamic>> diningJiaoban(int wenxunId) async {
     return post('/shouyin/canyin/jiaoban', {'wenxun_id': wenxunId});
