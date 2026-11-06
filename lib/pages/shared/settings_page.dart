@@ -217,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
         return CloudPrinter.prebillTicket(tableTitle: '大厅8', peopleNum: 4, goodsTotal: 128.00, cart: [
           {'goods_name': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
           {'goods_name': '米饭', 'unit_price': '2.00', 'quantity': 4},
-        ], extraLines: ['茶位费: ¥4.00']);
+        ], extraLines: ['茶位费: ¥4.00'], font: _fontOfRole('front'));
       case 'reorder':
         // 订单补打小票：从已结算堂食订单行重组（含附加费/优惠明细）
         return CloudPrinter.diningReprintTicket({
@@ -240,13 +240,13 @@ class _SettingsPageState extends State<SettingsPage> {
         });
       case 'retreat':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单');
+          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}], title: '退菜单', font: _fontOfRole('kitchen'));
       case 'urge':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '清蒸鲈鱼', 'quantity': 1}], title: '催菜单');
+          cart: const [{'goods_name': '清蒸鲈鱼', 'quantity': 1}], title: '催菜单', font: _fontOfRole('kitchen'));
       case 'reprint':
         return CloudPrinter.kitchenTicket(tableTitle: '大厅8', tableQuyu: '大厅',
-          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打');
+          cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打', font: _fontOfRole('kitchen'));
       case 'queue':
         return '<FS2><center>排队号</center></FS2>\n--------------------------------\n您的号码：\n<FS2><center>** 12 **</center></FS2>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
       case 'shift':

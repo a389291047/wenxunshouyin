@@ -122,13 +122,16 @@ class CloudPrinter {
   }
 
   /// 预结单模板（v3.3.82）：先出单给顾客核对，非正式结算凭证
+  /// [font] 前台机字体（v3.3.127）：''=标准 / 'fs'=加大 / 'fs2'=特大，放大菜名与合计行
   static String prebillTicket({
     required String tableTitle,
     required int peopleNum,
     required double goodsTotal,
     required List<Map<String, dynamic>> cart,
     List<String> extraLines = const [],
+    String font = '',
   }) {
+    String f(String line) => font.isEmpty ? line : '<$font>$line</$font>';
     final sb = StringBuffer();
     sb.writeln('<FS2><center>预结单</center></FS2>');
     sb.writeln('--------------------------------');
@@ -141,12 +144,12 @@ class CloudPrinter {
       final note = '${g['remark'] ?? ''}'.trim();
       final qty = int.tryParse('${g['quantity']}') ?? 0;
       count += qty;
-      sb.writeln('${g['goods_name']}');
+      sb.writeln(f('${g['goods_name']}'));
       sb.writeln('  ¥${Fmt.money(g['unit_price'])} x$qty   ¥${Fmt.money((double.tryParse('${g['unit_price']}') ?? 0) * qty)}');
       if (note.isNotEmpty) sb.writeln('  做法: $note');
     }
     sb.writeln('--------------------------------');
-    sb.writeln('共 $count 项  菜品合计: ¥${Fmt.money(goodsTotal)}');
+    sb.writeln(f('共 $count 项  菜品合计: ¥${Fmt.money(goodsTotal)}'));
     for (final line in extraLines) {
       sb.writeln(line);
     }

@@ -1847,12 +1847,14 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           if (riceOnly && PrinterRoute.isRiceItem('${b['goods_title']}')) {
             // 米饭类不进后厨，跳过退菜单
           } else {
-            CloudPrinter.printKitchen(CloudPrinter.kitchenTicket(
+            // v3.3.127：退菜单也走共享路由（按绑定出票 + 各机字体），失败不阻塞退菜
+            diningPrintKitchenRouted(
+              items: [{'goods_name': b['goods_title'], 'quantity': num, 'cat_id': _catOf(b['goods_id'])}],
               tableTitle: '${widget.table['title']}',
               tableQuyu: '${widget.table['quyu'] ?? ''}',
-              cart: [{'goods_name': b['goods_title'], 'quantity': num}],
+              isAdd: false,
               title: '退菜单',
-            )).catchError((_) => <String, dynamic>{});
+            ).catchError((_) => <String, dynamic>{});
           }
         }
         _loadBill();
@@ -1923,12 +1925,19 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       toast(context, '当前没有未退菜品', error: true);
       return;
     }
+    // 预结单也按绑定的前台机字体出（v3.3.127）
+    final cfgs = await PrinterRoute.printerCfgs('${Session.wenxunId}');
+    String frontFont = '';
+    for (final e in cfgs.entries) {
+      if (e.value.role == 'front') { frontFont = e.value.font; break; }
+    }
     final content = CloudPrinter.prebillTicket(
       tableTitle: '${widget.table['title']}',
       peopleNum: int.tryParse('${widget.table['people_num']}') ?? 1,
       goodsTotal: billTotal,
       cart: items,
       extraLines: [if (orderRemark.isNotEmpty) '备注: $orderRemark'],
+      font: frontFont,
     );
     final code = await diningFrontMachineCode();
     if (!mounted) return;
