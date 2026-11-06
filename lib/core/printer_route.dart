@@ -116,7 +116,7 @@ class PrinterRoute {
     }
     final t = cfg['ticket'];
     if (t is Map) {
-      for (final k in ['table', 'time', 'staff', 'count']) {
+      for (final k in ['table', 'time', 'staff', 'count', 'merge']) {
         if (t.containsKey(k)) await sp.setBool(_k(wenxunId, 'kt_$k'), t[k] == true);
       }
     }
@@ -206,7 +206,7 @@ class PrinterRoute {
   static Future<Map<String, bool>> kitchenTicketOpts(String wenxunId) async {
     final sp = await SharedPreferences.getInstance();
     bool get(String k) => sp.getBool(_k(wenxunId, 'kt_$k')) ?? true;
-    return {'table': get('table'), 'time': get('time'), 'staff': get('staff'), 'count': get('count')};
+    return {'table': get('table'), 'time': get('time'), 'staff': get('staff'), 'count': get('count'), 'merge': get('merge')};
   }
 
   /// 保存明细行开关并上传云端；返回云端同步是否成功

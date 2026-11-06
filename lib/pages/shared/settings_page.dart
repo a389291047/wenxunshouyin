@@ -306,6 +306,7 @@ class _SettingsPageState extends State<SettingsPage> {
               opt('time', '时间行', '如下单时间'),
               opt('staff', '点单人行', '如「点单: 张三」'),
               opt('count', '合计件数行', '如「合计件数: 4」'),
+              opt('merge', '同名菜品合并', '同一菜加 N 份只打一张「xN」省纸；关闭则每份一张'),
             ]),
           ),
           actions: [

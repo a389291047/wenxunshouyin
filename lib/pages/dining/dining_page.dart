@@ -54,8 +54,32 @@ Future<void> diningPrintKitchenRouted({
     if (list.isEmpty) return;
     taken.addAll(list);
     if (cfg.mode == PrinterRoute.modeSplit) {
-      for (final it in list) {
-        futures.add(CloudPrinter.printTo(code, ticket([it], font: cfg.font)));
+      if (kt['merge'] ?? true) {
+        // 同名同做法合并成一张（v3.3.138，可开关）：加 7 份只打一张「x7」，省纸；
+        // 关闭后恢复每份一张（分拣场景）。注意在分类过滤之后合并，不影响分单路由。
+        final merged = <String, Map<String, dynamic>>{};
+        for (final it in list) {
+          final name = '${it['goods_name'] ?? ''}';
+          final note = '${it['remark'] ?? ''}'.trim();
+          final key = '$name|$note';
+          final qty = int.tryParse('${it['quantity']}') ?? 0;
+          if (merged.containsKey(key)) {
+            merged[key]!['quantity'] = (int.tryParse('${merged[key]!['quantity']}') ?? 0) + qty;
+          } else {
+            final m = Map<String, dynamic>.from(it);
+            m['goods_name'] = name;
+            m['remark'] = note;
+            m['quantity'] = qty;
+            merged[key] = m;
+          }
+        }
+        for (final it in merged.values) {
+          futures.add(CloudPrinter.printTo(code, ticket([it], font: cfg.font)));
+        }
+      } else {
+        for (final it in list) {
+          futures.add(CloudPrinter.printTo(code, ticket([it], font: cfg.font)));
+        }
       }
     } else {
       futures.add(CloudPrinter.printTo(code, ticket(list, font: cfg.font)));
