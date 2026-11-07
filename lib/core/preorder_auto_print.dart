@@ -18,33 +18,46 @@ import 'session.dart';
 /// - `booking`      预约单打印开关（关闭则连自动打印也不出）
 /// - `booking_auto` 自动打印开关（关闭则只手动点「打印预约单」）
 ///
-/// 防重：已打印的预约 id 持久化到本机（最近 300 条）。
+/// 防重：已打印的预约 id 持久化到本机（最近 300 条，按商户分开存）。
 /// v3.3.152 修复：以前「首次基线」在没有可打印单据时不落盘，导致每次重启都重新基线、
 /// 把新提交的预约当历史单静默吞掉（用户表现为「不自动打印，只能手动点」）。
 /// 现在首启基线一定落盘；并且首启时只把「本进程启动前」已存在的单记成历史，
 /// 启动后新到的预约照常出票。打印失败不标记，下轮重试。
+/// v3.3.153：① 已打印记录/基线按商户（wenxun_id）分开，同一台电脑切店不串号；
+/// ② 首启放行「启动前 30 分钟内」的待安排单（收银机刚开机/升级重启时顾客已提交的单不丢）。
 class PreorderAutoPrint {
   PreorderAutoPrint._();
-  static const _spKey = 'booking_printed_ids';
+  static const _spPrefix = 'booking_printed_ids';
   static final DateTime _launchAt = DateTime.now(); // 本进程启动时间（首启基线分界）
+  static const Duration _grace = Duration(minutes: 30); // 启动补打窗口
+  static String _wid = '';
   static Set<String> _printed = {};
   static bool _loaded = false;
   static bool _marked = false; // 是否已完成首次基线记录
   static bool _busy = false;
 
-  static Future<void> _load() async {
-    if (_loaded) return;
+  static String _keyOf(String wid) => '${_spPrefix}_$wid';
+
+  static Future<void> _load([String? wid]) async {
+    final w = wid ?? _wid;
+    if (_loaded && _wid == w && w.isNotEmpty) return;
+    _wid = w;
     _loaded = true;
+    _marked = false;
+    _printed = {};
+    if (w.isEmpty) return;
     final sp = await SharedPreferences.getInstance();
-    _printed = (sp.getStringList(_spKey) ?? const []).toSet();
-    _marked = sp.containsKey(_spKey);
+    final key = _keyOf(w);
+    _printed = (sp.getStringList(key) ?? const []).toSet();
+    _marked = sp.containsKey(key);
   }
 
   static Future<void> _save() async {
+    if (_wid.isEmpty) return;
     final sp = await SharedPreferences.getInstance();
     var l = _printed.toList();
     if (l.length > 300) l = l.sublist(l.length - 300);
-    await sp.setStringList(_spKey, l);
+    await sp.setStringList(_keyOf(_wid), l);
   }
 
   /// 解析后端 create_time（"2026-11-07 09:20:00" / 斜杠分隔都兼容）
@@ -60,7 +73,8 @@ class PreorderAutoPrint {
     _busy = true;
     var printed = 0;
     try {
-      await _load();
+      final wid = '${Session.wenxunId}';
+      await _load(wid);
       if (!(await PrintPrefs.on('booking_auto'))) return 0;
       if (!(await PrintPrefs.on('booking'))) return 0;
       final r = await Api.preorderList(wenxunId: Session.wenxunId, status: '0');
@@ -68,15 +82,17 @@ class PreorderAutoPrint {
       final d = raw is Map ? raw : const <String, dynamic>{};
       final list = d['list'] is List ? d['list'] as List : const [];
       final firstRun = !_marked;
+      final earliest = _launchAt.subtract(_grace); // 启动补打窗口起点
       for (final row in list) {
         final m = Map<String, dynamic>.from(row as Map);
         final id = '${m['id']}';
         if (id.isEmpty || _printed.contains(id)) continue;
         if (firstRun) {
           // 升级后首启：只把「本进程启动前」已存在的待安排单记为历史不补打，
-          // 启动后新到的（如刚开收银机顾客就提交了）照常出票
+          // 启动后新到的（如刚开收银机顾客就提交了）照常出票；
+          // 启动前 30 分钟内的单也照常出（收银机重启不丢单）
           final ct = _parseTime('${m['create_time'] ?? ''}');
-          if (ct == null || !ct.isAfter(_launchAt)) {
+          if (ct == null || ct.isBefore(earliest)) {
             _printed.add(id);
             await _save();
             continue;
@@ -129,7 +145,7 @@ class PreorderAutoPrint {
       remark: '${m['remark'] ?? ''}'.trim(),
     ));
     // 手动打过也标记，避免自动打印重复出票
-    await _load();
+    await _load('${Session.wenxunId}');
     final id = '${m['id']}';
     if (id.isNotEmpty && !_printed.contains(id)) {
       _printed.add(id);
