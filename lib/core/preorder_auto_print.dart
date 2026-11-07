@@ -48,6 +48,14 @@ class PreorderAutoPrint {
     if (w.isEmpty) return;
     final sp = await SharedPreferences.getInstance();
     final key = _keyOf(w);
+    if (!sp.containsKey(key) && sp.containsKey(_spPrefix)) {
+      // 老版本（v3.3.152 及以前）用不分商户的旧键，升级时迁移过来，
+      // 避免首启把刚手动打过的单再自动打一遍
+      _printed = (sp.getStringList(_spPrefix) ?? const []).toSet();
+      _marked = true;
+      await sp.setStringList(key, _printed.toList());
+      return;
+    }
     _printed = (sp.getStringList(key) ?? const []).toSet();
     _marked = sp.containsKey(key);
   }
