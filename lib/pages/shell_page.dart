@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../core/preorder_auto_print.dart';
 import '../core/preorder_badge.dart';
 import '../core/printer_route.dart';
 import '../core/session.dart';
@@ -27,6 +30,7 @@ class ShellPage extends StatefulWidget {
 
 class _ShellPageState extends State<ShellPage> {
   int _index = 0;
+  Timer? _bookingTimer; // 预约单自动打印全局轮询（v3.3.152）
   bool get _isDining => Session.hangye == 2;
   bool get _isFresh => Session.hangye == 3;
 
@@ -35,7 +39,20 @@ class _ShellPageState extends State<ShellPage> {
     super.initState();
     // v3.3.125：登录后（含自动登录）后台拉取云端打印机绑定配置，
     // 换电脑/换收银员账号登录不必重设；失败静默，继续用本机缓存
-    if (_isDining) PrinterRoute.syncFromCloud('${Session.wenxunId}');
+    if (_isDining) {
+      PrinterRoute.syncFromCloud('${Session.wenxunId}');
+      // v3.3.152：预约单自动打印改全局轮询（原来只在桌台页轮询，停在别的页面就不出票）
+      PreorderAutoPrint.check(); // 登录后先查一次，补打关机期间新提交的预约
+      _bookingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        if (mounted) PreorderAutoPrint.check();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _bookingTimer?.cancel();
+    super.dispose();
   }
 
   String get _versionLabel {
