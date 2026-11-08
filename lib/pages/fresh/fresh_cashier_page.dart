@@ -6,6 +6,7 @@ import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_scan_pay.dart';
 import '../retail/cashier_page.dart'
     show RetailPayDialog, RetailVipPickerDialog, RetailSkuPickerDialog, RetailGoodsImage;
 
@@ -158,12 +159,17 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
     final t = total;
-    final methods = ['现金', '微信支付', '支付宝', if (vip != null) '会员支付'];
+    final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付'];
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
+    // 扫码收款：星驿付付款码支付（扫码枪扫顾客付款码，微信/支付宝自动识别）
+    if (picked == '扫码收款') {
+      final pay = await showXyfScanPayDialog(context, amount: t, bizType: 'retail');
+      if (pay == null || !mounted) return;
+    }
 
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],

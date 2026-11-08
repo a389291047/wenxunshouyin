@@ -8,6 +8,7 @@ import '../../core/voice.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_scan_pay.dart';
 
 /// 零售版 · 收银点单页（触摸屏优化版）
 /// 左：分类栏 | 中：商品网格 | 右：加宽购物车 + 大按钮结算
@@ -176,12 +177,17 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     if (cart.isEmpty) return;
     final t = total;
     // 未选会员时不出现「会员支付」，避免误点
-    final methods = ['现金', '微信支付', '支付宝', if (vip != null) '会员支付'];
+    final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付'];
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
+    // 扫码收款：星驿付付款码支付（扫码枪扫顾客付款码，微信/支付宝自动识别）
+    if (picked == '扫码收款') {
+      final pay = await showXyfScanPayDialog(context, amount: t, bizType: 'retail');
+      if (pay == null || !mounted) return;
+    }
 
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
@@ -632,12 +638,14 @@ class _PayDialogState extends State<RetailPayDialog> {
   String received = ''; // 现金实收（数字键盘输入）
   final icons = {
     '现金': Icons.payments_outlined,
+    '扫码收款': Icons.qr_code_scanner,
     '微信支付': Icons.chat,
     '支付宝': Icons.account_balance_wallet_outlined,
     '会员支付': Icons.badge_outlined,
   };
   final colors = {
     '现金': PosTheme.green,
+    '扫码收款': PosTheme.blue,
     '微信支付': PosTheme.green,
     '支付宝': PosTheme.blue,
     '会员支付': PosTheme.accent,
@@ -687,13 +695,15 @@ class _PayDialogState extends State<RetailPayDialog> {
             Text('¥${Fmt.money(widget.total)}', style: const TextStyle(fontSize: 34, color: PosTheme.accent, fontWeight: FontWeight.w800)),
           ]),
           const SizedBox(height: 20),
-          // 支付方式（2x2 大块）
-          Row(children: [
-            for (int i = 0; i < widget.methods.length; i++) ...[
-              if (i > 0) const SizedBox(width: 14),
-              Expanded(child: _methodTile(widget.methods[i])),
-            ]
-          ]),
+          // 支付方式（Wrap：5 种方式自动换行，触屏热区不变）
+          Wrap(
+            spacing: 14,
+            runSpacing: 14,
+            children: [
+              for (final m in widget.methods)
+                SizedBox(width: 137, height: 84, child: _methodTile(m)),
+            ],
+          ),
           const SizedBox(height: 18),
           if (method == '现金') ...[
             // 实收 + 找零
@@ -747,7 +757,9 @@ class _PayDialogState extends State<RetailPayDialog> {
                 const SizedBox(height: 12),
                 Text(method == '会员支付'
                         ? '将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}'
-                        : '请顾客使用$method扫码支付',
+                        : method == '扫码收款'
+                            ? '点「确认收款」后用扫码枪扫顾客付款码（微信/支付宝自动识别）'
+                            : '请顾客使用$method扫码支付',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 16, color: PosTheme.textSub)),
                 const SizedBox(height: 6),

@@ -43,6 +43,107 @@ class Api {
     }
   }
 
+  /// JSON POST（星驿付 v1.Payment 系列用：Content-Type application/json +
+  /// merchant-no 头标商户身份，与小程序充值页同源）
+  static Future<Map<String, dynamic>> postJson(String path, Map<String, dynamic> data,
+      {Map<String, String> headers = const {}, int timeoutSec = 20}) async {
+    try {
+      final h = <String, String>{'Content-Type': 'application/json', ...headers};
+      final res = await http
+          .post(Uri.parse(base + path),
+              headers: h, body: jsonEncode(data))
+          .timeout(Duration(seconds: timeoutSec));
+      if (res.statusCode != 200) {
+        String msg = '服务器异常（${res.statusCode}）';
+        try {
+          final j = jsonDecode(utf8.decode(res.bodyBytes));
+          if (j is Map && '${j['message'] ?? j['msg'] ?? ''}'.isNotEmpty) {
+            msg = '${j['message'] ?? j['msg']}';
+          }
+        } catch (_) {}
+        throw ApiError(msg);
+      }
+      final json = jsonDecode(utf8.decode(res.bodyBytes));
+      if (json is Map<String, dynamic>) return json;
+      throw ApiError('接口返回数据异常');
+    } on ApiError {
+      rethrow;
+    } catch (e) {
+      throw ApiError('网络异常，请检查网络连接');
+    }
+  }
+
+  // ==================== 星驿付 · 付款码支付（服务商模式，v3.3.161） ====================
+
+  /// 付款码下单（B 扫 C：扫码枪扫顾客付款码）。商户身份走 merchant-no 头。
+  /// 返回 {code, message, data:{星驿原始返回}, pending, outOrderNo}
+  /// pending=true 表示受理成功（code=222222），顾客待输入密码，需轮询查询
+  static Future<Map<String, dynamic>> xyfCodePay({
+    required double amount,
+    required String authCode,
+    required String orderNo,
+    String bizType = 'retail',
+  }) {
+    return postJson('/api/v1.payment/codePay', {
+      'wenxun_id': Session.wenxunId,
+      'orderNo': orderNo,
+      'totalAmount': amount.toStringAsFixed(2),
+      'authCode': authCode,
+      'bizType': bizType,
+    }, headers: {'merchant-no': '${Session.wenxunId}'});
+  }
+
+  /// 订单状态查询：data = wx_pay_orders 行
+  /// status: 1待支付 2处理中 3成功 4失败 5超时
+  static Future<Map<String, dynamic>> xyfQueryOrder(String orderNo) {
+    return postJson('/api/v1.payment/queryOrder', {'orderNo': orderNo},
+        headers: {'merchant-no': '${Session.wenxunId}'}, timeoutSec: 15);
+  }
+
+  /// 付款码支付一体流程：下单 → （待输密码则轮询）→ 成功返回订单行 / 失败抛 ApiError
+  /// 轮询上限 25 次 × 1 秒（与小程序一致）
+  static Future<Map<String, dynamic>> xyfScanPay({
+    required double amount,
+    required String authCode,
+    required String orderNo,
+    String bizType = 'retail',
+  }) async {
+    final r = await xyfCodePay(
+        amount: amount, authCode: authCode, orderNo: orderNo, bizType: bizType);
+    if ('${r['code']}' != '0') {
+      throw ApiError('${r['message'] ?? '下单失败'}');
+    }
+    Future<Map<String, dynamic>?> queryOnce() async {
+      try {
+        final q = await xyfQueryOrder('${r['outOrderNo'] ?? orderNo}');
+        if ('${q['code']}' != '0') return null;
+        return q['data'] is Map ? (q['data'] as Map).cast<String, dynamic>() : null;
+      } on ApiError {
+        return null; // 单次查询失败继续轮询
+      }
+    }
+
+    if (r['pending'] != true) {
+      // 星驿同步完成（免密小额常见）：立即查一次
+      final o = await queryOnce();
+      if (o != null) {
+        final st = int.tryParse('${o['status']}') ?? 0;
+        if (st == 3) return o;
+        if (st == 4) throw ApiError('${o['error_msg'] ?? '支付失败'}');
+      }
+    }
+    // 处理中（顾客输密码）：轮询
+    for (var i = 0; i < 25; i++) {
+      await Future.delayed(const Duration(seconds: 1));
+      final o = await queryOnce();
+      if (o == null) continue;
+      final st = int.tryParse('${o['status']}') ?? 0;
+      if (st == 3) return o;
+      if (st == 4) throw ApiError('${o['error_msg'] ?? '顾客取消支付'}');
+    }
+    throw ApiError('支付超时（25 秒未确认），请重新扫码收款');
+  }
+
   // ==================== 登录 ====================
 
   /// 收银员账号登录（手机号 + 明文密码）

@@ -11,6 +11,7 @@ import '../../core/theme.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/receipt_preview.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_scan_pay.dart';
 import 'dining_modes.dart';
 import '../retail/cashier_page.dart' show RetailCashierPage, RetailGoodsImage;
 
@@ -2035,6 +2036,11 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       gzName = gz['name'] ?? '';
       gzPhone = gz['phone'] ?? '';
     }
+    // 扫码收款（v3.3.161）：微信支付/支付宝走星驿付付款码支付（B扫C，扫码枪扫顾客付款码）
+    if (picked == '微信支付' || picked == '支付宝') {
+      final pay = await showXyfScanPayDialog(context, amount: finalTotal, title: '扫码收款 · $picked', bizType: 'dining');
+      if (pay == null || !mounted) return;
+    }
     loadingDialog(context, picked == '挂账' ? '挂账中…' : '结算中…');
     try {
       final r = await Api.tableSettle(
@@ -3255,7 +3261,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     '会员余额': PosTheme.accentDeep, '挂账': Color(0xFFC23A22),
   };
   static const paySubs = {
-    '现金': '即时到账 · 支持找零', '微信支付': '记账模式 · 星驿付待接入', '支付宝': '记账模式 · 星驿付待接入',
+    '现金': '即时到账 · 支持找零', '微信支付': '星驿付扫码 · 真实收款', '支付宝': '星驿付扫码 · 真实收款',
     '会员余额': '余额扣款 · 积分抵扣', '挂账': '记账后补款',
   };
 
@@ -3589,7 +3595,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     ]),
                   ),
                 ],
-                // 微信/支付宝：记账模式提示 + 星驿付收款预留区（v3.3.150）
+                // 微信/支付宝：星驿付扫码收款提示（v3.3.161 真实收款）
                 if (method == '微信支付' || method == '支付宝') ...[
                   const SizedBox(height: 10),
                   Container(
@@ -3602,32 +3608,14 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     ),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Icon(Icons.info_outline, size: 16, color: payColors[method]),
+                        Icon(Icons.qr_code_scanner, size: 16, color: payColors[method]),
                         const SizedBox(width: 5),
-                        Text('记账模式 · 应收 ¥${Fmt.money(finalTotal)}',
+                        Text('星驿付扫码 · 应收 ¥${Fmt.money(finalTotal)}',
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
                       ]),
                       const SizedBox(height: 4),
-                      Text('仅记录本笔收款金额，暂不发起线上支付；星驿付扫码收款接入后，此处直接展示收款码 / 扫顾客付款码完成真实收款',
+                      Text('点下方「确认收款」后，用扫码枪扫顾客付款码完成真实收款（微信/支付宝自动识别，待输密码自动等待）',
                           style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-                      const SizedBox(height: 10),
-                      // 星驿付收款区预留位
-                      Container(
-                        width: double.infinity,
-                        height: 72,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: const Color(0xFF1677FF).withOpacity(0.3)),
-                        ),
-                        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                          Icon(Icons.qr_code_2, size: 22, color: const Color(0xFF1677FF).withOpacity(0.55)),
-                          const SizedBox(width: 7),
-                          Text('星驿付收款区（预留）',
-                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: const Color(0xFF1677FF).withOpacity(0.65))),
-                        ]),
-                      ),
                     ]),
                   ),
                 ],

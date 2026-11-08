@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import '../core/voice.dart';
 import 'widgets.dart';
 
 /// 会员充值弹窗（v3.3.62 重构）：
@@ -72,39 +73,39 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
     try {
       String orderNo = '';
       if (!cashMode) {
-        // ---- 付款码充值：先星驿付 codePay，成功后入账 ----
-        final code = codeCtrl.text.trim();
-        if (!RegExp(r'^\d{18,30}$').hasMatch(code)) {
+        // ---- 付款码充值（v3.3.161）：星驿付付款码支付 + 轮询，成功后入账 ----
+        final code = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
+        if (!RegExp(r'^\d{16,32}$').hasMatch(code)) {
           setState(() => submitting = false);
-          toast(context, '请输入有效的付款码（18-30位数字）', error: true);
+          toast(context, '请输入有效的付款码（16-32位数字）', error: true);
           return;
         }
-        orderNo = 'wenxun${DateTime.now().millisecondsSinceEpoch}${(DateTime.now().microsecondsSinceEpoch % 1000)}';
-        final resp = await Api.rechargeCodePay(
-          wenxunId: Session.wenxunId,
-          amount: amount,
-          code: code,
-          orderNo: orderNo,
-        );
-        final data = (resp['data'] ?? {}) as Map;
-        final ok = '${resp['code']}' == '0' &&
-            ('${data['code'] ?? ''}' == '000000' || data['success'] == true);
-        if (!mounted) return;
-        if (!ok) {
+        final myNo = 'XYFC${DateTime.now().millisecondsSinceEpoch}'
+            '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+        try {
+          final o = await Api.xyfScanPay(
+            amount: amount,
+            authCode: code,
+            orderNo: myNo,
+            bizType: 'recharge',
+          );
+          if (!mounted) return;
+          VoiceService.instance.pay('扫码', amount);
+          // 入账单号优先星驿渠道单号，其次我方业务单号（后端双匹配）
+          orderNo = '${o['order_no'] ?? ''}';
+          if (orderNo.isEmpty) orderNo = '${o['three_order_no'] ?? myNo}';
+        } on ApiError catch (e) {
+          if (!mounted) return;
           setState(() => submitting = false);
-          final raw = '${data['msg'] ?? resp['message'] ?? '支付未完成，请确认'}';
+          final raw = e.message;
           // 未开通星驿付：明确提示联系客服
-          if (raw.contains('未配置商户号') || raw.contains('商户号')) {
+          if (raw.contains('开通支付') || raw.contains('商户号') || raw.contains('cust')) {
             toast(context, '商户未开通星驿付收款，请联系客服开通支付', error: true);
           } else {
             toast(context, raw, error: true);
           }
           return;
         }
-        // 以星驿付返回的平台单号为准（后端按 order_no/three_order_no 双匹配）
-        final inner = (data['data'] ?? {}) as Map;
-        final payNo = '${inner['orderNo'] ?? ''}';
-        if (payNo.isNotEmpty) orderNo = payNo;
       } else {
         // ---- 现金充值：权限密码校验 ----
         if (pwd.length != 6) {

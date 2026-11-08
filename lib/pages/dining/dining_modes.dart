@@ -5,6 +5,7 @@ import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_scan_pay.dart';
 
 /// 餐饮点餐方式扩展（v3.3.63）：
 /// 不开台点餐 / 排队取号叫号 / 预约列表 / 挂账台账 / 选桌扫码
@@ -221,7 +222,7 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
                     Row(children: [
                       Expanded(child: BigButton('现金收款', onTap: () => _checkout('现金'), color: PosTheme.green, height: 46)),
                       const SizedBox(width: 8),
-                      Expanded(child: BigButton('微信/支付宝', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46)),
+                      Expanded(child: BigButton('扫码收款（星驿付）', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46)),
                     ]),
                     const SizedBox(height: 8),
                     Row(children: [
@@ -298,20 +299,12 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
     );
   }
 
+  /// 扫码收款（v3.3.161）：星驿付付款码支付，扫码枪扫顾客付款码
+  /// 微信/支付宝/云闪付自动识别，无需先选通道；成功后按「扫码收款」落单
   Future<void> _pickScanPay() async {
-    final m = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('扫码收款', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        content: SizedBox(width: 280, child: Column(mainAxisSize: MainAxisSize.min, children: [
-          BigButton('微信支付', onTap: () => Navigator.pop(context, '微信支付'), color: PosTheme.green, height: 48),
-          const SizedBox(height: 10),
-          BigButton('支付宝', onTap: () => Navigator.pop(context, '支付宝'), color: PosTheme.blue, height: 48),
-        ])),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
-      ),
-    );
-    if (m != null && mounted) _checkout(m);
+    final pay = await showXyfScanPayDialog(context, amount: total, title: '扫码收款', bizType: 'dining');
+    if (pay == null || !mounted) return;
+    _checkout('扫码收款');
   }
 }
 
@@ -694,14 +687,18 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
           const SizedBox(height: 14),
           BigButton('现金收款', onTap: () => Navigator.pop(context, '现金'), color: PosTheme.green, height: 46),
           const SizedBox(height: 8),
-          BigButton('微信支付', onTap: () => Navigator.pop(context, '微信支付'), color: PosTheme.green, height: 46),
-          const SizedBox(height: 8),
-          BigButton('支付宝', onTap: () => Navigator.pop(context, '支付宝'), color: PosTheme.blue, height: 46),
+          BigButton('扫码收款（星驿付）', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46),
         ])),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
       ),
     );
     if (pay == null || !mounted) return;
+    // 扫码收款：先星驿付真实收款，成功后再核销（v3.3.161）
+    if (pay == '扫码收款') {
+      final scan = await showXyfScanPayDialog(context,
+          amount: double.tryParse('${row['amount']}') ?? 0, title: '挂账核销 · 扫码收款', bizType: 'dining');
+      if (scan == null || !mounted) return;
+    }
     final ok = await confirm(context, '确认收款', '挂账 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)} 已收到（$pay），核销本笔？');
     if (!ok || !mounted) return;
     loadingDialog(context, '核销中…');
