@@ -263,10 +263,10 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         ),
       ],
       ),
-      // ===== 悬浮关闭按钮：凸出右上角，透明底白色 X =====
+      // ===== 关闭按钮：橙色头部右上角内（透明底白色 X）=====
       Positioned(
-        top: -8,
-        right: -8,
+        top: 4,
+        right: 4,
         child: Material(
           color: Colors.transparent,
           child: InkWell(
