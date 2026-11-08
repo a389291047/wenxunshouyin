@@ -11,7 +11,7 @@ import 'widgets.dart';
 /// - 两种方式：付款码充值（扫顾客付款码，免密，默认）/ 现金充值（需权限密码）
 /// - 付款码走星驿付 codePay（type=A），成功后调 shouyin/vip/chongzhi 入账；
 ///   商户未开通星驿付时提示「联系客服开通支付」
-/// - 关闭按钮为右上角悬浮白色 X
+/// - 点弹窗外空白即可关闭，不放关闭按钮
 /// 充值成功返回 {'amount': 本金, 'gift': 赠送}，取消/失败返回 null。
 Future<Map?> showVipRechargeDialog(BuildContext context, {required Map vip}) {
   return showDialog<Map>(
@@ -148,10 +148,8 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   @override
   Widget build(BuildContext context) {
     final v = widget.vip;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-      AlertDialog(
+    // 点弹窗外空白即可关闭（showDialog 默认 barrierDismissible），不再放关闭按钮
+    return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: EdgeInsets.zero,
       contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
@@ -261,33 +259,6 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
             ),
           ),
         ),
-      ],
-      ),
-      // ===== 关闭按钮：橙色头部右上角内（透明底白色 X）=====
-      Positioned(
-        top: 4,
-        right: 4,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: () => Navigator.pop(context),
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: Icon(Icons.close_rounded,
-                  size: 26,
-                  color: Colors.white,
-                  shadows: const [
-                    Shadow(
-                        color: Color(0x4D000000),
-                        blurRadius: 6,
-                        offset: Offset(0, 2)),
-                  ]),
-            ),
-          ),
-        ),
-      ),
       ],
     );
   }
