@@ -552,6 +552,15 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
           'refund_amount': '36.00', 'payment_method': '微信支付', 'refund_reason': '客人不想要了',
         }, isRefund: true);
+      case 'vipcz':
+        return CloudPrinter.vipRechargeTicket(
+          vipName: '示例会员', phone: '138****8888', orderSn: 'CZ$now示例',
+          amount: 100, gift: 10, payMethod: '扫码支付', balance: 258);
+      case 'vipczrefund':
+        return CloudPrinter.vipRechargeTicket(
+          vipName: '示例会员', phone: '138****8888', orderSn: 'CZ$now示例',
+          amount: 100, gift: 10, payMethod: '现金（线下退回）',
+          balance: 158, refund: true, reason: '顾客要求退款');
       default:
         return '';
     }

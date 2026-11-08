@@ -316,6 +316,43 @@ class CloudPrinter {
     return sb.toString();
   }
 
+  /// 组会员充值小票 / 退款充值小票（v3.3.174）
+  /// [refund]=false 充值小票（充值成功自动打）；true 退款充值小票（退款成功自动打）
+  static String vipRechargeTicket({
+    required String vipName,
+    required String phone,
+    required String orderSn,
+    required double amount, // 本金
+    required double gift, // 赠送
+    required String payMethod, // 现金 / 扫码支付
+    double? balance, // 充值/退款后余额（后端返回）
+    bool refund = false,
+    String reason = '',
+  }) {
+    final sb = StringBuffer();
+    sb.writeln('<FS2><center>$shopTitle</center></FS2>');
+    sb.writeln('<FS2><center>${refund ? '退款充值小票' : '充值小票'}</center></FS2>');
+    sb.writeln('--------------------------------');
+    sb.writeln('${refund ? '退回' : '充值'}单号: $orderSn');
+    sb.writeln('会员: $vipName${phone.isNotEmpty ? '  ($phone)' : ''}');
+    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('收银: ${Session.staffName}');
+    sb.writeln('--------------------------------');
+    if (refund) {
+      sb.writeln('退回金额: ¥${Fmt.money(amount)}');
+      if (gift > 0) sb.writeln('扣除赠送: ¥${Fmt.money(gift)}');
+      if (reason.isNotEmpty) sb.writeln('原因: $reason');
+    } else {
+      sb.writeln('充值金额: ¥${Fmt.money(amount)}');
+      if (gift > 0) sb.writeln('赠送金额: ¥${Fmt.money(gift)}');
+    }
+    sb.writeln('${refund ? '退款' : '支付'}方式: $payMethod');
+    if (balance != null) sb.writeln('当前余额: ¥${Fmt.money(balance)}');
+    sb.writeln('--------------------------------');
+    sb.writeln(refund ? '退款已受理，感谢您的理解' : '充值到账，谢谢惠顾');
+    return sb.toString();
+  }
+
   /// 组堂食结账小票
   static String diningReceipt({
     required String orderSn,

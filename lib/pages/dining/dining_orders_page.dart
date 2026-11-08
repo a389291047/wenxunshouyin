@@ -113,7 +113,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   Future<void> _loadChongzhi() async {
     setState(() => loading = true);
     try {
-      final l = await Api.chongzhiList(Session.wenxunId);
+      final l = await Api.chongzhikaList(Session.wenxunId);
       if (!mounted) return;
       setState(() { czAll = l; loading = false; });
     } on ApiError catch (e) {
@@ -774,6 +774,12 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
           child: Row(children: [
             const Text('充值订单', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 10),
+            const Flexible(
+              child: Text('现金充值7天内可退 · 扫码充值仅当天可退',
+                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint),
+                  overflow: TextOverflow.ellipsis),
+            ),
             const Spacer(),
             TextButton.icon(
               onPressed: _loadChongzhi,
@@ -797,7 +803,14 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   }
 
   Widget _chongzhiRow(Map r) {
-    final amount = double.tryParse('${r['amount']}') ?? 0;
+    final total = double.tryParse('${r['total']}') ?? (double.tryParse('${r['czamount']}') ?? 0);
+    final gift = double.tryParse('${r['zengsong']}') ?? 0;
+    final isScan = '${r['pay_type']}' == 'scan';
+    final refunded = '${r['pay_status']}' == '2';
+    final canRefund = r['can_refund'] == true;
+    final why = '${r['cannot_reason'] ?? ''}';
+    final vipName = '${r['vip_name'] ?? ''}';
+    final phone = '${r['phone'] ?? ''}';
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
@@ -805,26 +818,115 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
       child: Row(children: [
         Container(
           width: 38, height: 38,
-          decoration: BoxDecoration(color: PosTheme.green.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-          child: const Icon(Icons.savings_outlined, size: 19, color: PosTheme.green),
+          decoration: BoxDecoration(
+            color: (refunded ? PosTheme.textHint : PosTheme.green).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10)),
+          child: Icon(refunded ? Icons.undo : Icons.savings_outlined,
+              size: 19, color: refunded ? PosTheme.textHint : PosTheme.green),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Flexible(child: Text('${r['phone'] ?? ''}${'${r['remark'] ?? ''}'.isNotEmpty ? ' · ${r['remark']}' : ''}',
+            Flexible(child: Text(vipName.isNotEmpty ? (phone.isNotEmpty ? '$vipName · $phone' : vipName) : (phone.isNotEmpty ? phone : '会员${r['vip_id']}'),
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
                 maxLines: 1, overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 6),
-            TagChip('${r['type_text'] ?? '充值'}', color: PosTheme.green),
+            TagChip(isScan ? '扫码充值' : '现金充值', color: isScan ? PosTheme.blue : PosTheme.green),
+            if (refunded) ...[
+              const SizedBox(width: 6),
+              TagChip('已退款', color: PosTheme.textHint),
+            ],
           ]),
           const SizedBox(height: 3),
-          Text('${Fmt.date(r['create_time'])} · 变动后余额 ¥${Fmt.money(r['balance'])}',
-              style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
+          Text('${r['order_sn'] ?? ''} · ${Fmt.date(r['pay_time'])}'
+                  '${'${r['operator_name'] ?? ''}'.isNotEmpty ? ' · ${r['operator_name']}' : ''}',
+              style: const TextStyle(fontSize: 12, color: PosTheme.textSub),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
         ])),
-        Text('+¥${Fmt.money(amount)}',
-            style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: PosTheme.green)),
+        const SizedBox(width: 10),
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text('+¥${Fmt.money(total)}',
+              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700,
+                  color: refunded ? PosTheme.textHint : PosTheme.green)),
+          if (gift > 0)
+            Text('含赠送 ¥${Fmt.money(gift)}',
+                style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+          const SizedBox(height: 5),
+          if (refunded)
+            Text('已退 ¥${Fmt.money(total)}', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint))
+          else if (canRefund)
+            InkWell(
+              onTap: () => _refundChongzhi(r),
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: PosTheme.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: PosTheme.red.withOpacity(0.4)),
+                ),
+                child: const Text('退款', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.red)),
+              ),
+            )
+          else
+            SizedBox(
+              width: 150,
+              child: Text(why, textAlign: TextAlign.end,
+                  style: const TextStyle(fontSize: 11, color: PosTheme.textHint),
+                  maxLines: 2, overflow: TextOverflow.ellipsis),
+            ),
+        ]),
       ]),
     );
+  }
+
+  /// 充值退款：权限码确认 → 后端原路退（现金扣回余额 / 扫码星驿付原路）→ 打印退款充值小票
+  Future<void> _refundChongzhi(Map r) async {
+    final res = await showDialog<Map>(context: context, builder: (_) => _ChongzhiRefundDialog(record: r));
+    if (res == null || !mounted) return;
+    loadingDialog(context, '退款处理中…');
+    try {
+      final resp = await Api.chongzhikaRefund(
+        wenxunId: Session.wenxunId,
+        id: int.tryParse('${r['id']}') ?? 0,
+        operatorId: Session.staffId,
+        password: '${res['password'] ?? ''}',
+        reason: '${res['reason'] ?? ''}',
+      );
+      if (!mounted) return;
+      Navigator.pop(context); // loading
+      if ('${resp['code']}' == '200') {
+        toast(context, '退款成功，已扣回会员余额 ¥${Fmt.money(resp['data']?['total'] ?? 0)}');
+        // 退款充值小票（USB 直连优先，无 USB 走云打印；商户可在小票打印设置关闭）
+        if (await PrintPrefs.on('vipczrefund')) {
+          final scanDone = '${(resp['data'] as Map?)?['scan_done']}' == 'true';
+          CloudPrinter.print(CloudPrinter.vipRechargeTicket(
+            vipName: '${r['vip_name'] ?? ''}',
+            phone: '${r['phone'] ?? ''}',
+            orderSn: '${(resp['data'] as Map?)?['order_sn'] ?? r['order_sn'] ?? ''}',
+            amount: double.tryParse('${(resp['data'] as Map?)?['czamount'] ?? r['czamount']}') ?? 0,
+            gift: double.tryParse('${(resp['data'] as Map?)?['zengsong'] ?? r['zengsong']}') ?? 0,
+            payMethod: '${r['pay_type']}' == 'scan'
+                ? (scanDone ? '扫码原路退回' : '扫码原路退款中')
+                : '现金（线下退回）',
+            balance: double.tryParse('${resp['balance'] ?? ''}'),
+            refund: true,
+            reason: '${res['reason'] ?? ''}',
+          )).catchError((_) => <String, dynamic>{});
+        }
+        _loadChongzhi();
+      } else {
+        toast(context, '${resp['msg'] ?? '退款失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, e.message, error: true);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '退款失败：$e', error: true);
+    }
   }
 
   // ==================== 小程序（主从布局） ====================
@@ -988,6 +1090,184 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         ),
         child: Text(text,
             style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? PosTheme.accent : PosTheme.textHint)),
+      ),
+    );
+  }
+}
+
+/// 充值退款确认弹窗（v3.3.174）：退款原因（触摸屏）+ 6位权限密码九宫格
+class _ChongzhiRefundDialog extends StatefulWidget {
+  final Map record;
+  const _ChongzhiRefundDialog({required this.record});
+  @override
+  State<_ChongzhiRefundDialog> createState() => _ChongzhiRefundDialogState();
+}
+
+class _ChongzhiRefundDialogState extends State<_ChongzhiRefundDialog> {
+  String reason = '顾客要求退款';
+  String pwd = '';
+  static const List<String> _reasons = ['顾客要求退款', '充值金额有误', '其他'];
+
+  void _confirm() {
+    if (pwd.length != 6) {
+      toast(context, '请输入6位数字权限密码（由商户在设置页分配）', error: true);
+      return;
+    }
+    Navigator.pop(context, {'reason': reason, 'password': pwd});
+  }
+
+  void _key(String k) {
+    setState(() {
+      if (k == 'C') {
+        pwd = '';
+      } else if (k == '<') {
+        if (pwd.isNotEmpty) pwd = pwd.substring(0, pwd.length - 1);
+      } else if (pwd.length < 6) {
+        pwd += k;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.record;
+    final total = double.tryParse('${r['total']}') ?? 0;
+    final isScan = '${r['pay_type']}' == 'scan';
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 460,
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Text('充值退款', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PosTheme.red)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text('${r['vip_name'] ?? r['phone'] ?? ''} · ${r['order_sn'] ?? ''}',
+                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            InkWell(
+              onTap: () => Navigator.pop(context),
+              child: const Icon(Icons.close, size: 24, color: PosTheme.textHint),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: PosTheme.bg, borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('退款金额 ¥${Fmt.money(total)}',
+                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: PosTheme.red)),
+                const SizedBox(height: 3),
+                Text(isScan ? '扫码支付将原路退回顾客账户' : '现金充值，线下退回并扣回会员余额',
+                    style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
+              ])),
+            ]),
+          ),
+          const SizedBox(height: 14),
+          Row(children: [
+            const Text('退款原因', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Row(children: [
+                for (var i = 0; i < _reasons.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 8),
+                  Expanded(child: _reasonChip(_reasons[i])),
+                ],
+              ]),
+            ),
+          ]),
+          const SizedBox(height: 14),
+          // 权限密码显示框
+          Container(
+            height: 54,
+            decoration: BoxDecoration(
+              color: PosTheme.bg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: PosTheme.line),
+            ),
+            child: Row(children: [
+              const SizedBox(width: 12),
+              const Icon(Icons.lock_outline, size: 20, color: PosTheme.textHint),
+              const SizedBox(width: 12),
+              Expanded(
+                child: pwd.isEmpty
+                    ? const Text('请输入权限密码（6位数字，由商户分配）',
+                        style: TextStyle(fontSize: 13, color: PosTheme.textHint))
+                    : Row(children: [
+                        for (var i = 0; i < 6; i++) ...[
+                          if (i > 0) const SizedBox(width: 10),
+                          Container(
+                            width: 12, height: 12,
+                            decoration: BoxDecoration(
+                              color: i < pwd.length ? PosTheme.textMain : Colors.transparent,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: PosTheme.textHint, width: 1.2),
+                            ),
+                          ),
+                        ],
+                      ]),
+              ),
+              const SizedBox(width: 12),
+            ]),
+          ),
+          const SizedBox(height: 10),
+          // 9宫格数字键盘
+          Column(children: [
+            for (final row in [['1', '2', '3'], ['4', '5', '6'], ['7', '8', '9'], ['C', '0', '<']])
+              Row(children: [
+                for (final k in row)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: InkWell(
+                        onTap: () => _key(k),
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          height: 48,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: k == 'C' || k == '<' ? const Color(0xFFF7F8FA) : Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: PosTheme.line),
+                          ),
+                          child: Text(k == '<' ? '⌫' : k,
+                              style: TextStyle(fontSize: k == 'C' ? 15 : 19,
+                                  fontWeight: FontWeight.w600,
+                                  color: k == 'C' ? PosTheme.red : PosTheme.textMain)),
+                        ),
+                      ),
+                    ),
+                  ),
+              ]),
+          ]),
+          const SizedBox(height: 14),
+          BigButton('确认退款 ¥${Fmt.money(total)}', onTap: _confirm, color: PosTheme.red, height: 52),
+        ]),
+      ),
+    );
+  }
+
+  Widget _reasonChip(String text) {
+    final on = reason == text;
+    return InkWell(
+      onTap: () => setState(() => reason = text),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: 42,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: on ? const Color(0xFFFDEEEE) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: on ? PosTheme.red.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
+        ),
+        child: Text(text, style: TextStyle(
+          fontSize: 13, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+          color: on ? PosTheme.red : PosTheme.textSub,
+        ), maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     );
   }

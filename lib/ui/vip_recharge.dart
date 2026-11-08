@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/api.dart';
+import '../core/cloud_printer.dart';
+import '../core/print_prefs.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import '../core/voice.dart';
@@ -129,6 +131,18 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
       );
       if (!mounted) return;
       if ('${r2['code']}' == '200') {
+        // 充值小票（v3.3.174）：小票打印设置可关；USB 直连优先，无 USB 自动走云打印
+        if (await PrintPrefs.on('vipcz')) {
+          CloudPrinter.print(CloudPrinter.vipRechargeTicket(
+            vipName: '${widget.vip['name'] ?? widget.vip['xm'] ?? ''}',
+            phone: '${widget.vip['phone'] ?? ''}',
+            orderSn: '${r2['order_sn'] ?? ''}',
+            amount: amount,
+            gift: gift,
+            payMethod: cashMode ? '现金' : '扫码支付',
+            balance: double.tryParse('${r2['balance'] ?? ''}'),
+          )).catchError((_) => <String, dynamic>{});
+        }
         Navigator.pop(context, {'amount': amount, 'gift': gift});
       } else {
         setState(() => submitting = false);

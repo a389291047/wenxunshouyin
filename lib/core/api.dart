@@ -445,6 +445,30 @@ class Api {
     });
   }
 
+  /// 收银端充值记录列表（v3.3.174，wx_vip_chongzhika 近7天，含退款可行性 can_refund/cannot_reason）
+  static Future<List> chongzhikaList(int wenxunId) async {
+    final r = await post('/shouyin/vip/chongzhikaList', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') return (r['data']?['list'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取充值记录失败'}');
+  }
+
+  /// 充值退款（v3.3.174）：现金 7 天内 / 扫码当天，权限码校验，扫码走星驿付原路
+  static Future<Map<String, dynamic>> chongzhikaRefund({
+    required int wenxunId,
+    required int id,
+    required int operatorId,
+    required String password,
+    String reason = '',
+  }) {
+    return post('/shouyin/vip/chongzhikaRefund', {
+      'wenxun_id': wenxunId,
+      'id': id,
+      'operator_id': operatorId,
+      'password': password,
+      if (reason.isNotEmpty) 'reason': reason,
+    });
+  }
+
   /// 会员充值 · 扫顾客付款码支付（与小程序充值页同源 payment/codePay，type=A 充值）
   /// amount 单位元（两位小数字符串），code 为 18-30 位付款码；orderNo 客户端生成便于对账入账
   static Future<Map<String, dynamic>> rechargeCodePay({

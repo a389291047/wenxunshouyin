@@ -19,6 +19,8 @@ class PrintPrefs {
     {'key': 'shift',   'label': '交班单',        'desc': '交接班统计小票', 'scope': 'all'},
     {'key': 'order',   'label': '订单重打小票',   'desc': '订单管理页手动重打', 'scope': 'retail'},
     {'key': 'refund',  'label': '退款单',        'desc': '订单退款小票', 'scope': 'retail'},
+    {'key': 'vipcz',       'label': '充值小票',     'desc': '会员充值成功后自动打印（收银端充值）', 'scope': 'all'},
+    {'key': 'vipczrefund', 'label': '退款充值小票', 'desc': '会员充值退款成功后自动打印', 'scope': 'all'},
   ];
 
   /// 按当前行业过滤可显示的小票类型（餐饮跟零售分开）：
