@@ -3,13 +3,15 @@ import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
 import '../core/voice.dart';
+import 'brand_logos.dart';
 import 'widgets.dart';
 
-/// 会员充值弹窗（v3.3.62 重构）：
-/// - 充值档次：读商户充值活动（v1.vip/huodonglst，按金额升序）
-/// - 两种方式：现金充值（需权限密码，9宫格输入）/ 付款码充值（扫顾客付款码，免密）
+/// 会员充值弹窗（v3.3.168 优化）：
+/// - 充值档次：读商户充值活动（v1.vip/huodonglst，按金额升序），默认选中第一个
+/// - 两种方式：付款码充值（扫顾客付款码，免密，默认）/ 现金充值（需权限密码）
 /// - 付款码走星驿付 codePay（type=A），成功后调 shouyin/vip/chongzhi 入账；
 ///   商户未开通星驿付时提示「联系客服开通支付」
+/// - 关闭按钮为右上角悬浮白色 X
 /// 充值成功返回 {'amount': 本金, 'gift': 赠送}，取消/失败返回 null。
 Future<Map?> showVipRechargeDialog(BuildContext context, {required Map vip}) {
   return showDialog<Map>(
@@ -29,7 +31,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   late final Future<List> tiersFuture; // 只创建一次，避免 rebuild 重复请求
   final codeCtrl = TextEditingController();
   Map? tier;
-  bool cashMode = true; // true=现金充值 false=付款码充值
+  bool cashMode = false; // false=付款码充值（默认，免密） true=现金充值
   String pwd = ''; // 权限密码（6位数字，现金充值用）
   bool submitting = false;
 
@@ -146,11 +148,14 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   @override
   Widget build(BuildContext context) {
     final v = widget.vip;
-    return AlertDialog(
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+      AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: EdgeInsets.zero,
       contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
-      actionsPadding: const EdgeInsets.fromLTRB(22, 4, 22, 18),
+      actionsPadding: const EdgeInsets.fromLTRB(22, 4, 22, 20),
       title: _header(v),
       content: SizedBox(
         width: 520,
@@ -179,13 +184,20 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                     _tierCard(t),
                 ]),
               const SizedBox(height: 18),
-              // ---- 充值方式 ----
+              // ---- 充值方式（扫码支付排第一，v3.3.168）----
               Row(children: [
-                Expanded(child: _modeChip('现金充值（权限码）', Icons.payments_outlined, cashMode,
-                    () => setState(() => cashMode = true))),
-                const SizedBox(width: 12),
-                Expanded(child: _modeChip('扫码支付', Icons.qr_code_scanner, !cashMode,
+                Expanded(child: _modeChip(
+                    '扫码支付',
+                    WechatPayLogo(size: 19,
+                        color: !cashMode ? PosTheme.accent : PosTheme.textSub),
+                    !cashMode,
                     () => setState(() => cashMode = false))),
+                const SizedBox(width: 12),
+                Expanded(child: _modeChip('现金充值（权限码）',
+                    Icon(Icons.payments_outlined, size: 18,
+                        color: cashMode ? PosTheme.accent : PosTheme.textSub),
+                    cashMode,
+                    () => setState(() => cashMode = true))),
               ]),
               const SizedBox(height: 14),
               if (cashMode) ...[
@@ -212,37 +224,70 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         ),
       ),
       actions: [
-        Row(children: [
-          Expanded(
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                foregroundColor: PosTheme.textSub,
-                side: const BorderSide(color: PosTheme.line),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        // 渐变大按钮（v3.3.168）：取消已移到右上角 X
+        DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFFF8A5C), Color(0xFFFF5B2E)]),
+            boxShadow: [
+              BoxShadow(
+                  color: const Color(0xFFFF5B2E).withOpacity(0.35),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: submitting ? null : _submit,
+              child: Container(
+                height: 56,
+                alignment: Alignment.center,
+                child: submitting
+                    ? const SizedBox(
+                        width: 20, height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
+                    : const Text('确认充值',
+                        style: TextStyle(
+                            fontSize: 17.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 1)),
               ),
-              onPressed: submitting ? null : () => Navigator.pop(context),
-              child: const Text('取消', style: TextStyle(fontSize: 15)),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: PosTheme.accent,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: submitting ? null : _submit,
-              child: submitting
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : Text(cashMode ? '确认现金充值' : '确认收款', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
+        ),
+      ],
+      ),
+      // ===== 悬浮关闭按钮：凸出右上角，透明底白色 X =====
+      Positioned(
+        top: -8,
+        right: -8,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => Navigator.pop(context),
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(Icons.close_rounded,
+                  size: 26,
+                  color: Colors.white,
+                  shadows: const [
+                    Shadow(
+                        color: Color(0x4D000000),
+                        blurRadius: 6,
+                        offset: Offset(0, 2)),
+                  ]),
             ),
           ),
-        ]),
+        ),
+      ),
       ],
     );
   }
@@ -344,7 +389,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
     );
   }
 
-  Widget _modeChip(String text, IconData icon, bool on, VoidCallback onTap) {
+  Widget _modeChip(String text, Widget icon, bool on, VoidCallback onTap) {
     return InkWell(
       onTap: submitting ? null : onTap,
       borderRadius: BorderRadius.circular(10),
@@ -357,7 +402,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           border: Border.all(color: on ? PosTheme.accent.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 18, color: on ? PosTheme.accent : PosTheme.textSub),
+          icon,
           const SizedBox(width: 6),
           Text(text, style: TextStyle(
             fontSize: 14.5, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
