@@ -191,10 +191,16 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                   child: const Text('暂无充值活动，请联系店长配置充值档次', style: TextStyle(fontSize: 13.5, color: PosTheme.textHint)),
                 )
               else
-                Wrap(spacing: 12, runSpacing: 12, children: [
-                  for (final t in tiers)
-                    _tierCard(t),
-                ]),
+                // 档次太多时只显示 2 行（每行 3 个），其余上下滑动选择（v3.3.175）
+                SizedBox(
+                  height: 158,
+                  child: SingleChildScrollView(
+                    child: Wrap(spacing: 12, runSpacing: 12, children: [
+                      for (final t in tiers)
+                        _tierCard(t),
+                    ]),
+                  ),
+                ),
               const SizedBox(height: 18),
               // ---- 充值方式（扫码支付排第一，v3.3.168）----
               Row(children: [
