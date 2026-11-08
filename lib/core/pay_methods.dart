@@ -6,11 +6,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 class PayMethods {
   static const prefKey = 'pay_method_order';
 
-  /// 全部支付方式（结账弹窗可用集合）
-  static const all = ['微信支付', '支付宝', '现金', '挂账', '会员余额'];
+  /// 全部支付方式（v3.3.176 餐饮+零售统一复用：扫码收款/会员支付=零售/生鲜/不开台/挂账核销用，
+  /// 会员余额=餐饮结账用；商户排序全局生效，各场景只显示自己有的方式）
+  static const all = ['微信支付', '支付宝', '现金', '扫码收款', '挂账', '会员余额', '会员支付'];
 
-  /// 默认排序：微信 → 支付宝 → 现金 → 挂账 → 会员（会员放最后）
-  static const defaultOrder = ['微信支付', '支付宝', '现金', '挂账', '会员余额'];
+  /// 默认排序：微信 → 支付宝 → 现金 → 扫码收款 → 挂账 → 会员余额 → 会员支付
+  static const defaultOrder = ['微信支付', '支付宝', '现金', '扫码收款', '挂账', '会员余额', '会员支付'];
 
   /// 读取商户自定义排序（含默认值兜底 + 未知方式追加）
   static Future<List<String>> load() async {

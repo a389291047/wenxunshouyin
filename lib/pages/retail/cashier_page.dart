@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
@@ -177,8 +178,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
     final t = total;
-    // 未选会员时不出现「会员支付」，避免误点
-    final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付'];
+    // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
+    final order = await PayMethods.load();
+    final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
+      ..sort((a, b) => order.indexOf(a).compareTo(order.indexOf(b)));
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),

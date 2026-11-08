@@ -3316,8 +3316,11 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   };
 
   List<String> get _methods {
-    // 商户自定义排序（设置 → 支付方式排序），会员余额需先选会员
+    // 商户自定义排序（设置 → 支付方式排序，v3.3.176 与零售/生鲜复用同一排序）；
+    // 餐饮只显示餐饮有的方式（扫码收款/会员支付是零售专属），会员余额需先选会员
+    const diningSet = ['微信支付', '支付宝', '现金', '挂账', '会员余额'];
     final list = methodOrder
+        .where(diningSet.contains)
         .where((m) => m != '会员余额' || vip != null)
         .toList();
     return list;

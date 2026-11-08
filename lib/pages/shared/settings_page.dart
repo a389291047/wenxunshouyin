@@ -1352,7 +1352,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
       ]),
       const SizedBox(height: 4),
-      const Text('结账弹窗按此顺序展示支付方式（默认微信支付 → 支付宝 → 现金 → 挂账 → 会员余额）。\n微信支付/支付宝点卡片即进入扫码枪收款，付款成功自动完成结账；现金/挂账/会员余额需收银员点「确认收款」。',
+      const Text('结账收款弹窗按此顺序展示支付方式，餐饮结账 / 零售生鲜收款 / 不开台 / 挂账核销全部复用同一排序。\n微信支付/支付宝点卡片即进入扫码枪收款，付款成功自动完成结账；现金/挂账/会员需收银员点「确认收款」。各场景只显示自己有的方式（如餐饮无「扫码收款/会员支付」、零售无「挂账」）。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 12),
       for (var i = 0; i < payOrder.length; i++) _payOrderRow(i),
@@ -1362,11 +1362,13 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _payOrderRow(int i) {
     final m = payOrder[i];
     final c = const {
-      '微信支付': Color(0xFF09BB07),
+      '微信支付': Color(0xFF07C160),
       '支付宝': Color(0xFF1677FF),
       '现金': Color(0xFF22B573),
+      '扫码收款': PosTheme.blue,
       '挂账': Color(0xFFE4573D),
       '会员余额': PosTheme.accent,
+      '会员支付': PosTheme.accent,
     }[m] ?? PosTheme.textSub;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
@@ -26,6 +27,7 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
   bool loading = true;
   final List<Map<String, dynamic>> cart = [];
   Map? vip; // 会员余额支付用
+  List<String> payOrder = PayMethods.defaultOrder; // 商户支付方式排序（v3.3.176 复用）
 
   double get total =>
       cart.fold(0, (s, g) => s + (g['unit_price'] as double) * (g['quantity'] as int));
@@ -34,6 +36,9 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
   void initState() {
     super.initState();
     _loadCats();
+    PayMethods.load().then((o) {
+      if (mounted) setState(() => payOrder = o);
+    });
   }
 
   Future<void> _loadCats() async {
@@ -222,11 +227,13 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
                       Text('¥${Fmt.money(total)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: PosTheme.accent)),
                     ]),
                     const SizedBox(height: 10),
-                    Row(children: [
-                      Expanded(child: BigButton('现金收款', onTap: () => _checkout('现金'), color: PosTheme.green, height: 46)),
-                      const SizedBox(width: 8),
-                      Expanded(child: BigButton('扫码收款', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46)),
-                    ]),
+                    // 现金/扫码顺序按商户「支付方式排序」（v3.3.176 全场景复用）
+                    Builder(builder: (_) {
+                      final cashFirst = payOrder.indexOf('现金') <= payOrder.indexOf('扫码收款');
+                      final cashBtn = Expanded(child: BigButton('现金收款', onTap: () => _checkout('现金'), color: PosTheme.green, height: 46));
+                      final scanBtn = Expanded(child: BigButton('扫码收款', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46));
+                      return Row(children: cashFirst ? [cashBtn, const SizedBox(width: 8), scanBtn] : [scanBtn, const SizedBox(width: 8), cashBtn]);
+                    }),
                     const SizedBox(height: 8),
                     Row(children: [
                       Expanded(child: BigButton(
@@ -685,6 +692,11 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
   }
 
   Future<void> _settle(Map row) async {
+    // 现金/扫码按钮顺序按商户「支付方式排序」（v3.3.176 全场景复用）
+    final payOrder = await PayMethods.load();
+    final cashFirst = payOrder.indexOf('现金') <= payOrder.indexOf('扫码收款');
+    final cashBtn = BigButton('现金收款', onTap: () => Navigator.pop(context, '现金'), color: PosTheme.green, height: 46);
+    final scanBtn = BigButton('扫码收款', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46);
     final pay = await showDialog<String>(
       context: context,
       builder: (_) => AlertDialog(
@@ -694,9 +706,7 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
           const SizedBox(height: 6),
           Text('金额 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
           const SizedBox(height: 14),
-          BigButton('现金收款', onTap: () => Navigator.pop(context, '现金'), color: PosTheme.green, height: 46),
-          const SizedBox(height: 8),
-          BigButton('扫码收款', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46),
+          ...(cashFirst ? [cashBtn, const SizedBox(height: 8), scanBtn] : [scanBtn, const SizedBox(height: 8), cashBtn]),
         ])),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
       ),
