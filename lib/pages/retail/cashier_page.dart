@@ -178,29 +178,66 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
     final t = total;
-    // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final order = await PayMethods.load();
+
+    // ===== 快捷通道（v3.3.177 复用餐饮 v3.3.164）：默认支付方式是微信/支付宝时，
+    // 点「收款」直接弹付款码，扫码成功自动落单，全程零确认 =====
+    final quick = order.isNotEmpty ? order.first : '';
+    if (quick == '微信支付' || quick == '支付宝') {
+      final quickNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+      final pay = await showXyfScanPayDialog(context,
+          amount: t, title: '扫码收款 · $quick', bizType: 'retail',
+          orderNo: quickNo, moreLabel: '其他方式 → 完整收款');
+      if (!mounted) return;
+      if (pay != null && pay['more'] != true) {
+        return _finishOrder(quick, t,
+            xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
+            xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
+      }
+      // 取消扫码 或 点「其他方式」→ 继续走下面的完整弹窗
+    }
+
+    // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
       ..sort((a, b) => order.indexOf(a).compareTo(order.indexOf(b)));
-    final picked = await showDialog<String>(
+    final picked = await showDialog<dynamic>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
-    // 扫码收款：星驿付付款码支付（扫码枪扫顾客付款码，微信/支付宝自动识别）
-    // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
-    String? xyfOrderNo;
+    // 微信/支付宝免确认直通（弹窗内点卡片直接扫码成功）会带回 Map（含支付流水），直接落单
+    String pickedMethod;
+    String xyfOrderNo = '';
     int xyfChannel = 0;
-    if (picked == '扫码收款') {
-      xyfOrderNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+    if (picked is Map) {
+      pickedMethod = '${picked['method']}';
+      xyfOrderNo = '${picked['xyf_order_no'] ?? ''}';
+      xyfChannel = (picked['xyf_channel'] as int?) ?? 0;
+    } else {
+      pickedMethod = picked;
+    }
+    // 扫码类支付：未带支付流水时弹付款码（扫码枪扫顾客付款码，微信/支付宝自动识别）
+    // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
+    if (xyfOrderNo.isEmpty &&
+        (pickedMethod == '扫码收款' || pickedMethod == '微信支付' || pickedMethod == '支付宝')) {
+      final preNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
-          amount: t, bizType: 'retail', orderNo: xyfOrderNo);
+          amount: t,
+          title: pickedMethod == '扫码收款' ? '扫码收款' : '扫码收款 · $pickedMethod',
+          bizType: 'retail', orderNo: preNo);
       if (pay == null || !mounted) return;
-      xyfOrderNo = '${pay['orderNo'] ?? xyfOrderNo}';
+      xyfOrderNo = '${pay['orderNo'] ?? preNo}';
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
+    await _finishOrder(pickedMethod, t,
+        xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
+  }
 
+  /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
+  Future<void> _finishOrder(String picked, double t,
+      {String xyfOrderNo = '', int xyfChannel = 0}) async {
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
       'name': l.goods['title'],
@@ -259,7 +296,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
         cart: cartPayload,
-        payOrderNo: xyfOrderNo ?? '',
+        payOrderNo: xyfOrderNo,
         payChannel: xyfChannel,
       );
       if (!mounted) return;
@@ -783,16 +820,18 @@ class _PayDialogState extends State<RetailPayDialog> {
                 const SizedBox(height: 12),
                 Text(method == '会员支付'
                         ? '将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}'
-                        : method == '扫码收款'
+                        : method == '扫码收款' || method == '微信支付' || method == '支付宝'
                             ? '点「确认收款」后用扫码枪扫顾客付款码（微信/支付宝自动识别）'
-                            : '请顾客使用$method扫码支付',
+                            : '确认到账后点击下方「确认收款」',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 16, color: PosTheme.textSub)),
                 const SizedBox(height: 6),
                 Text(
                     method == '会员支付'
                         ? '当前余额 ¥${Fmt.money((double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0) + (double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0))}'
-                        : '确认到账后点击下方「确认收款」',
+                        : method == '扫码收款' || method == '微信支付' || method == '支付宝'
+                            ? '扫码成功自动完成收款'
+                            : '确认到账后点击下方「确认收款」',
                     style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
               ]),
             ),
@@ -819,12 +858,37 @@ class _PayDialogState extends State<RetailPayDialog> {
     );
   }
 
+  /// 选择支付方式（v3.3.177 复用餐饮免确认直通）：
+  /// 微信/支付宝点卡片直接弹付款码，扫码成功带支付流水关单，跳过「确认收款」按钮；
+  /// 其余方式照旧选中后手动确认
+  Future<void> _pick(String m) async {
+    if (m != '微信支付' && m != '支付宝') {
+      setState(() => method = m);
+      return;
+    }
+    final orderNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+        '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+    final pay = await showXyfScanPayDialog(context,
+        amount: widget.total, title: '扫码收款 · $m', bizType: 'retail', orderNo: orderNo);
+    if (!mounted) return;
+    if (pay == null) {
+      // 扫码取消：不记账，收回选中状态，防止误点「确认收款」造成记账式收款
+      setState(() => method = null);
+      return;
+    }
+    Navigator.pop(context, {
+      'method': m,
+      'xyf_order_no': '${pay['orderNo'] ?? orderNo}',
+      'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+    });
+  }
+
   Widget _methodTile(String m) {
     final on = method == m;
     final disabled = m == '会员支付' && widget.vip == null;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: disabled ? null : () => setState(() => method = m),
+      onTap: disabled ? null : () => _pick(m),
       child: Container(
         height: 84,
         decoration: BoxDecoration(

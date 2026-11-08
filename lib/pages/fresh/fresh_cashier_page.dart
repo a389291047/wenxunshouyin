@@ -160,29 +160,66 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
     final t = total;
-    // 按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final order = await PayMethods.load();
+
+    // ===== 快捷通道（v3.3.177 复用餐饮）：默认支付方式是微信/支付宝时，
+    // 点「收款」直接弹付款码，扫码成功自动落单，全程零确认 =====
+    final quick = order.isNotEmpty ? order.first : '';
+    if (quick == '微信支付' || quick == '支付宝') {
+      final quickNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+      final pay = await showXyfScanPayDialog(context,
+          amount: t, title: '扫码收款 · $quick', bizType: 'retail',
+          orderNo: quickNo, moreLabel: '其他方式 → 完整收款');
+      if (!mounted) return;
+      if (pay != null && pay['more'] != true) {
+        return _createPaidOrder(quick, t,
+            xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
+            xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
+      }
+      // 取消扫码 或 点「其他方式」→ 继续走下面的完整弹窗
+    }
+
+    // 按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
       ..sort((a, b) => order.indexOf(a).compareTo(order.indexOf(b)));
-    final picked = await showDialog<String>(
+    final picked = await showDialog<dynamic>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
     );
     if (picked == null || !mounted) return;
-    // 扫码收款：星驿付付款码支付（扫码枪扫顾客付款码，微信/支付宝自动识别）
-    // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
-    String? xyfOrderNo;
+    // 微信/支付宝免确认直通（弹窗内点卡片直接扫码成功）会带回 Map（含支付流水），直接落单
+    String pickedMethod;
+    String xyfOrderNo = '';
     int xyfChannel = 0;
-    if (picked == '扫码收款') {
-      xyfOrderNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+    if (picked is Map) {
+      pickedMethod = '${picked['method']}';
+      xyfOrderNo = '${picked['xyf_order_no'] ?? ''}';
+      xyfChannel = (picked['xyf_channel'] as int?) ?? 0;
+    } else {
+      pickedMethod = picked;
+    }
+    // 扫码类支付：未带支付流水时弹付款码（扫码枪扫顾客付款码，微信/支付宝自动识别）
+    // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
+    if (xyfOrderNo.isEmpty &&
+        (pickedMethod == '扫码收款' || pickedMethod == '微信支付' || pickedMethod == '支付宝')) {
+      final preNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
-          amount: t, bizType: 'retail', orderNo: xyfOrderNo);
+          amount: t,
+          title: pickedMethod == '扫码收款' ? '扫码收款' : '扫码收款 · $pickedMethod',
+          bizType: 'retail', orderNo: preNo);
       if (pay == null || !mounted) return;
-      xyfOrderNo = '${pay['orderNo'] ?? xyfOrderNo}';
+      xyfOrderNo = '${pay['orderNo'] ?? preNo}';
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
+    await _createPaidOrder(pickedMethod, t,
+        xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
+  }
 
+  /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
+  Future<void> _createPaidOrder(String picked, double t,
+      {String xyfOrderNo = '', int xyfChannel = 0}) async {
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
       'name': l.goods['title'],
@@ -233,7 +270,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
         cart: cartPayload,
-        payOrderNo: xyfOrderNo ?? '',
+        payOrderNo: xyfOrderNo,
         payChannel: xyfChannel,
       );
       if (!mounted) return;
