@@ -288,7 +288,16 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   maxLines: 1, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 6),
-              TagChip(_statusText(o), color: _statusColor(o)),
+              // 挂账未核销：实心红标签（醒目），其余走普通状态标签
+              if (_gzPending(o))
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                  decoration: BoxDecoration(color: PosTheme.red, borderRadius: BorderRadius.circular(6)),
+                  child: const Text('未结算 · 挂账未核销',
+                      style: TextStyle(fontSize: 11.5, color: Colors.white, fontWeight: FontWeight.w700)),
+                )
+              else
+                TagChip(_statusText(o), color: _statusColor(o)),
               if (refundTotal > 0) ...[
                 const SizedBox(width: 6),
                 const TagChip('有退款', color: PosTheme.red),
@@ -381,7 +390,15 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             const SizedBox(width: 8),
             Expanded(child: Text('${'${o['order_status']}' == '0' ? '就餐中' : '堂食订单'} · ${o['table_title'] ?? ''}',
                 style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700))),
-            TagChip(_statusText(o), color: _statusColor(o)),
+            if (_gzPending(o))
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: PosTheme.red, borderRadius: BorderRadius.circular(6)),
+                child: const Text('未结算 · 挂账未核销',
+                    style: TextStyle(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w700)),
+              )
+            else
+              TagChip(_statusText(o), color: _statusColor(o)),
           ]),
         ),
         Expanded(child: ListView(
@@ -429,7 +446,14 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             ..._feeRows(o),
             const Divider(height: 14, color: PosTheme.line),
             Row(children: [
-              Text('${o['order_status']}' == '0' ? '消费金额' : '实收', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+              Text(
+                  _gzPending(o)
+                      ? '挂账待收'
+                      : ('${o['order_status']}' == '0' ? '消费金额' : '实收'),
+                  style: TextStyle(
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.w600,
+                      color: _gzPending(o) ? PosTheme.red : null)),
               const Spacer(),
               Text('¥${Fmt.money(total)}',
                   style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: PosTheme.accent)),
