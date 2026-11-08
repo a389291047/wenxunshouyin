@@ -1,5 +1,5 @@
 name: wenxun
-version: 3.3.164+3464
+version: 3.3.165+3465
 
 environment:
   sdk: '>=3.5.0 <4.0.0'
@@ -20,6 +20,7 @@ dependencies:
   fast_gbk: ^1.0.0     # 小票 GBK 编码（热敏打印机内置中文字库）
   package_info_plus: ^8.3.0  # 在线更新：读取当前版本号
   crypto: ^3.0.6       # 在线更新：安装包 MD5 校验
+  flutter_svg: ^2.0.10 # 官方品牌 logo（微信支付/支付宝）矢量渲染
 
 dev_dependencies:
   flutter_test:
