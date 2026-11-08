@@ -139,11 +139,11 @@ class _ShiftPageState extends State<ShiftPage> {
       toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
       return;
     }
-    final sp = await SharedPreferences.getInstance();
-    final paper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
+    final spec = await UsbPrinter.currentSpec();
     loadingDialog(context, 'USB 打印交班单…');
     try {
-      await UsbPrinter.printTicket(p, _shiftTicket, paperWidth: paper);
+      await UsbPrinter.printTicket(p, _shiftTicket,
+          paperWidth: spec['width'] as int, mode: spec['mode'] as String);
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '交班单已发送 USB 打印');

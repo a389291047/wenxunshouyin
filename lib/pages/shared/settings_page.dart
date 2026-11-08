@@ -34,6 +34,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool usbLoading = false;
   bool usbEnabled = false;
   int usbPaper = 58;
+  String usbSpec = 'pos58'; // pos58/pos80/dot/a4
   Map<String, dynamic>? usbSelected;
   List<Map<String, dynamic>> usbPrinters = [];
 
@@ -1019,6 +1020,8 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       usbEnabled = sp.getBool(UsbPrinter.prefEnabled) ?? false;
       usbPaper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
+      usbSpec = sp.getString(UsbPrinter.prefSpec) ??
+          ((usbPaper >= 80) ? 'pos80' : 'pos58');
       final raw = sp.getString(UsbPrinter.prefPrinter);
       usbSelected = (raw == null || raw.isEmpty)
           ? null
@@ -1053,6 +1056,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final sp = await SharedPreferences.getInstance();
     await sp.setBool(UsbPrinter.prefEnabled, usbEnabled);
     await sp.setInt(UsbPrinter.prefPaper, usbPaper);
+    await sp.setString(UsbPrinter.prefSpec, usbSpec);
     await sp.setString(
         UsbPrinter.prefPrinter, usbSelected == null ? '' : jsonEncode(usbSelected));
   }
@@ -1079,9 +1083,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     loadingDialog(context, '发送测试小票…');
     try {
-      await UsbPrinter.printTicket(sel,
-          '<FS2><center>测试小票</center></FS2>\n--------------------------------\n稳讯收银桌面版\nUSB打印机：${sel['name']}\n纸张：${usbPaper}mm\n时间：${DateTime.now().toString().substring(0, 19)}\n--------------------------------\n打印正常，可开始收银',
-          paperWidth: usbPaper);
+      final spec = UsbPrinter.specOf(usbSpec);
+      await UsbPrinter.printTicket(sel, _usbSampleTicket('${sel['name']}', '${spec['label']}'),
+          paperWidth: spec['width'] as int, mode: spec['mode'] as String);
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '测试小票已发送，出纸即为打印成功');
@@ -1559,15 +1563,26 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           );
         }),
-      // 纸张宽度 + 测试
+      // 纸张规格 + 预览 + 测试
       const SizedBox(height: 4),
       Row(children: [
-        const Text('纸张宽度', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+        const Text('纸张规格', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
         const SizedBox(width: 10),
-        _paperChip(58),
-        const SizedBox(width: 8),
-        _paperChip(80),
+        _specChip('pos58', '58mm小票'),
+        const SizedBox(width: 6),
+        _specChip('pos80', '80mm小票'),
+        const SizedBox(width: 6),
+        _specChip('dot', '针式连续纸'),
+        const SizedBox(width: 6),
+        _specChip('a4', 'A4纸'),
         const Spacer(),
+        OutlinedButton.icon(
+          onPressed: _usbPreview,
+          style: OutlinedButton.styleFrom(foregroundColor: PosTheme.blue, side: const BorderSide(color: PosTheme.blue)),
+          icon: const Icon(Icons.visibility_outlined, size: 16),
+          label: const Text('预览'),
+        ),
+        const SizedBox(width: 8),
         OutlinedButton.icon(
           onPressed: usbSelected == null ? null : _usbTest,
           style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
@@ -1577,7 +1592,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ]),
       const Padding(
         padding: EdgeInsets.only(top: 4),
-        child: Text('提示：USB 打印需热敏小票机（ESC/POS 协议）。关闭开关时小票自动改走云打印机。',
+        child: Text('提示：热敏小票机选 58/80mm；针式打印机（EPSON LQ 系列等）选「针式连续纸」或「A4纸」，打印完自动换页出纸，不再卡在"正在打印"。关闭开关时小票自动改走云打印机。',
             style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       ),
     ]));
@@ -1592,25 +1607,115 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Widget _paperChip(int w) {
-    final sel = usbPaper == w;
+  Widget _specChip(String key, String label) {
+    final sel = usbSpec == key;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {
-        setState(() => usbPaper = w);
+        setState(() => usbSpec = key);
+        final spec = UsbPrinter.specOf(key);
+        setState(() => usbPaper = spec['width'] as int);
         await _saveUsbPrefs();
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: sel ? PosTheme.accent : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: sel ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
         ),
-        child: Text('${w}mm',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
+        child: Text(label,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
       ),
     );
+  }
+
+  /// 测试小票样张（预览与测试打印共用）
+  static String _usbSampleTicket(String printerName, String specLabel) {
+    return '<FS2><center>测试小票</center></FS2>\n'
+        '--------------------------------\n'
+        '稳讯收银桌面版\n'
+        'USB打印机：$printerName\n'
+        '纸张规格：$specLabel\n'
+        '--------------------------------\n'
+        '湖南小炒肉 x1        ¥38.00\n'
+        '可乐 x2              ¥6.00\n'
+        '--------------------------------\n'
+        '合计：¥44.00\n'
+        '时间：${DateTime.now().toString().substring(0, 19)}\n'
+        '--------------------------------\n'
+        '打印正常，可开始收银';
+  }
+
+  /// 打印预览：弹窗内实时切换纸张规格查看效果
+  Future<void> _usbPreview() async {
+    String spec = usbSpec;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        final s = UsbPrinter.specOf(spec);
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('小票打印预览', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          content: SizedBox(
+            width: 520,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // 规格切换（实时刷新预览）
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                for (final e in const [
+                  ['pos58', '58mm小票'],
+                  ['pos80', '80mm小票'],
+                  ['dot', '针式连续纸'],
+                  ['a4', 'A4纸'],
+                ])
+                  InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => setD(() => spec = '${e[0]}'),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: spec == e[0] ? PosTheme.accent : const Color(0xFFF5F6F8),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: spec == e[0] ? PosTheme.accent : Colors.transparent),
+                      ),
+                      child: Text('${e[1]}',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: spec == e[0] ? Colors.white : PosTheme.textSub)),
+                    ),
+                  ),
+              ]),
+              const SizedBox(height: 14),
+              // 纸张效果预览
+              Center(child: _TicketPaper(content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机', '${s['label']}'), spec: spec)),
+              const SizedBox(height: 8),
+              Text(
+                spec == 'dot'
+                    ? '针式连续纸：两侧带孔的连打纸，打印完自动换页走纸'
+                    : spec == 'a4'
+                        ? 'A4 单页纸：针式打印机单页送纸，打印完自动退纸'
+                        : '热敏小票机：打印完自动切纸（需打印机支持切刀）',
+                style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: PosTheme.accent),
+              child: const Text('使用该规格'),
+            ),
+          ],
+        );
+      }),
+    );
+    if (ok == true) {
+      setState(() => usbSpec = spec);
+      final s = UsbPrinter.specOf(spec);
+      setState(() => usbPaper = s['width'] as int);
+      await _saveUsbPrefs();
+      if (mounted) toast(context, '已切换：${s['label']}');
+    }
   }
 
   Widget _sectionTitle(IconData icon, String text) {
@@ -1632,5 +1737,119 @@ class _SettingsPageState extends State<SettingsPage> {
         Text(v.isEmpty ? '-' : v, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
       ]),
     ));
+  }
+}
+
+/// 小票纸张预览：按规格模拟纸张宽度/字号/样式（预览弹窗用）
+class _TicketPaper extends StatelessWidget {
+  final String content;
+  final String spec; // pos58/pos80/dot/a4
+  const _TicketPaper({required this.content, required this.spec});
+
+  @override
+  Widget build(BuildContext context) {
+    // 纸张视觉宽度与字号
+    final double paperW;
+    final double fontSize;
+    switch (spec) {
+      case 'pos80':
+        paperW = 310;
+        fontSize = 13;
+        break;
+      case 'dot':
+        paperW = 400;
+        fontSize = 14;
+        break;
+      case 'a4':
+        paperW = 470;
+        fontSize = 13.5;
+        break;
+      default:
+        paperW = 230;
+        fontSize = 12;
+    }
+    final isDot = spec == 'dot' || spec == 'a4';
+
+    final lines = <Widget>[];
+    for (final raw in content.replaceAll('\r\n', '\n').split('\n')) {
+      final t = raw.trim();
+      if (t.isEmpty) {
+        lines.add(SizedBox(height: fontSize * 0.7));
+        continue;
+      }
+      final lower = t.toLowerCase();
+      final center = lower.contains('<center>') || lower.contains('<cb>');
+      final double_ = lower.contains('<fs2>') || lower.contains('<cb>');
+      final bold = lower.contains('<fb>') || lower.contains('<cb>') || lower.contains('<bold>');
+      final text = t.replaceAll(
+          RegExp(r'</?(CB|C|B|BOLD|FS|FS2|FB|FH|FH2|FW|FW2|center|right|left)>', caseSensitive: false), '');
+      if (text.isEmpty) {
+        lines.add(SizedBox(height: fontSize * 0.7));
+        continue;
+      }
+      if (text == '-' * text.length && text.length >= 8) {
+        // 分隔线
+        lines.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(children: [
+            Expanded(child: Container(height: 1, color: const Color(0xFFB9BDC7))),
+          ]),
+        ));
+        continue;
+      }
+      lines.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1.5),
+        child: Text(
+          text,
+          textAlign: center ? TextAlign.center : TextAlign.left,
+          style: TextStyle(
+            fontSize: double_ ? fontSize * 1.5 : fontSize,
+            fontWeight: bold ? FontWeight.w700 : FontWeight.w400,
+            height: 1.35,
+            color: const Color(0xFF22242A),
+          ),
+        ),
+      ));
+    }
+
+    return Container(
+      width: paperW,
+      padding: EdgeInsets.fromLTRB(18, 16, 18, isDot ? 26 : 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(isDot ? 4 : 10),
+        border: Border.all(color: const Color(0xFFD8DBE2)),
+        boxShadow: const [BoxShadow(color: Color(0x14101828), blurRadius: 10, offset: Offset(0, 3))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 针式纸顶部齿轮孔装饰
+          if (isDot)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                for (var i = 0; i < 16; i++)
+                  Container(width: 5, height: 5, decoration: const BoxDecoration(color: Color(0xFFE7E9EF), shape: BoxShape.circle)),
+              ]),
+            ),
+          ...lines,
+          const SizedBox(height: 6),
+          if (!isDot)
+            Container(
+              height: 14,
+              margin: const EdgeInsets.only(top: 4),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1)),
+              ),
+              alignment: Alignment.center,
+              child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                for (var i = 0; i < 24; i++)
+                  Container(width: 3, height: 8, decoration: const BoxDecoration(color: Color(0xFFEDEEF3), shape: BoxShape.circle)),
+              ]),
+            ),
+        ],
+      ),
+    );
   }
 }

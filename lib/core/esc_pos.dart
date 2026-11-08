@@ -23,8 +23,10 @@ class EscPos {
   static final RegExp _tagRe =
       RegExp(r'</?(CB|C|B|BOLD|FS|FS2|FB|FH|FH2|FW|FW2|center|right|left)>', caseSensitive: false);
 
-  /// 把云打印文本格式转成 ESC/POS 字节流
-  static Uint8List encode(String content, {int paperWidth = 58}) {
+  /// 把云打印文本格式转成 ESC/POS 字节流（热敏小票机）
+  /// mode = 'pos'（热敏 ESC/POS）| 'escp'（针式 ESC/P2，如 EPSON LQ 系列）
+  static Uint8List encode(String content, {int paperWidth = 58, String mode = 'pos'}) {
+    if (mode == 'escp') return _encodeEscP(content, paperWidth);
     final width = paperWidth >= 80 ? width80 : width58;
     final out = BytesBuilder();
     out.add([0x1B, 0x40]); // ESC @ 初始化
@@ -65,6 +67,58 @@ class EscPos {
     out.add([0x0A, 0x0A]);
     out.add([0x1B, 0x64, 0x04]); // ESC d 4 走纸 4 行
     out.add([0x1D, 0x56, 0x42, 0x00]); // GS V B 0 半切纸
+    return out.toBytes();
+  }
+
+  /// 针式打印机（ESC/P2，EPSON LQ 系列等）：
+  /// - 不发热敏专用指令（GS ! 倍大 / GS V 切刀 / ESC d 走纸），
+  ///   针式机不认切刀指令会导致任务卡在「正在打印」
+  /// - 末尾发 FF（0x0C）换页：手动送纸/连续纸立即走纸出页，不再卡住
+  /// - A4 等单页纸同样以 FF 结束触发退纸
+  static Uint8List _encodeEscP(String content, int width) {
+    final out = BytesBuilder();
+    out.add([0x1B, 0x40]); // ESC @ 初始化
+    out.add([0x1C, 0x26]); // FS & 中文模式（针式机内置 GB2312 字库）
+
+    final lines = content.replaceAll('\r\n', '\n').split('\n');
+    for (final raw in lines) {
+      final t = raw.trim();
+      if (t.isEmpty) {
+        out.add([0x0A]);
+        continue;
+      }
+      final lower = t.toLowerCase();
+      final center = lower.contains('<center>') || lower.contains('<cb>');
+      final double = lower.contains('<fs2>') || lower.contains('<cb>');
+      final bold = lower.contains('<fb>') || lower.contains('<cb>') || lower.contains('<bold>');
+      final text = t.replaceAll(_tagRe, '');
+      if (text.isEmpty) {
+        out.add([0x0A]);
+        continue;
+      }
+      for (final line in _wrap(text, double ? width ~/ 2 : width)) {
+        out.add([0x1B, 0x61, center ? 1 : 0]); // ESC a 对齐
+        if (double) {
+          out.add([0x1B, 0x77, 1]); // ESC w 1 倍高
+          out.add([0x1B, 0x57, 1]); // ESC W 1 倍宽
+        }
+        if (bold) out.add([0x1B, 0x45, 1]); // ESC E 加粗
+        out.add(gbk.encode(line));
+        if (double) {
+          out.add([0x1B, 0x77, 0]);
+          out.add([0x1B, 0x57, 0]);
+        }
+        if (bold || center) {
+          out.add([0x1B, 0x45, 0]);
+          out.add([0x1B, 0x61, 0]);
+        }
+        out.add([0x0A]);
+      }
+      if (double) out.add([0x0A]);
+    }
+
+    out.add([0x0A, 0x0A]);
+    out.add([0x0C]); // FF 换页出纸（针式手动送纸的收尾关键）
     return out.toBytes();
   }
 

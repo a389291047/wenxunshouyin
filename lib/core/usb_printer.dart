@@ -18,6 +18,30 @@ class UsbPrinter {
   static const prefEnabled = 'usb_print_enabled';
   static const prefPrinter = 'usb_print_printer';
   static const prefPaper = 'usb_print_paper';
+  /// 纸张规格：pos58 / pos80（热敏 ESC/POS）、dot（针式连续纸）、a4（针式 A4 单页）
+  static const prefSpec = 'usb_print_spec';
+
+  /// 纸张规格定义：mode pos=ESC/POS 热敏、escp=ESC/P2 针式
+  static Map<String, dynamic> specOf(String spec) {
+    switch (spec) {
+      case 'pos80':
+        return {'key': 'pos80', 'mode': 'pos', 'width': 80, 'label': '热敏小票 80mm'};
+      case 'dot':
+        return {'key': 'dot', 'mode': 'escp', 'width': 48, 'label': '针式连续纸'};
+      case 'a4':
+        return {'key': 'a4', 'mode': 'escp', 'width': 80, 'label': 'A4 纸（针式）'};
+      default:
+        return {'key': 'pos58', 'mode': 'pos', 'width': 58, 'label': '热敏小票 58mm'};
+    }
+  }
+
+  /// 当前选择的纸张规格（兼容旧配置：只存过纸张宽度的自动映射）
+  static Future<Map<String, dynamic>> currentSpec() async {
+    final sp = await SharedPreferences.getInstance();
+    final s = sp.getString(prefSpec) ?? '';
+    if (s.isNotEmpty) return specOf(s);
+    return specOf((sp.getInt(prefPaper) ?? 58) >= 80 ? 'pos80' : 'pos58');
+  }
 
   static const _channel = MethodChannel('wenxun/usb_printer');
 
@@ -39,9 +63,9 @@ class UsbPrinter {
     if (p == null) {
       throw ApiError('已启用 USB 打印但未选择打印机，请到「设置 → USB小票打印机」选择');
     }
-    final sp = await SharedPreferences.getInstance();
-    final width = sp.getInt(prefPaper) ?? 58;
-    await printTicket(p, content, paperWidth: width);
+    final spec = await currentSpec();
+    await printTicket(p, content,
+        paperWidth: spec['width'] as int, mode: spec['mode'] as String);
     return true;
   }
 
@@ -86,8 +110,9 @@ class UsbPrinter {
 
   static Future<void> printTicket(
       Map<String, dynamic> printer, String content,
-      {int paperWidth = 58}) async {
-    final bytes = EscPos.encode(content, paperWidth: paperWidth);
+      {int paperWidth = 58, String mode = 'pos'}) async {
+    final bytes =
+        EscPos.encode(content, paperWidth: paperWidth, mode: mode);
     if (Platform.isWindows) {
       await _printWindows('${printer['id']}', bytes);
     } else if (Platform.isMacOS) {

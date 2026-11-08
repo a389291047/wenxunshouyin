@@ -84,6 +84,75 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
 
   // ==================== 打印 ====================
 
+  /// 补打小票：弹窗选择云打印机 / USB 打印机
+  Future<void> _pickPrint() async {
+    if (!await PrintPrefs.on('order')) {
+      toast(context, '订单小票打印已关闭（设置 → 小票打印设置）');
+      return;
+    }
+    Map<String, dynamic>? usbSel;
+    String usbLabel = '';
+    if (UsbPrinter.supported && await UsbPrinter.enabled()) {
+      usbSel = await UsbPrinter.selectedPrinter();
+      if (usbSel != null) {
+        final spec = await UsbPrinter.currentSpec();
+        usbLabel = '${spec['label']}';
+      }
+    }
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('补打小票 · 选择打印方式', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 'cloud'),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+              decoration: BoxDecoration(color: const Color(0xFFF5F7FF), borderRadius: BorderRadius.circular(12)),
+              child: Row(children: [
+                const Icon(Icons.cloud_outlined, size: 22, color: PosTheme.blue),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('云打印机', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+                  Text('默认前台收银小票机（云打印机设置）',
+                      style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                ])),
+              ]),
+            ),
+          ),
+          if (UsbPrinter.supported) ...[
+            const SizedBox(height: 6),
+            SimpleDialogOption(
+              onPressed: usbSel == null ? null : () => Navigator.pop(ctx, 'usb'),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+                decoration: BoxDecoration(
+                    color: usbSel != null ? const Color(0xFFF2FBF5) : const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  Icon(Icons.usb_outlined, size: 22, color: usbSel != null ? PosTheme.accent : PosTheme.textHint),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('USB打印机',
+                        style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600,
+                            color: usbSel != null ? null : PosTheme.textHint)),
+                    Text(usbSel != null ? '${usbSel['name']} · $usbLabel' : '未启用（设置 → USB小票打印机）',
+                        style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                  ])),
+                ]),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    if (choice == 'cloud') {
+      await _cloudPrint();
+    } else if (choice == 'usb') {
+      await _usbPrint();
+    }
+  }
+
   Future<void> _cloudPrint() async {
     if (!await PrintPrefs.on('order')) {
       toast(context, '订单小票打印已关闭（设置 → 小票打印设置）');
@@ -123,13 +192,13 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
       toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
       return;
     }
-    final sp = await SharedPreferences.getInstance();
-    final paper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
+    final spec = await UsbPrinter.currentSpec();
     setState(() => busy = true);
     try {
-      await UsbPrinter.printTicket(p, CloudPrinter.orderTicket(o), paperWidth: paper);
+      await UsbPrinter.printTicket(p, CloudPrinter.orderTicket(o),
+          paperWidth: spec['width'] as int, mode: spec['mode'] as String);
       if (!mounted) return;
-      toast(context, 'USB 打印已发送');
+      toast(context, 'USB 打印已发送（${spec['label']}）');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
     } catch (e) {
@@ -297,13 +366,8 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
                 ),
         ),
         const SizedBox(height: 12),
-        // ---- 操作按钮 ----
-        BigButton('云打印订单', onTap: busy ? null : _cloudPrint, height: 48),
-        if (UsbPrinter.supported) ...[
-          const SizedBox(height: 9),
-          BigButton('USB打印订单', onTap: busy ? null : _usbPrint,
-              color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
-        ],
+        // ---- 操作按钮（补打：弹窗选择云打印 / USB 直连） ----
+        BigButton('补打小票', onTap: busy ? null : _pickPrint, height: 48),
         const SizedBox(height: 9),
         BigButton(
           canRefund
