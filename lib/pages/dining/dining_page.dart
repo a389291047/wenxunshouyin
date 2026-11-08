@@ -3868,11 +3868,9 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   Widget _payIcon(String m, bool on) {
     final c = payColors[m] ?? PosTheme.textSub;
     if (m == '微信支付') {
-      // 官方微信支付图标；选中反色（白方块 + 绿气泡）在彩色渐变卡上依然清晰
+      // 官方微信支付 logo（气泡+对勾）；选中白色版在彩色渐变卡上依然清晰
       return WechatPayLogo(
-          size: 27,
-          tile: on ? Colors.white : const Color(0xFF07C160),
-          bubble: on ? const Color(0xFF07C160) : Colors.white);
+          size: 28, color: on ? Colors.white : const Color(0xFF07C160));
     }
     if (m == '支付宝') {
       return AlipayLogo(size: 27, color: on ? Colors.white : const Color(0xFF1677FF));

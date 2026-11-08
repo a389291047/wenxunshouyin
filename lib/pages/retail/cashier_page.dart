@@ -670,7 +670,7 @@ class _PayDialogState extends State<RetailPayDialog> {
   Widget _methodIcon(String m, {double size = 30, Color? color}) {
     final c = color ?? _colorOf(m);
     if (m == '微信支付') {
-      return WechatPayLogo(size: size, tile: c, bubble: Colors.white);
+      return WechatPayLogo(size: size, color: c);
     }
     if (m == '支付宝') {
       return AlipayLogo(size: size, color: c);

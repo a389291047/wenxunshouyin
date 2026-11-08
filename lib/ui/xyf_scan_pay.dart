@@ -282,8 +282,8 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
       ),
       alignment: Alignment.center,
       child: c.key == 'wechat'
-          // 微信支付官方图标：绿头部上用反色版（白方块 + 绿气泡）
-          ? WechatPayLogo(size: 34, tile: Colors.white, bubble: const Color(0xFF07C160))
+          // 微信支付官方 logo（气泡+对勾），绿色头部上用白色版
+          ? WechatPayLogo(size: 32, color: Colors.white)
           : c.key == 'alipay'
               ? AlipayLogo(size: 30, color: Colors.white)
               : const Icon(Icons.qr_code_scanner, size: 26, color: Colors.white),
@@ -296,15 +296,18 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: SizedBox(
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+        SizedBox(
         width: 520,
         height: 545,
         child: Column(children: [
-          // ===== 头部：官方品牌色渐变 + logo + 金额 + 右上角 X =====
+          // ===== 头部：官方品牌色渐变 + logo + 金额 =====
           ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(24, 0, 8, 0),
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
               height: 96,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -325,16 +328,6 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
                 Text('¥${Fmt.money(widget.amount)}',
                     style: const TextStyle(
                         fontSize: 30, fontWeight: FontWeight.w800, color: Colors.white)),
-                // 支付中不允许关闭（防止漏单），其余阶段显示右上角 X
-                if (phase != 'paying')
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, size: 26, color: Colors.white),
-                    tooltip: '关闭',
-                    splashRadius: 22,
-                  )
-                else
-                  const SizedBox(width: 48),
               ]),
             ),
           ),
@@ -364,6 +357,38 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
           else
             const SizedBox(height: 16),
         ]),
+      ),
+      // ===== 悬浮关闭按钮：凸出右上角（触屏热区 44px）=====
+      if (phase != 'paying')
+        Positioned(
+          top: -10,
+          right: -10,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFEDEEF2), width: 1),
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Color(0x33000000),
+                        blurRadius: 10,
+                        offset: Offset(0, 3)),
+                  ],
+                ),
+                child: const Icon(Icons.close_rounded,
+                    size: 24, color: Color(0xFF5A6072)),
+              ),
+            ),
+          ),
+        ),
+        ],
       ),
     );
   }
