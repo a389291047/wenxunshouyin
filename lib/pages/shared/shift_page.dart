@@ -191,7 +191,8 @@ class _ShiftPageState extends State<ShiftPage> {
       await UsbPrinter.printTicket(p, _shiftTicket,
           paperWidth: spec['width'] as int,
           mode: spec['mode'] as String,
-          textW: spec['textW'] as int?);
+          textW: spec['textW'] as int?,
+          offsetCols: spec['offsetCols'] as int? ?? 0);
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '交班单已发送 USB 打印');

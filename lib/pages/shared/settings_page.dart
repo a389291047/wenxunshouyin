@@ -38,6 +38,8 @@ class _SettingsPageState extends State<SettingsPage> {
   String usbMode = 'auto'; // auto=自动打印 manual=手动打印
   Map<String, dynamic>? usbSelected;
   List<Map<String, dynamic>> usbPrinters = [];
+  // 每规格自定义配置缓存（v3.3.159）：key → {pageMm, offMm}
+  Map<String, Map<String, double>> usbCfgs = const {};
 
   // 语音播报
   bool voiceEnabled = true;
@@ -1047,6 +1049,17 @@ class _SettingsPageState extends State<SettingsPage> {
             }();
     });
     await _refreshUsb();
+    await _loadSpecCfgs();
+  }
+
+  /// 读取四个规格的自定义配置（页宽/微调，v3.3.159）
+  Future<void> _loadSpecCfgs() async {
+    final m = <String, Map<String, double>>{};
+    for (final k in const ['pos58', 'pos80', 'dot', 'a4']) {
+      m[k] = await UsbPrinter.loadSpecCfg(k);
+    }
+    if (!mounted) return;
+    setState(() => usbCfgs = m);
   }
 
   Future<void> _refreshUsb() async {
@@ -1101,7 +1114,8 @@ class _SettingsPageState extends State<SettingsPage> {
       await UsbPrinter.printTicket(sel, _usbSampleTicket('${sel['name']}', '${spec['label']}'),
           paperWidth: spec['width'] as int,
           mode: spec['mode'] as String,
-          textW: spec['textW'] as int?);
+          textW: spec['textW'] as int?,
+          offsetCols: spec['offsetCols'] as int? ?? 0);
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '测试小票已发送，出纸即为打印成功');
@@ -1639,6 +1653,29 @@ class _SettingsPageState extends State<SettingsPage> {
         _specChip('dot', '针式连续纸'),
         const SizedBox(width: 6),
         _specChip('a4', 'A4纸'),
+        const SizedBox(width: 6),
+        // 自定义：页宽 + 水平微调（v3.3.159，适配不同打印机进纸位置）
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: _usbCustomSpec,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: _hasCustomCfg(usbSpec) ? const Color(0xFFFDF1EC) : Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                  color: _hasCustomCfg(usbSpec) ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.tune, size: 14,
+                  color: _hasCustomCfg(usbSpec) ? PosTheme.accent : PosTheme.textSub),
+              const SizedBox(width: 4),
+              Text('自定义',
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                      color: _hasCustomCfg(usbSpec) ? PosTheme.accent : PosTheme.textSub)),
+            ]),
+          ),
+        ),
         const Spacer(),
         OutlinedButton.icon(
           onPressed: _usbPreview,
@@ -1715,6 +1752,280 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  bool _hasCustomCfg(String key) {
+    final c = usbCfgs[key];
+    return c != null && ((c['pageMm'] ?? 0) > 0 || (c['offMm'] ?? 0) != 0);
+  }
+
+  /// 规格默认页宽 mm
+  static double _defaultPageMm(String key) {
+    switch (key) {
+      case 'pos80':
+        return 80;
+      case 'dot':
+        return 241;
+      case 'a4':
+        return 210;
+      default:
+        return 58;
+    }
+  }
+
+  /// 版心宽 mm：escp 10cpi 1列=2.54mm；热敏 1.5mm/列
+  static double _textMmOfSpec(String key) {
+    switch (key) {
+      case 'pos80':
+        return 48 * 1.5;
+      case 'dot':
+        return 48 * 2.54;
+      case 'a4':
+        return 60 * 2.54;
+      default:
+        return 32 * 1.5;
+    }
+  }
+
+  /// 自定义纸张设置（v3.3.159）：页宽 + 水平微调（靠左/居中/靠右 + 毫米级微调）
+  /// 适配不同打印机/进纸位置：纸放偏了往相反方向微调即可
+  Future<void> _usbCustomSpec() async {
+    final cfgs = <String, Map<String, double>>{};
+    for (final k in const ['pos58', 'pos80', 'dot', 'a4']) {
+      cfgs[k] = await UsbPrinter.loadSpecCfg(k);
+    }
+    String spec = usbSpec;
+    double pageMm() {
+      final saved = cfgs[spec]!['pageMm'] ?? 0;
+      return saved > 0 ? saved : _defaultPageMm(spec);
+    }
+
+    double offMm = cfgs[spec]!['offMm'] ?? 0;
+    final customCtl = TextEditingController(
+        text: pageMm().toStringAsFixed(0));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        final isEscp = spec == 'dot' || spec == 'a4';
+        final pm = pageMm();
+        final textMm = _textMmOfSpec(spec);
+        final maxShift = isEscp
+            ? ((pm - textMm) / 2).clamp(5.0, 90.0).toDouble()
+            : 30.0;
+        if (offMm > maxShift) offMm = maxShift;
+        if (offMm < -maxShift) offMm = -maxShift;
+        final presets = spec == 'dot' ? [241.0, 190.0, 127.0] : (spec == 'a4' ? [210.0] : <double>[]);
+        final isCustomPage = isEscp && !presets.contains(pm);
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('自定义纸张 · ${UsbPrinter.specOf(spec)['label']}',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                // 规格切换
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (final e in const [
+                    ['pos58', '58mm'],
+                    ['pos80', '80mm'],
+                    ['dot', '针式连续纸'],
+                    ['a4', 'A4纸'],
+                  ])
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => setD(() {
+                        spec = '${e[0]}';
+                        offMm = cfgs[spec]!['offMm'] ?? 0;
+                        customCtl.text = pageMm().toStringAsFixed(0);
+                      }),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: spec == e[0] ? PosTheme.accent : const Color(0xFFF5F6F8),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: spec == e[0] ? PosTheme.accent : Colors.transparent),
+                        ),
+                        child: Text('${e[1]}',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+                                color: spec == e[0] ? Colors.white : PosTheme.textSub)),
+                      ),
+                    ),
+                ]),
+                const SizedBox(height: 14),
+                // 纸张宽度（针式可自定义，热敏固定）
+                Text('纸张宽度', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                const SizedBox(height: 8),
+                if (isEscp)
+                  Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    for (final p in presets)
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setD(() {
+                          cfgs[spec] = {'pageMm': 0, 'offMm': offMm}; // 回默认纸宽
+                          customCtl.text = _defaultPageMm(spec).toStringAsFixed(0);
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: !isCustomPage && pm == p ? PosTheme.accent : Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: !isCustomPage && pm == p ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+                          ),
+                          child: Text('${p.toStringAsFixed(0)}mm${p == _defaultPageMm(spec) ? ' 默认' : ''}',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                                  color: !isCustomPage && pm == p ? Colors.white : PosTheme.textSub)),
+                        ),
+                      ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => setD(() {}),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isCustomPage ? PosTheme.accent : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: isCustomPage ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text('自定义 ',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                                  color: isCustomPage ? Colors.white : PosTheme.textSub)),
+                          SizedBox(
+                            width: 56,
+                            child: TextField(
+                              controller: customCtl,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(fontSize: 13),
+                              decoration: const InputDecoration(
+                                  isDense: true, border: InputBorder.none, hintText: 'mm', suffixText: 'mm',
+                                  suffixStyle: TextStyle(fontSize: 10)),
+                              onChanged: (v) => setD(() {
+                                final m = double.tryParse(v) ?? 0;
+                                if (m >= 50 && m <= 500) cfgs[spec] = {'pageMm': m, 'offMm': offMm};
+                              }),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ])
+                else
+                  Text('热敏机纸宽固定 ${_defaultPageMm(spec).toStringAsFixed(0)}mm，无需设置',
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                const SizedBox(height: 16),
+                // 水平位置：快捷 + 微调
+                Text('水平位置微调', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.textSub)),
+                const SizedBox(height: 8),
+                if (isEscp)
+                  Wrap(spacing: 8, children: [
+                    for (final e in const [
+                      ['left', '靠左'],
+                      ['center', '居中'],
+                      ['right', '靠右'],
+                    ])
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () => setD(() => offMm = e[0] == 'left'
+                            ? -maxShift
+                            : (e[0] == 'right' ? maxShift : 0)),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: offMm == (e[0] == 'left' ? -maxShift : (e[0] == 'right' ? maxShift : 0))
+                                ? PosTheme.blue
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: offMm == (e[0] == 'left' ? -maxShift : (e[0] == 'right' ? maxShift : 0))
+                                    ? PosTheme.blue
+                                    : PosTheme.textHint.withOpacity(0.4)),
+                          ),
+                          child: Text('${e[1]}',
+                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                                  color: offMm == (e[0] == 'left' ? -maxShift : (e[0] == 'right' ? maxShift : 0))
+                                      ? Colors.white
+                                      : PosTheme.textSub)),
+                        ),
+                      ),
+                  ]),
+                const SizedBox(height: 8),
+                Row(children: [
+                  Text('左移', style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                  Expanded(
+                    child: Slider(
+                      value: offMm.clamp(-maxShift, maxShift),
+                      min: -maxShift,
+                      max: maxShift,
+                      divisions: (maxShift * 2).round(),
+                      label: '${offMm > 0 ? '+' : ''}${offMm.toStringAsFixed(0)}mm',
+                      activeColor: PosTheme.accent,
+                      onChanged: (v) => setD(() => offMm = v),
+                    ),
+                  ),
+                  Text('右移', style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                  SizedBox(
+                    width: 64,
+                    child: Text('${offMm > 0 ? '+' : ''}${offMm.toStringAsFixed(0)}mm',
+                        textAlign: TextAlign.end,
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                  ),
+                ]),
+                const SizedBox(height: 10),
+                // 实时预览
+                Center(
+                  child: _TicketPaper(
+                    content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机', '${UsbPrinter.specOf(spec)['label']}'),
+                    spec: spec,
+                    pageMm: cfgs[spec]!['pageMm'] ?? 0,
+                    offMm: offMm,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isEscp
+                      ? '纸没放正就用微调救：内容偏左 → 往右移（正值）；内容偏右 → 往左移（负值）。1 字符列 ≈ 2.54mm（针式 10cpi）。'
+                      : '热敏机默认贴左打，正值整体右移、负值左移。1 字符列 ≈ 1.5mm。',
+                  style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
+                ),
+              ]),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await UsbPrinter.saveSpecCfg(spec, pageMm: 0, offMm: 0);
+                cfgs[spec] = {'pageMm': 0, 'offMm': 0};
+                offMm = 0;
+                customCtl.text = _defaultPageMm(spec).toStringAsFixed(0);
+                setD(() {});
+              },
+              child: const Text('恢复默认'),
+            ),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(backgroundColor: PosTheme.accent),
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      }),
+    );
+    if (ok == true) {
+      final isEscp = spec == 'dot' || spec == 'a4';
+      await UsbPrinter.saveSpecCfg(spec,
+          pageMm: isEscp ? pageMm() : 0, offMm: offMm);
+      await _loadSpecCfgs();
+      if (mounted) toast(context, '已保存「${UsbPrinter.specOf(spec)['label']}」自定义设置');
+    } else {
+      customCtl.dispose();
+    }
+  }
+
   /// 测试小票样张（预览与测试打印共用）
   static String _usbSampleTicket(String printerName, String specLabel) {
     return '<FS2><center>测试小票</center></FS2>\n'
@@ -1732,9 +2043,13 @@ class _SettingsPageState extends State<SettingsPage> {
         '打印正常，可开始收银';
   }
 
-  /// 打印预览：弹窗内实时切换纸张规格查看效果
+  /// 打印预览：弹窗内实时切换纸张规格查看效果（含自定义页宽/微调）
   Future<void> _usbPreview() async {
     String spec = usbSpec;
+    final cfgs = <String, Map<String, double>>{};
+    for (final k in const ['pos58', 'pos80', 'dot', 'a4']) {
+      cfgs[k] = await UsbPrinter.loadSpecCfg(k);
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
@@ -1770,8 +2085,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
               ]),
               const SizedBox(height: 14),
-              // 纸张效果预览
-              Center(child: _TicketPaper(content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机', '${s['label']}'), spec: spec)),
+              // 纸张效果预览（含自定义页宽/微调）
+              Center(child: _TicketPaper(
+                content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机', '${s['label']}'),
+                spec: spec,
+                pageMm: cfgs[spec]!['pageMm'] ?? 0,
+                offMm: cfgs[spec]!['offMm'] ?? 0,
+              )),
               const SizedBox(height: 8),
               Text(
                 spec == 'dot'
@@ -1826,10 +2146,13 @@ class _SettingsPageState extends State<SettingsPage> {
 }
 
 /// 小票纸张预览：按规格模拟纸张宽度/字号/样式（预览弹窗用）
+/// [pageMm] 自定义纸宽（0=规格默认）、[offMm] 水平微调 mm（v3.3.159）
 class _TicketPaper extends StatelessWidget {
   final String content;
   final String spec; // pos58/pos80/dot/a4
-  const _TicketPaper({required this.content, required this.spec});
+  final double pageMm;
+  final double offMm;
+  const _TicketPaper({required this.content, required this.spec, this.pageMm = 0, this.offMm = 0});
 
   @override
   Widget build(BuildContext context) {
@@ -1854,17 +2177,20 @@ class _TicketPaper extends StatelessWidget {
         fontSize = 12;
     }
     final isDot = spec == 'dot' || spec == 'a4';
-    // 针式纸：内容按版心整张居中（241mm 版心 48/92 列、A4 版心 60/80 列）
+    // 水平位置：针式按「版心/页宽」居中 + 微调；热敏按微调 mm 平移
     final double sideInset;
-    switch (spec) {
-      case 'dot':
-        sideInset = 86;
-        break;
-      case 'a4':
-        sideInset = 54;
-        break;
-      default:
-        sideInset = 0;
+    if (isDot) {
+      final pm = pageMm > 0 ? pageMm : (spec == 'dot' ? 241.0 : 210.0);
+      final tm = spec == 'dot' ? 48 * 2.54 : 60 * 2.54; // 版心宽 mm
+      final inner = paperW - 36;
+      final frac = (tm / pm).clamp(0.0, 1.0);
+      sideInset =
+          (inner * (1 - frac) / 2 + offMm / pm * inner).clamp(0.0, inner * (1 - frac));
+    } else if (offMm != 0) {
+      final inner = paperW - 36;
+      sideInset = (offMm / _defaultPageMm(spec) * inner).clamp(0.0, inner * 0.5);
+    } else {
+      sideInset = 0;
     }
 
     final lines = <Widget>[];

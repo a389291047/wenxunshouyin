@@ -22,6 +22,9 @@ class UsbPrinter {
   static const prefSpec = 'usb_print_spec';
   /// 出票模式：auto=自动打印（收银/结账自动出票）、manual=手动打印（不自动出任何小票，仅补打/测试时出）
   static const prefMode = 'usb_print_mode';
+  /// 每个纸张规格的自定义配置（v3.3.159）：{specKey: {pageMm: 纸宽mm, offMm: 水平微调mm}}
+  /// offMm 正=右移 负=左移，0/缺省=用默认排版；适配不同打印机进纸位置
+  static const prefSpecCfg = 'usb_spec_cfg';
 
   /// 当前出票模式（默认 auto）
   static Future<String> mode() async {
@@ -52,12 +55,65 @@ class UsbPrinter {
     }
   }
 
-  /// 当前选择的纸张规格（兼容旧配置：只存过纸张宽度的自动映射）
+  /// 当前选择的纸张规格（兼容旧配置：只存过纸张宽度的自动映射），
+  /// 并合并该规格的自定义纸宽/水平微调（v3.3.159）
   static Future<Map<String, dynamic>> currentSpec() async {
     final sp = await SharedPreferences.getInstance();
     final s = sp.getString(prefSpec) ?? '';
-    if (s.isNotEmpty) return specOf(s);
-    return specOf((sp.getInt(prefPaper) ?? 58) >= 80 ? 'pos80' : 'pos58');
+    final base = s.isNotEmpty
+        ? specOf(s)
+        : specOf((sp.getInt(prefPaper) ?? 58) >= 80 ? 'pos80' : 'pos58');
+    return _mergeCfg(base);
+  }
+
+  /// 毫米 → 打印列数：针式 10cpi 1列=2.54mm；热敏 1.5mm/列（58mm 32列/80mm 48列）
+  static int mmToCols(String mode, double mm) =>
+      (mm / (mode == 'pos' ? 1.5 : 2.54)).round();
+
+  /// 把该规格的自定义配置合并进规格 map：width/textW/offsetCols
+  static Future<Map<String, dynamic>> _mergeCfg(Map<String, dynamic> base) async {
+    final mode = '${base['mode']}';
+    final cfg = await loadSpecCfg('${base['key']}');
+    final pageMm = cfg['pageMm'] as double;
+    final offMm = cfg['offMm'] as double;
+    if (pageMm > 0 && mode == 'escp') {
+      base['width'] = mmToCols(mode, pageMm); // 自定义纸宽 → 页宽列数
+      base['pageMm'] = pageMm;
+    }
+    base['offMm'] = offMm;
+    base['offsetCols'] = offMm == 0 ? 0 : mmToCols(mode, offMm);
+    return base;
+  }
+
+  /// 读某规格的自定义配置（无则返回 0/0 = 默认）
+  static Future<Map<String, double>> loadSpecCfg(String key) async {
+    final sp = await SharedPreferences.getInstance();
+    try {
+      final raw = jsonDecode(sp.getString(prefSpecCfg) ?? '{}');
+      if (raw is Map) {
+        final c = raw[key];
+        if (c is Map) {
+          return {
+            'pageMm': double.tryParse('${c['pageMm']}') ?? 0,
+            'offMm': double.tryParse('${c['offMm']}') ?? 0,
+          };
+        }
+      }
+    } catch (_) {}
+    return {'pageMm': 0, 'offMm': 0};
+  }
+
+  /// 存某规格的自定义配置（pageMm/offMm 传 0 表示恢复默认）
+  static Future<void> saveSpecCfg(String key,
+      {required double pageMm, required double offMm}) async {
+    final sp = await SharedPreferences.getInstance();
+    Map<String, dynamic> all = {};
+    try {
+      final raw = jsonDecode(sp.getString(prefSpecCfg) ?? '{}');
+      if (raw is Map) all = Map<String, dynamic>.from(raw);
+    } catch (_) {}
+    all[key] = {'pageMm': pageMm, 'offMm': offMm};
+    await sp.setString(prefSpecCfg, jsonEncode(all));
   }
 
   static const _channel = MethodChannel('wenxun/usb_printer');
@@ -84,7 +140,8 @@ class UsbPrinter {
     await printTicket(p, content,
         paperWidth: spec['width'] as int,
         mode: spec['mode'] as String,
-        textW: spec['textW'] as int?);
+        textW: spec['textW'] as int?,
+        offsetCols: spec['offsetCols'] as int? ?? 0);
     return true;
   }
 
@@ -129,9 +186,9 @@ class UsbPrinter {
 
   static Future<void> printTicket(
       Map<String, dynamic> printer, String content,
-      {int paperWidth = 58, String mode = 'pos', int? textW}) async {
+      {int paperWidth = 58, String mode = 'pos', int? textW, int offsetCols = 0}) async {
     final bytes = EscPos.encode(content,
-        paperWidth: paperWidth, mode: mode, textW: textW);
+        paperWidth: paperWidth, mode: mode, textW: textW, offsetCols: offsetCols);
     if (Platform.isWindows) {
       await _printWindows('${printer['id']}', bytes);
     } else if (Platform.isMacOS) {

@@ -27,8 +27,11 @@ class EscPos {
   /// mode = 'pos'（热敏 ESC/POS）| 'escp'（针式 ESC/P2，如 EPSON LQ 系列）
   /// [textW] 版心宽（针式用）：小票内容排版列数，整张小票按版心在页面上水平居中；
   /// 缺省等于 paperWidth
-  static Uint8List encode(String content, {int paperWidth = 58, String mode = 'pos', int? textW}) {
-    if (mode == 'escp') return _encodeEscP(content, paperWidth, textW ?? paperWidth);
+  /// [offsetCols] 水平微调（v3.3.159）：正值右移、负值左移（半角列），
+  /// 商户按进纸位置自定义；针式在居中基础上偏移，热敏在贴左基础上偏移
+  static Uint8List encode(String content,
+      {int paperWidth = 58, String mode = 'pos', int? textW, int offsetCols = 0}) {
+    if (mode == 'escp') return _encodeEscP(content, paperWidth, textW ?? paperWidth, offsetCols);
     final width = paperWidth >= 80 ? width80 : width58;
     final out = BytesBuilder();
     out.add([0x1B, 0x40]); // ESC @ 初始化
@@ -52,17 +55,31 @@ class EscPos {
         out.add([0x0A]);
         continue;
       }
-      if (center || double || big || bold) {
-        for (final line in _wrap(text, double ? width ~/ 2 : width)) {
-          _text(out, line, center: center, double: double, bold: bold, big: big);
-          out.add([0x0A]);
+      if (offsetCols == 0) {
+        if (center || double || big || bold) {
+          for (final line in _wrap(text, double ? width ~/ 2 : width)) {
+            _text(out, line, center: center, double: double, bold: bold, big: big);
+            out.add([0x0A]);
+          }
+          if (double) out.add([0x0A]); // 倍大标题后空一行
+        } else {
+          for (final line in _wrap(text, width)) {
+            _text(out, line);
+            out.add([0x0A]);
+          }
         }
-        if (double) out.add([0x0A]); // 倍大标题后空一行
       } else {
-        for (final line in _wrap(text, width)) {
-          _text(out, line);
+        // 微调模式：全部改为手动空格定位（居中行也手工计算，避免 ESC a 覆盖缩进）
+        final wrapW = double ? width ~/ 2 : (offsetCols > 0 ? width - offsetCols : width);
+        for (final line in _wrap(text, wrapW < 1 ? 1 : wrapW)) {
+          final printed = double ? _dispWidth(line) * 2 : _dispWidth(line); // big 仅倍高不改宽
+          var pad = offsetCols;
+          if (center) pad += ((width - printed) ~/ 2).clamp(0, width);
+          if (pad > 0) out.add(List<int>.filled(pad, 0x20));
+          _text(out, line, double: double, bold: bold, big: big);
           out.add([0x0A]);
         }
+        if (double) out.add([0x0A]);
       }
     }
 
@@ -80,7 +97,8 @@ class EscPos {
   /// - 不发热敏专用指令（GS ! 倍大 / GS V 切刀 / ESC d 走纸），
   ///   针式机不认切刀指令会导致任务卡在「正在打印」
   /// - 末尾发 FF（0x0C）换页：手动送纸/连续纸立即走纸出页，不再卡住
-  static Uint8List _encodeEscP(String content, int pageW, int textW) {
+  /// - [offsetCols] 水平微调：在居中位置基础上再偏移（正=右移，负=左移）
+  static Uint8List _encodeEscP(String content, int pageW, int textW, int offsetCols) {
     final out = BytesBuilder();
     out.add([0x1B, 0x40]); // ESC @ 初始化（10cpi）
     out.add([0x1C, 0x26]); // FS & 中文模式（针式机内置 GB2312 字库）
@@ -121,7 +139,8 @@ class EscPos {
       if (w > blockW) blockW = w;
     }
     if (blockW > pageW) blockW = pageW;
-    final left = (pageW - blockW) ~/ 2; // 整张小票在纸上的水平居中偏移
+    // 整张小票在纸上的水平位置：居中基础 + 商户微调，夹在 [0, 页宽-版心] 内
+    final left = (((pageW - blockW) ~/ 2) + offsetCols).clamp(0, pageW - blockW);
 
     void emit(String text, int pad, {bool double = false, bool bold = false}) {
       if (pad > 0) out.add(List<int>.filled(pad, 0x20));
