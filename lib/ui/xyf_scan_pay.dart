@@ -358,32 +358,28 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
             const SizedBox(height: 16),
         ]),
       ),
-      // ===== 悬浮关闭按钮：凸出右上角（触屏热区 44px）=====
+      // ===== 悬浮关闭按钮：凸出右上角，透明底白色 X（触屏热区 44px）=====
       if (phase != 'paying')
         Positioned(
-          top: -10,
-          right: -10,
+          top: -8,
+          right: -8,
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: () => Navigator.pop(context),
-              child: Container(
+              child: SizedBox(
                 width: 44,
                 height: 44,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFFEDEEF2), width: 1),
-                  boxShadow: const [
-                    BoxShadow(
-                        color: Color(0x33000000),
-                        blurRadius: 10,
-                        offset: Offset(0, 3)),
-                  ],
-                ),
-                child: const Icon(Icons.close_rounded,
-                    size: 24, color: Color(0xFF5A6072)),
+                child: Icon(Icons.close_rounded,
+                    size: 26,
+                    color: Colors.white,
+                    shadows: const [
+                      Shadow(
+                          color: Color(0x4D000000),
+                          blurRadius: 6,
+                          offset: Offset(0, 2)),
+                    ]),
               ),
             ),
           ),
