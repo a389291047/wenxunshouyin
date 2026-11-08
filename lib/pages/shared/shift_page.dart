@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
@@ -27,6 +26,10 @@ class _ShiftPageState extends State<ShiftPage> {
   int gzUnsettledCount = 0;
   double gzSettled = 0;     // 今日已核销总额
   int gzSettledCount = 0;
+  // 今日充值统计（v3.3.173）：收银端充值（现金+付款码）
+  int czCount = 0;
+  double czCash = 0;
+  double czScan = 0;
   bool loading = true;
   String? error;
   bool cloudOn = true;   // 云打印开关（设置 → 云打印机）
@@ -107,6 +110,16 @@ class _ShiftPageState extends State<ShiftPage> {
           }
         } catch (_) {}
       }
+      // 今日充值统计（v3.3.173）：收银端充值流水（现金/付款码），失败不影响页面
+      var czC = 0;
+      var czCa = 0.0;
+      var czSc = 0.0;
+      try {
+        final cz = await Api.chongzhiStats(Session.wenxunId);
+        czC = int.tryParse('${cz['count']}') ?? 0;
+        czCa = double.tryParse('${cz['cash']}') ?? 0;
+        czSc = double.tryParse('${cz['scan']}') ?? 0;
+      } catch (_) {}
       if (!mounted) return;
       // 打印通道开关（商户自选：打印 / 不打印）
       final cOn = await CloudPrinter.enabled();
@@ -121,6 +134,9 @@ class _ShiftPageState extends State<ShiftPage> {
         gzUnsettledCount = gzUC;
         gzSettled = gzS;
         gzSettledCount = gzSC;
+        czCount = czC;
+        czCash = czCa;
+        czScan = czSc;
         cloudOn = cOn;
         usbOn = uOn;
         loading = false;
@@ -143,6 +159,9 @@ class _ShiftPageState extends State<ShiftPage> {
         gzUnsettledCount: gzUnsettledCount,
         gzSettled: gzSettled,
         gzSettledCount: gzSettledCount,
+        czCount: czCount,
+        czCash: czCash,
+        czScan: czScan,
       );
 
   /// 云打印交班单（强制走云打印机，不做 USB 分流）
@@ -289,6 +308,17 @@ class _ShiftPageState extends State<ShiftPage> {
                                     label: '今日已核销（$gzSettledCount 笔）',
                                     value: '¥${Fmt.money(gzSettled)}',
                                     icon: Icons.verified_outlined, color: PosTheme.green)),
+                              ]),
+                            ],
+                            // 今日充值统计（v3.3.173）：有充值才显示
+                            if (czCount > 0) ...[
+                              const SizedBox(height: 10),
+                              Row(children: [
+                                Expanded(child: StatTile(label: '充值笔数', value: '$czCount', icon: Icons.savings_outlined, color: const Color(0xFF7C3AED))),
+                                const SizedBox(width: 10),
+                                Expanded(child: StatTile(label: '现金充值', value: '¥${Fmt.money(czCash)}', icon: Icons.payments_outlined, color: PosTheme.amber)),
+                                const SizedBox(width: 10),
+                                Expanded(child: StatTile(label: '扫码充值', value: '¥${Fmt.money(czScan)}', icon: Icons.qr_code_scanner, color: PosTheme.green)),
                               ]),
                             ],
                             const Divider(height: 24, color: PosTheme.line),

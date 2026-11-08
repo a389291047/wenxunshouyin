@@ -368,6 +368,10 @@ class CloudPrinter {
     int gzUnsettledCount = 0,
     double gzSettled = 0,
     int gzSettledCount = 0,
+    // 今日充值统计（v3.3.173）：有充值才打印充值段
+    int czCount = 0,
+    double czCash = 0,
+    double czScan = 0,
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>交班单</center></FS2>');
@@ -389,6 +393,13 @@ class CloudPrinter {
       sb.writeln('--------------------------------');
       sb.writeln('挂账未核销: ¥${Fmt.money(gzUnsettled)} ($gzUnsettledCount 笔)');
       sb.writeln('今日已核销: ¥${Fmt.money(gzSettled)} ($gzSettledCount 笔)');
+    }
+    // 会员充值（v3.3.173）：当天没有充值就不打印这段
+    if (czCount > 0) {
+      sb.writeln('--------------------------------');
+      sb.writeln('会员充值: $czCount 笔');
+      sb.writeln('现金充值: ¥${Fmt.money(czCash)}');
+      sb.writeln('扫码充值: ¥${Fmt.money(czScan)}');
     }
     sb.writeln('--------------------------------');
     sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');

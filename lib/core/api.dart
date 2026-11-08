@@ -1152,6 +1152,17 @@ class Api {
     if ('${r['code']}' == '200') return (r['data']?['list'] ?? []) as List;
     throw ApiError('${r['msg'] ?? '获取充值订单失败'}');
   }
+
+  /// 今日充值统计（交班页，v3.3.173）：收银端充值流水（wx_vip_chongzhika）
+  /// 返回 {count: 笔数, cash: 现金充值, scan: 扫码充值}
+  static Future<Map<String, dynamic>> chongzhiStats(int wenxunId) async {
+    final r = await post('/api/canyinorder/chongzhiStats', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') {
+      final d = r['data'];
+      return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+    }
+    throw ApiError('${r['msg'] ?? '获取充值统计失败'}');
+  }
 }
 
 class ApiError implements Exception {
