@@ -1808,8 +1808,9 @@ class _SettingsPageState extends State<SettingsPage> {
         final isEscp = spec == 'dot' || spec == 'a4';
         final pm = pageMm();
         final textMm = _textMmOfSpec(spec);
+        // 步进取整：保证滑杆 1mm 整数步进，快捷键状态判断才准
         final maxShift = isEscp
-            ? ((pm - textMm) / 2).clamp(5.0, 90.0).toDouble()
+            ? (((pm - textMm) / 2).floorToDouble()).clamp(5.0, 90.0)
             : 30.0;
         if (offMm > maxShift) offMm = maxShift;
         if (offMm < -maxShift) offMm = -maxShift;
@@ -1863,20 +1864,20 @@ class _SettingsPageState extends State<SettingsPage> {
                       InkWell(
                         borderRadius: BorderRadius.circular(8),
                         onTap: () => setD(() {
-                          cfgs[spec] = {'pageMm': 0, 'offMm': offMm}; // 回默认纸宽
-                          customCtl.text = _defaultPageMm(spec).toStringAsFixed(0);
+                          cfgs[spec] = {'pageMm': p, 'offMm': offMm}; // 选中该预设纸宽
+                          customCtl.text = p.toStringAsFixed(0);
                         }),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                           decoration: BoxDecoration(
-                            color: !isCustomPage && pm == p ? PosTheme.accent : Colors.white,
+                            color: pm == p ? PosTheme.accent : Colors.white,
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                                color: !isCustomPage && pm == p ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+                                color: pm == p ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
                           ),
                           child: Text('${p.toStringAsFixed(0)}mm${p == _defaultPageMm(spec) ? ' 默认' : ''}',
                               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
-                                  color: !isCustomPage && pm == p ? Colors.white : PosTheme.textSub)),
+                                  color: pm == p ? Colors.white : PosTheme.textSub)),
                         ),
                       ),
                     InkWell(
@@ -1895,14 +1896,19 @@ class _SettingsPageState extends State<SettingsPage> {
                               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
                                   color: isCustomPage ? Colors.white : PosTheme.textSub)),
                           SizedBox(
-                            width: 56,
+                            width: 120,
                             child: TextField(
                               controller: customCtl,
                               keyboardType: TextInputType.number,
-                              style: const TextStyle(fontSize: 13),
-                              decoration: const InputDecoration(
-                                  isDense: true, border: InputBorder.none, hintText: 'mm', suffixText: 'mm',
-                                  suffixStyle: TextStyle(fontSize: 10)),
+                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                              textAlign: TextAlign.center,
+                              decoration: InputDecoration(
+                                  isDense: true,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                                  hintText: 'mm',
+                                  suffixText: 'mm',
+                                  suffixStyle: const TextStyle(fontSize: 11)),
                               onChanged: (v) => setD(() {
                                 final m = double.tryParse(v) ?? 0;
                                 if (m >= 50 && m <= 500) cfgs[spec] = {'pageMm': m, 'offMm': offMm};
@@ -1933,7 +1939,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             ? -maxShift
                             : (e[0] == 'right' ? maxShift : 0)),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                           decoration: BoxDecoration(
                             color: offMm == (e[0] == 'left' ? -maxShift : (e[0] == 'right' ? maxShift : 0))
                                 ? PosTheme.blue
@@ -1945,7 +1951,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                     : PosTheme.textHint.withOpacity(0.4)),
                           ),
                           child: Text('${e[1]}',
-                              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+                              style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
                                   color: offMm == (e[0] == 'left' ? -maxShift : (e[0] == 'right' ? maxShift : 0))
                                       ? Colors.white
                                       : PosTheme.textSub)),
@@ -1975,10 +1981,11 @@ class _SettingsPageState extends State<SettingsPage> {
                   ),
                 ]),
                 const SizedBox(height: 10),
-                // 实时预览
+                // 实时预览（规格名显示实际纸宽）
                 Center(
                   child: _TicketPaper(
-                    content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机', '${UsbPrinter.specOf(spec)['label']}'),
+                    content: _usbSampleTicket(usbSelected?['name'] ?? '未选择打印机',
+                        isEscp ? '针式纸 ${pm.toStringAsFixed(0)}mm' : '${UsbPrinter.specOf(spec)['label']}'),
                     spec: spec,
                     pageMm: cfgs[spec]!['pageMm'] ?? 0,
                     offMm: offMm,
@@ -2259,7 +2266,9 @@ class _TicketPaper extends StatelessWidget {
             ),
           Padding(
             padding: EdgeInsets.symmetric(horizontal: sideInset),
-            child: Column(children: lines),
+            // stretch：Text 占满整行宽 → 正文按 textAlign 左对齐（像文章），
+            // 仅 <center> 标题行居中；不能用 Column 默认 center（会把正文全居中）
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: lines),
           ),
           const SizedBox(height: 6),
           if (!isDot)
