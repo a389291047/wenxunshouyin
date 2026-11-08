@@ -2188,7 +2188,8 @@ class _TicketPaper extends StatelessWidget {
           (inner * (1 - frac) / 2 + offMm / pm * inner).clamp(0.0, inner * (1 - frac));
     } else if (offMm != 0) {
       final inner = paperW - 36;
-      sideInset = (offMm / _defaultPageMm(spec) * inner).clamp(0.0, inner * 0.5);
+      final defMm = spec == 'pos80' ? 80.0 : 58.0;
+      sideInset = (offMm / defMm * inner).clamp(0.0, inner * 0.5);
     } else {
       sideInset = 0;
     }
