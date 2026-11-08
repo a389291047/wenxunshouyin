@@ -3311,7 +3311,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     '会员余额': PosTheme.accentDeep, '挂账': Color(0xFFC23A22),
   };
   static const paySubs = {
-    '现金': '即时到账 · 支持找零', '微信支付': '星驿付扫码 · 真实收款', '支付宝': '星驿付扫码 · 真实收款',
+    '现金': '即时到账 · 支持找零', '微信支付': '扫码枪 · 付款码收款', '支付宝': '扫码枪 · 付款码收款',
     '会员余额': '余额扣款 · 积分抵扣', '挂账': '记账后补款',
   };
 
@@ -3739,7 +3739,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     ]),
                   ),
                 ],
-                // 微信/支付宝：星驿付扫码收款提示（v3.3.161 真实收款）
+                // 微信/支付宝：扫码收款提示（v3.3.161 付款码收款）
                 if (method == '微信支付' || method == '支付宝') ...[
                   const SizedBox(height: 10),
                   Container(
@@ -3754,7 +3754,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                       Row(children: [
                         Icon(Icons.qr_code_scanner, size: 16, color: payColors[method]),
                         const SizedBox(width: 5),
-                        Text('星驿付扫码 · 应收 ¥${Fmt.money(finalTotal)}',
+                        Text('扫码收款 · 应收 ¥${Fmt.money(finalTotal)}',
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
                       ]),
                       const SizedBox(height: 4),

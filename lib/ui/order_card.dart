@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api.dart';
 import '../core/cloud_printer.dart';
@@ -256,7 +255,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
             toast(context, '退款成功，资金将原路退回');
           } else if (st == 'fail') {
             Navigator.pop(context); // loading
-            toast(context, '退款失败：星驿付未完成退款，款项未退出', error: true);
+            toast(context, '退款失败：渠道未完成退款，款项未退出', error: true);
             widget.onRefunded();
             return;
           } else {
@@ -590,7 +589,7 @@ class _RefundDialogState extends State<_RefundDialog> {
     final m = '${widget.order['payment_method'] ?? ''}';
     final hint = m.contains('会员')
         ? '退款将自动回补会员余额'
-        : (m == '现金' ? '现金收款，线下原路退回并登记' : '将通过星驿付原路退回顾客支付账户');
+        : (m == '现金' ? '现金收款，线下原路退回并登记' : '将通过支付渠道原路退回顾客支付账户');
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

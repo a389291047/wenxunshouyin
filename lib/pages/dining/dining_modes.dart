@@ -225,7 +225,7 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
                     Row(children: [
                       Expanded(child: BigButton('现金收款', onTap: () => _checkout('现金'), color: PosTheme.green, height: 46)),
                       const SizedBox(width: 8),
-                      Expanded(child: BigButton('扫码收款（星驿付）', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46)),
+                      Expanded(child: BigButton('扫码收款', onTap: () => _pickScanPay(), color: PosTheme.blue, height: 46)),
                     ]),
                     const SizedBox(height: 8),
                     Row(children: [
@@ -696,7 +696,7 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
           const SizedBox(height: 14),
           BigButton('现金收款', onTap: () => Navigator.pop(context, '现金'), color: PosTheme.green, height: 46),
           const SizedBox(height: 8),
-          BigButton('扫码收款（星驿付）', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46),
+          BigButton('扫码收款', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46),
         ])),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
       ),

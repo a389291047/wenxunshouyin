@@ -679,7 +679,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
           if (st == 'success') {
             toast(context, '退款成功，资金将原路退回');
           } else if (st == 'fail') {
-            toast(context, '退款失败：星驿付未完成退款，款项未退出', error: true);
+            toast(context, '退款失败：渠道未完成退款，款项未退出', error: true);
           } else {
             toast(context, '退款处理中，资金将原路退回（1-3 个工作日到账）');
           }

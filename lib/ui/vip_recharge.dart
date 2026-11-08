@@ -102,7 +102,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           final raw = e.message;
           // 未开通星驿付：明确提示联系客服
           if (raw.contains('开通支付') || raw.contains('商户号') || raw.contains('cust')) {
-            toast(context, '商户未开通星驿付收款，请联系客服开通支付', error: true);
+            toast(context, '商户未开通扫码收款，请联系客服开通支付', error: true);
           } else {
             toast(context, raw, error: true);
           }

@@ -492,7 +492,7 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
           ),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _step('付款码识别成功', done: true),
-            _step('星驿付受理完成',
+            _step('支付受理完成',
                 done: payStatus == 'accepted' || payStatus == 'waiting',
                 active: payStatus == 'scanned'),
             _step('顾客输入支付密码…',
