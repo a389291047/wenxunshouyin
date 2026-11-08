@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/pay_methods.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
@@ -2036,11 +2037,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       gzName = gz['name'] ?? '';
       gzPhone = gz['phone'] ?? '';
     }
-    // 扫码收款（v3.3.161）：微信支付/支付宝走星驿付付款码支付（B扫C，扫码枪扫顾客付款码）
-    // 预生成我方单号：支付流水与结算单 pay_order_no 关联，退款按此原路退（v3.3.162）
-    String xyfOrderNo = '';
-    int xyfChannel = 0;
-    if (picked == '微信支付' || picked == '支付宝') {
+    // 扫码收款（v3.3.163）：结账弹窗内点微信/支付宝已直通扫码完成收款，
+    // 成功结果带 xyf_order_no/xyf_channel 回传，此处直接使用；
+    // 缺失时兜底走原流程（弹窗关闭后再扫码）
+    String xyfOrderNo = '${adj['xyf_order_no'] ?? ''}';
+    int xyfChannel = (adj['xyf_channel'] as int?) ?? 0;
+    if ((picked == '微信支付' || picked == '支付宝') && xyfOrderNo.isEmpty) {
       xyfOrderNo = 'XYFD${DateTime.now().millisecondsSinceEpoch}'
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
@@ -3250,6 +3252,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   bool remarkOpen = false; // 整单备注默认折叠（v3.3.144）
   String? method;
   Map? vip; // 弹窗内选择的会员（选择后解锁「会员余额」支付与积分抵扣）
+  List<String> methodOrder = PayMethods.defaultOrder; // 商户自定义排序（v3.3.163）
 
   double get _cash => double.tryParse(cashCtrl.text.trim()) ?? 0;
 
@@ -3275,7 +3278,61 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     '会员余额': '余额扣款 · 积分抵扣', '挂账': '记账后补款',
   };
 
-  List<String> get _methods => ['现金', '微信支付', '支付宝', '挂账', if (vip != null) '会员余额'];
+  List<String> get _methods {
+    // 商户自定义排序（设置 → 支付方式排序），会员余额需先选会员
+    final list = methodOrder
+        .where((m) => m != '会员余额' || vip != null)
+        .toList();
+    return list;
+  }
+
+  /// 点击支付方式：微信/支付宝免确认直通扫码（v3.3.163）——
+  /// 立即弹出扫码枪收款，付款成功自动带结果关单；取消则回到结账页
+  Future<void> _tapMethod(String m) async {
+    if (m != '微信支付' && m != '支付宝') {
+      setState(() {
+        method = m;
+        // 现金支付：默认按应收金额预填实收（可改大收整钱，自动算找零）
+        if (m == '现金' && cashCtrl.text.trim().isEmpty) {
+          cashCtrl.text = finalTotal.toStringAsFixed(2);
+        }
+      });
+      return;
+    }
+    setState(() => method = m);
+    final orderNo = 'XYFD${DateTime.now().millisecondsSinceEpoch}'
+        '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+    final pay = await showXyfScanPayDialog(context,
+        amount: finalTotal, title: '扫码收款 · $m', bizType: 'dining', orderNo: orderNo);
+    if (!mounted) return;
+    if (pay == null) {
+      // 扫码取消：不记账，收回选中状态，防止误点「确认收款」造成记账式收款
+      setState(() => method = null);
+      return;
+    }
+    // 付款成功：直接带完整结算参数关单（跳过「确认收款」按钮）
+    Navigator.pop(context, {
+      'final': finalTotal,
+      'kaitai_fee': _num(kaitaiCtrl),
+      'tea_fee': _num(teaCtrl),
+      'service_fee': _num(serviceCtrl),
+      'box_fee': _num(boxCtrl),
+      'discount_rate': rate,
+      'quiling': quiling,
+      'jifen_num': (jifenMax * 100).round(),
+      'jifen_deduct': jifenMax,
+      'invoice_title': invoiceCtrl.text.trim(),
+      'invoice_no': invoiceNoCtrl.text.trim(),
+      'order_remark': remarkCtrl.text.trim(),
+      'method': m,
+      'vip': vip,
+      'cash_received': 0.0,
+      'cash_change': 0.0,
+      'xyf_order_no': '${pay['orderNo'] ?? orderNo}',
+      'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+      'scan_paid': true,
+    });
+  }
 
   /// 选择会员（复用餐饮会员选择弹窗）
   Future<void> _pickVip() async {
@@ -3317,6 +3374,9 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     remarkCtrl.text = widget.initialRemark;
     vip = widget.vip;
     remarkOpen = widget.initialRemark.trim().isNotEmpty; // 已有备注自动展开显示
+    PayMethods.load().then((o) {
+      if (mounted) setState(() => methodOrder = o);
+    });
   }
 
   @override
@@ -3624,7 +3684,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
                       ]),
                       const SizedBox(height: 4),
-                      Text('点下方「确认收款」后，用扫码枪扫顾客付款码完成真实收款（微信/支付宝自动识别，待输密码自动等待）',
+                      Text('点卡片即进入扫码模式：扫码枪扫顾客付款码，付款成功自动完成结账（取消则收回选中）',
                           style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
                     ]),
                   ),
@@ -3737,15 +3797,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     final cd = payDarks[m] ?? c;
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: () {
-        setState(() {
-          method = m;
-          // 现金支付：默认按应收金额预填实收（可改大收整钱，自动算找零）
-          if (m == '现金' && cashCtrl.text.trim().isEmpty) {
-            cashCtrl.text = finalTotal.toStringAsFixed(2);
-          }
-        });
-      },
+      onTap: () => _tapMethod(m),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
@@ -3772,7 +3824,18 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
             Text(paySubs[m] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 11.5, color: on ? Colors.white.withOpacity(0.85) : PosTheme.textHint)),
           ])),
-          if (on) const Icon(Icons.check_circle, size: 20, color: Colors.white),
+          // 微信/支付宝：扫码枪直达角标（点卡片即扫码，免确认）
+          if (m == '微信支付' || m == '支付宝')
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: on ? Colors.white.withOpacity(0.22) : c.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text('扫码枪', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: on ? Colors.white : c)),
+            )
+          else if (on)
+            const Icon(Icons.check_circle, size: 20, color: Colors.white),
         ]),
       ),
     );

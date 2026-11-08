@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
 import '../../core/session.dart';
@@ -47,6 +48,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // 云打印总开关（v3.3.157，商户自选：打印 / 不打印）
   bool cloudEnabled = true;
 
+  // 支付方式排序（v3.3.163）：结账弹窗展示顺序，商户自定义
+  List<String> payOrder = PayMethods.defaultOrder;
+
   // 小票打印开关（云打印/USB 通用，v3.3.77）
   Map<String, bool> printOn = {};
 
@@ -75,6 +79,9 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadStaffs();
     _loadRoute();
     _loadCloudOn();
+    PayMethods.load().then((o) {
+      if (mounted) setState(() => payOrder = o);
+    });
   }
 
   /// 加载打印机绑定配置：先与云端同步（换电脑/换账号自动拉取），再读本机缓存
@@ -1210,6 +1217,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   static const List<Map<String, Object>> _navDefs = [
     {'key': 'store',    'icon': Icons.storefront,           'label': '店铺信息'},
+    {'key': 'payorder', 'icon': Icons.low_priority,         'label': '支付方式排序'},
     {'key': 'update',   'icon': Icons.system_update_alt,    'label': '在线更新'},
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
@@ -1236,6 +1244,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _navContent(String key) {
     switch (key) {
       case 'update':  return _updateCard();
+      case 'payorder':return _payOrderCard();
       case 'cloud':   return _cloudCard();
       case 'usb':     return _usbCard();
       case 'receipt': return _printPrefsCard();
@@ -1313,6 +1322,93 @@ class _SettingsPageState extends State<SettingsPage> {
         )),
       ])),
     ]);
+  }
+
+  /// 支付方式排序（v3.3.163）：结账弹窗展示顺序，上下箭头调整，即时保存
+  Widget _payOrderCard() {
+    final isDefault = PayMethods.isDefault(payOrder);
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.low_priority, '支付方式排序'),
+        const Spacer(),
+        if (!isDefault)
+          TextButton.icon(
+            onPressed: () async {
+              final d = List<String>.from(PayMethods.defaultOrder);
+              setState(() => payOrder = d);
+              await PayMethods.save(d);
+            },
+            icon: const Icon(Icons.restart_alt, size: 16),
+            label: const Text('恢复默认', style: TextStyle(fontSize: 13)),
+          ),
+      ]),
+      const SizedBox(height: 4),
+      const Text('结账弹窗按此顺序展示支付方式（默认微信支付 → 支付宝 → 现金 → 挂账 → 会员余额）。\n微信支付/支付宝点卡片即进入扫码枪收款，付款成功自动完成结账；现金/挂账/会员余额需收银员点「确认收款」。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 12),
+      for (var i = 0; i < payOrder.length; i++) _payOrderRow(i),
+    ]));
+  }
+
+  Widget _payOrderRow(int i) {
+    final m = payOrder[i];
+    final c = const {
+      '微信支付': Color(0xFF09BB07),
+      '支付宝': Color(0xFF1677FF),
+      '现金': Color(0xFF22B573),
+      '挂账': Color(0xFFE4573D),
+      '会员余额': PosTheme.accent,
+    }[m] ?? PosTheme.textSub;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: PosTheme.line),
+      ),
+      child: Row(children: [
+        Container(
+          width: 26, height: 26,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
+          child: Text('${i + 1}', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: c)),
+        ),
+        const SizedBox(width: 10),
+        Expanded(child: Text(m, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700))),
+        // 上下移按钮（触屏大热区）
+        _orderBtn(Icons.arrow_upward, i > 0, () async {
+          final d = List<String>.from(payOrder);
+          final t = d[i - 1]; d[i - 1] = d[i]; d[i] = t;
+          setState(() => payOrder = d);
+          await PayMethods.save(d);
+        }),
+        const SizedBox(width: 6),
+        _orderBtn(Icons.arrow_downward, i < payOrder.length - 1, () async {
+          final d = List<String>.from(payOrder);
+          final t = d[i + 1]; d[i + 1] = d[i]; d[i] = t;
+          setState(() => payOrder = d);
+          await PayMethods.save(d);
+        }),
+      ]),
+    );
+  }
+
+  Widget _orderBtn(IconData icon, bool enabled, VoidCallback onTap) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 38, height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: enabled ? Colors.white : const Color(0xFFF2F3F7),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: enabled ? PosTheme.line : PosTheme.line.withOpacity(0.5)),
+        ),
+        child: Icon(icon, size: 17, color: enabled ? PosTheme.textMain : PosTheme.textHint.withOpacity(0.5)),
+      ),
+    );
   }
 
   Widget _storeCard() {

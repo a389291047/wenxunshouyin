@@ -102,17 +102,21 @@ class Api {
 
   /// 付款码支付一体流程：下单 → （待输密码则轮询）→ 成功返回订单行 / 失败抛 ApiError
   /// 轮询上限 25 次 × 1 秒（与小程序一致）
+  /// [onStatus] 进度回调：scanned=付款码已识别 / accepted=星驿付已受理 / waiting=顾客输入密码中（每秒回调）
   static Future<Map<String, dynamic>> xyfScanPay({
     required double amount,
     required String authCode,
     required String orderNo,
     String bizType = 'retail',
+    void Function(String status)? onStatus,
   }) async {
+    onStatus?.call('scanned');
     final r = await xyfCodePay(
         amount: amount, authCode: authCode, orderNo: orderNo, bizType: bizType);
     if ('${r['code']}' != '0') {
       throw ApiError('${r['message'] ?? '下单失败'}');
     }
+    onStatus?.call('accepted');
     Future<Map<String, dynamic>?> queryOnce() async {
       try {
         final q = await xyfQueryOrder('${r['outOrderNo'] ?? orderNo}');
@@ -133,8 +137,10 @@ class Api {
       }
     }
     // 处理中（顾客输密码）：轮询
+    onStatus?.call('waiting');
     for (var i = 0; i < 25; i++) {
       await Future.delayed(const Duration(seconds: 1));
+      onStatus?.call('waiting');
       final o = await queryOnce();
       if (o == null) continue;
       final st = int.tryParse('${o['status']}') ?? 0;

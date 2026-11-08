@@ -46,6 +46,9 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
   final focusNode = FocusNode();
   // phase: input=等待扫码 / paying=支付中 / success=成功 / fail=失败
   String phase = 'input';
+  // 支付进度（paying 阶段展示）：scanned 付款码已识别 → accepted 星驿付已受理 → waiting 顾客输入密码中
+  String payStatus = 'scanned';
+  int elapsedSec = 0; // 支付中已等待秒数
   String errorMsg = '';
   Map? order; // 成功后的 wx_pay_orders 行
   bool submitting = false;
@@ -55,6 +58,17 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
     codeCtrl.dispose();
     focusNode.dispose();
     super.dispose();
+  }
+
+  /// 支付中每秒计时（收银员能感知在推进）
+  void _startElapsed() {
+    elapsedSec = 0;
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted || phase != 'paying') return false;
+      setState(() => elapsedSec++);
+      return true;
+    });
   }
 
   /// 我方业务单号：XYF + 业务前缀(R零售/D餐饮/C充值) + 时间戳 + 4位随机
@@ -78,14 +92,19 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
     setState(() {
       submitting = true;
       phase = 'paying';
+      payStatus = 'scanned';
       errorMsg = '';
     });
+    _startElapsed();
     try {
       final o = await Api.xyfScanPay(
         amount: widget.amount,
         authCode: code,
         orderNo: _genOrderNo(),
         bizType: widget.bizType,
+        onStatus: (s) {
+          if (mounted) setState(() => payStatus = s);
+        },
       );
       if (!mounted) return;
       VoiceService.instance.pay('扫码', widget.amount);
@@ -127,6 +146,44 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
       errorMsg = '';
     });
     focusNode.requestFocus();
+  }
+
+  String get _payStatusText {
+    switch (payStatus) {
+      case 'scanned':
+        return '正在提交付款码…';
+      case 'accepted':
+        return '已受理，等待支付结果…';
+      default:
+        return '顾客正在输入密码…';
+    }
+  }
+
+  /// 三步进度条的单行
+  Widget _step(String text, {required bool done, bool active = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        if (done)
+          const Icon(Icons.check_circle, size: 17, color: PosTheme.green)
+        else if (active)
+          const SizedBox(
+              width: 17, height: 17,
+              child: CircularProgressIndicator(strokeWidth: 2.4, color: PosTheme.blue))
+        else
+          const Icon(Icons.radio_button_unchecked, size: 17, color: PosTheme.textHint),
+        const SizedBox(width: 8),
+        Text(text,
+            style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: done || active ? FontWeight.w700 : FontWeight.w400,
+                color: done
+                    ? PosTheme.green
+                    : active
+                        ? PosTheme.textMain
+                        : PosTheme.textHint)),
+      ]),
+    );
   }
 
   @override
@@ -202,16 +259,45 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
                 style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
           ] else if (phase == 'paying') ...[
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 36),
+              padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 6),
               child: Column(children: [
-                const SizedBox(
-                    width: 46, height: 46,
-                    child: CircularProgressIndicator(strokeWidth: 3, color: PosTheme.blue)),
+                // 大号转圈（呼吸光环），收银员一眼可见
+                Container(
+                  width: 96, height: 96,
+                  decoration: BoxDecoration(
+                    color: PosTheme.blue.withOpacity(0.07),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const SizedBox(
+                      width: 64, height: 64,
+                      child: CircularProgressIndicator(strokeWidth: 5, color: PosTheme.blue)),
+                ),
                 const SizedBox(height: 18),
-                const Text('支付确认中…', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                // 当前状态大字（随进度切换）
+                Text(_payStatusText,
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                const Text('等待顾客输入支付密码，最长 25 秒',
-                    style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                Text('已等待 $elapsedSec 秒 · 最长 25 秒',
+                    style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                const SizedBox(height: 16),
+                // 三步进度条
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7F8FA),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    _step('付款码识别成功', done: true),
+                    _step('星驿付受理完成',
+                        done: payStatus == 'accepted' || payStatus == 'waiting',
+                        active: payStatus == 'scanned'),
+                    _step('顾客输入支付密码…',
+                        done: false,
+                        active: payStatus == 'waiting'),
+                  ]),
+                ),
               ]),
             ),
           ] else if (phase == 'success') ...[
