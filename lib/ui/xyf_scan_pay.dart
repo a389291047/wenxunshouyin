@@ -18,12 +18,17 @@ Future<Map?> showXyfScanPayDialog(BuildContext context,
     {required double amount,
     String title = '扫码收款',
     String bizType = 'retail',
-    String? orderNo}) {
+    String? orderNo,
+    String? moreLabel}) {
   return showDialog<Map>(
     context: context,
     barrierDismissible: false,
     builder: (_) => _XyfScanPayDialog(
-        amount: amount, title: title, bizType: bizType, orderNo: orderNo),
+        amount: amount,
+        title: title,
+        bizType: bizType,
+        orderNo: orderNo,
+        moreLabel: moreLabel),
   );
 }
 
@@ -32,11 +37,16 @@ class _XyfScanPayDialog extends StatefulWidget {
   final String title;
   final String bizType;
   final String? orderNo;
+
+  /// 快捷扫码场景的「完整结账」入口文案（如餐饮点结账收款直接弹扫码时，
+  /// 商户要打折/现金/挂账/会员可点此进入完整结账弹窗），空则不显示
+  final String? moreLabel;
   const _XyfScanPayDialog(
       {required this.amount,
       required this.title,
       required this.bizType,
-      this.orderNo});
+      this.orderNo,
+      this.moreLabel});
   @override
   State<_XyfScanPayDialog> createState() => _XyfScanPayDialogState();
 }
@@ -257,6 +267,17 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
             const SizedBox(height: 10),
             const Text('也可手动输入付款码后按回车 / 点「确认收款」',
                 style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            if ((widget.moreLabel ?? '').isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => Navigator.pop(context, {'more': true}),
+                  icon: const Icon(Icons.tune, size: 15),
+                  label: Text(widget.moreLabel!,
+                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
           ] else if (phase == 'paying') ...[
             Container(
               padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 6),

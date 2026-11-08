@@ -9,8 +9,10 @@ import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/voice.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/receipt_preview.dart';
+import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import '../../ui/xyf_scan_pay.dart';
 import 'dining_modes.dart';
@@ -1992,12 +1994,46 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       toast(context, '该桌还没有点菜品', error: true);
       return;
     }
+    // ===== 快捷通道（v3.3.164）：默认支付方式是微信/支付宝时，点「结账收款」直接弹付款码 =====
+    final prefs0 = await PayMethods.load();
+    final quickMethod = prefs0.first;
+    if (quickMethod == '微信支付' || quickMethod == '支付宝') {
+      final quickNo = 'XYFD${DateTime.now().millisecondsSinceEpoch}'
+          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+      final pay = await showXyfScanPayDialog(context,
+          amount: billTotal, title: '扫码收款 · $quickMethod', bizType: 'dining',
+          orderNo: quickNo, moreLabel: '折扣 / 现金 / 挂账 / 会员 → 完整结账');
+      if (!mounted) return;
+      if (pay != null && pay['more'] != true) {
+        // 扫码成功：按默认方式直接结算（金额=账单合计，无折扣调整），全程零确认
+        return _settleExec({
+          'final': billTotal,
+          'kaitai_fee': 0.0, 'tea_fee': 0.0, 'service_fee': 0.0, 'box_fee': 0.0,
+          'discount_rate': 10.0, 'quiling': 0.0,
+          'jifen_num': 0, 'jifen_deduct': 0.0,
+          'invoice_title': '', 'invoice_no': '',
+          'order_remark': orderRemark,
+          'method': quickMethod, 'vip': vip,
+          'cash_received': 0.0, 'cash_change': 0.0,
+          'xyf_order_no': '${pay['orderNo'] ?? quickNo}',
+          'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+          'scan_paid': true,
+        });
+      }
+      // 取消扫码 或 点「完整结账」→ 继续走下面的完整弹窗
+    }
+
     // 1. 合并弹窗（v3.3.143，v3.3.144 会员选择内置于弹窗右卡）：一次操作完成
     final adj = await showDialog<Map>(
       context: context,
       builder: (_) => _SettlePayDialog(goodsTotal: billTotal, vip: vip, initialRemark: orderRemark),
     );
     if (adj == null || !mounted) return;
+    return _settleExec(adj);
+  }
+
+  /// 结算执行（v3.3.164 从 _settle 拆出）：adj = 结账弹窗 / 快捷扫码带回的参数
+  Future<void> _settleExec(Map adj) async {
     final picked = '${adj['method'] ?? ''}';
     if (picked.isEmpty) return;
     setState(() => vip = adj['vip'] as Map?); // 弹窗内选择的会员回写面板（余额校验/落库用）
@@ -3341,6 +3377,25 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     setState(() => vip = p);
   }
 
+  /// 会员充值（v3.3.164）：结账弹窗内直接充值，成功后【不关闭结账界面】，
+  /// 余额即时累加（本金+赠送），可继续用会员余额支付本单
+  Future<void> _rechargeVip() async {
+    if (vip == null) return;
+    final r = await showVipRechargeDialog(context, vip: vip!);
+    if (r == null || !mounted) return;
+    final amt = double.tryParse('${r['amount'] ?? 0}') ?? 0;
+    final gift = double.tryParse('${r['gift'] ?? 0}') ?? 0;
+    setState(() {
+      vip = {
+        ...vip!,
+        'amount': (double.tryParse('${vip!['amount'] ?? 0}') ?? 0) + amt,
+        'gift_balance': (double.tryParse('${vip!['gift_balance'] ?? 0}') ?? 0) + gift,
+      };
+    });
+    VoiceService.instance.pay('充值', amt);
+    toast(context, '充值成功（¥${Fmt.money(amt)}${gift > 0 ? ' + 赠送 ¥${Fmt.money(gift)}' : ''}），余额 ¥${Fmt.money(_balance)}');
+  }
+
   void _clearVip() => setState(() {
         vip = null;
         if (method == '会员余额') method = null; // 会员被清除时收回该支付方式
@@ -3574,6 +3629,24 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                         Expanded(child: Text('${vip!['name'] ?? vip!['phone'] ?? ''}　余额 ¥${Fmt.money(_balance)}',
                             maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PosTheme.accent))),
+                        // 充值入口（v3.3.164）：余额不足时当场扫码充值，成功后留在结账界面继续结算
+                        InkWell(
+                          onTap: _rechargeVip,
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: PosTheme.accent,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(Icons.savings_outlined, size: 14, color: Colors.white),
+                              SizedBox(width: 4),
+                              Text('充值', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
+                            ]),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
                         const Icon(Icons.swap_horiz, size: 16, color: PosTheme.accent),
                       ]),
                     ),
