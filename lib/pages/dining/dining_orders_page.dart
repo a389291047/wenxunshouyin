@@ -6,6 +6,7 @@ import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/order_card.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_orphan_check.dart';
 
 /// 餐饮版 · 订单页（v3.3.83 重构：右侧导航 + 左侧内容）
 /// 开台订单（就餐中）/ 堂食订单（已结算，可退款）/ 小程序订单 / 退款订单 / 充值订单
@@ -47,6 +48,10 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   void initState() {
     super.initState();
     _load();
+    // 星驿付「未落单流水」兜底检查：扫码收款成功但订单未创建（收银机中断）时提示原路退款
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkXyfOrphans(context);
+    });
   }
 
   Future<void> _load() async {
@@ -663,12 +668,29 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         amount: amount,
       );
       if (!mounted) return;
-      Navigator.pop(context); // loading
       if ('${r['code']}' == '200') {
-        toast(context, '退款成功：¥${Fmt.money(amount > 0 ? amount : refundable)}');
+        final msg = '${r['msg'] ?? '退款成功'}';
+        // 「退款申请已受理」= 星驿付退款中：轮询终态（最长约 40 秒），防误报成功
+        if (msg.contains('受理')) {
+          final st = await Api.pollRefundStatus(
+              dining: true, orderId: int.tryParse('${o['id']}') ?? 0);
+          if (!mounted) return;
+          Navigator.pop(context); // loading
+          if (st == 'success') {
+            toast(context, '退款成功，资金将原路退回');
+          } else if (st == 'fail') {
+            toast(context, '退款失败：星驿付未完成退款，款项未退出', error: true);
+          } else {
+            toast(context, '退款处理中，资金将原路退回（1-3 个工作日到账）');
+          }
+        } else {
+          Navigator.pop(context); // loading
+          toast(context, msg);
+        }
         refundAll = []; // 强制重拉退款列表
         _load();
       } else {
+        Navigator.pop(context); // loading
         toast(context, '${r['msg'] ?? '退款失败'}', error: true);
       }
     } on ApiError catch (e) {

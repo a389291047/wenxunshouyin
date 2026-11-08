@@ -2037,9 +2037,17 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       gzPhone = gz['phone'] ?? '';
     }
     // 扫码收款（v3.3.161）：微信支付/支付宝走星驿付付款码支付（B扫C，扫码枪扫顾客付款码）
+    // 预生成我方单号：支付流水与结算单 pay_order_no 关联，退款按此原路退（v3.3.162）
+    String xyfOrderNo = '';
+    int xyfChannel = 0;
     if (picked == '微信支付' || picked == '支付宝') {
-      final pay = await showXyfScanPayDialog(context, amount: finalTotal, title: '扫码收款 · $picked', bizType: 'dining');
+      xyfOrderNo = 'XYFD${DateTime.now().millisecondsSinceEpoch}'
+          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+      final pay = await showXyfScanPayDialog(context,
+          amount: finalTotal, title: '扫码收款 · $picked', bizType: 'dining', orderNo: xyfOrderNo);
       if (pay == null || !mounted) return;
+      xyfOrderNo = '${pay['orderNo'] ?? xyfOrderNo}';
+      xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
     loadingDialog(context, picked == '挂账' ? '挂账中…' : '结算中…');
     try {
@@ -2072,6 +2080,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         jifenDeduct: jifenDeduct,
         invoiceTitle: invoiceTitle,
         invoiceNo: invoiceNo,
+        payOrderNo: xyfOrderNo,
+        payChannel: xyfChannel,
       );
       if (!mounted) return;
       // 先捕获 Navigator 和要用的数据：后面 pop 掉本弹窗后 State 会被销毁，

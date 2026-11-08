@@ -184,9 +184,17 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
     if (picked == null || !mounted) return;
     // 扫码收款：星驿付付款码支付（扫码枪扫顾客付款码，微信/支付宝自动识别）
+    // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
+    String? xyfOrderNo;
+    int xyfChannel = 0;
     if (picked == '扫码收款') {
-      final pay = await showXyfScanPayDialog(context, amount: t, bizType: 'retail');
+      xyfOrderNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+      final pay = await showXyfScanPayDialog(context,
+          amount: t, bizType: 'retail', orderNo: xyfOrderNo);
       if (pay == null || !mounted) return;
+      xyfOrderNo = '${pay['orderNo'] ?? xyfOrderNo}';
+      xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
 
     final cartPayload = cart.map((l) => {
@@ -247,6 +255,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
         cart: cartPayload,
+        payOrderNo: xyfOrderNo ?? '',
+        payChannel: xyfChannel,
       );
       if (!mounted) return;
       Navigator.pop(context);

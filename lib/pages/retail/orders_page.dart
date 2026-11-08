@@ -4,6 +4,7 @@ import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/order_card.dart';
 import '../../ui/widgets.dart';
+import '../../ui/xyf_orphan_check.dart';
 
 /// 订单页（主从布局，与会员页一致）：
 /// 左卡 = 筛选（店内/小程序 · 今天/昨天/上周）+ 订单列表，默认选中当天最新一笔
@@ -26,6 +27,10 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
   void initState() {
     super.initState();
     _load();
+    // 星驿付「未落单流水」兜底检查：扫码收款成功但订单未创建（收银机中断）时提示原路退款
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) checkXyfOrphans(context);
+    });
   }
 
   Future<void> _load() async {

@@ -144,6 +144,63 @@ class Api {
     throw ApiError('支付超时（25 秒未确认），请重新扫码收款');
   }
 
+  /// 退款状态轮询（零售）：refundStatus = none无退款中记录 | processing | success | fail
+  static Future<Map<String, dynamic>> refundStatusRetail(
+      {required int orderId}) {
+    return post('/shouyin/order/refundStatus', {
+      'wenxun_id': Session.wenxunId,
+      'order_id': orderId,
+    });
+  }
+
+  /// 退款状态轮询（堂食）
+  static Future<Map<String, dynamic>> refundStatusDining(
+      {required int orderId}) {
+    return post('/api/canyinorder/refundStatus', {
+      'wenxun_id': Session.wenxunId,
+      'order_id': orderId,
+    });
+  }
+
+  /// 未落单流水列表（收银机崩溃兜底）：今日星驿付已收款但未关联订单
+  static Future<Map<String, dynamic>> xyfOrphanList() {
+    return postJson('/api/v1.payment/orphanList', {},
+        headers: {'merchant-no': '${Session.wenxunId}'});
+  }
+
+  /// 未落单流水原路退款（需权限密码）
+  static Future<Map<String, dynamic>> xyfOrphanRefund({
+    required String threeOrderNo,
+    required String password,
+    required int operatorId,
+  }) {
+    return postJson('/api/v1.payment/orphanRefund', {
+      'three_order_no': threeOrderNo,
+      'password': password,
+      'operator_id': operatorId,
+    }, headers: {'merchant-no': '${Session.wenxunId}'});
+  }
+
+  /// 退款中轮询：until success/fail 或超时（约 40 秒），返回最终 refundStatus
+  static Future<String> pollRefundStatus({
+    required bool dining,
+    required int orderId,
+  }) async {
+    for (var i = 0; i < 20; i++) {
+      await Future.delayed(const Duration(seconds: 2));
+      try {
+        final r = dining
+            ? await refundStatusDining(orderId: orderId)
+            : await refundStatusRetail(orderId: orderId);
+        final st = '${r['refundStatus'] ?? 'processing'}';
+        if (st == 'success' || st == 'fail' || st == 'none') return st;
+      } on ApiError {
+        // 单次查询失败继续轮询
+      }
+    }
+    return 'processing';
+  }
+
   // ==================== 登录 ====================
 
   /// 收银员账号登录（手机号 + 明文密码）
@@ -209,6 +266,8 @@ class Api {
     required String paymentMethod,
     required List<Map<String, dynamic>> cart,
     int vipId = 0,
+    String payOrderNo = '', // 星驿付支付流水号（扫码收款单退款关联）
+    int payChannel = 0, // 星驿付渠道：1支付宝 2微信 9银联 12数币
   }) async {
     return post('/shouyin/order/add', {
       'id': wenxunId,
@@ -217,6 +276,8 @@ class Api {
       'paymentMethod': paymentMethod,
       'cart': cart,
       if (vipId > 0) 'vip_id': vipId,
+      if (payOrderNo.isNotEmpty) 'pay_order_no': payOrderNo,
+      if (payChannel > 0) 'payment_channel': payChannel,
     });
   }
 
@@ -896,6 +957,8 @@ class Api {
     double jifenDeduct = 0,
     String invoiceTitle = '',
     String invoiceNo = '',
+    String payOrderNo = '', // 星驿付支付流水号（扫码收款结算单退款关联）
+    int payChannel = 0, // 星驿付渠道：1支付宝 2微信 9银联 12数币
   }) async {
     return post('/api/tableorder/add', {
       'wenxun_id': wenxunId,
@@ -926,6 +989,8 @@ class Api {
       if (jifenDeduct > 0) 'jifen_deduct': jifenDeduct,
       if (invoiceTitle.isNotEmpty) 'invoice_title': invoiceTitle,
       if (invoiceNo.isNotEmpty) 'invoice_no': invoiceNo,
+      if (payOrderNo.isNotEmpty) 'pay_order_no': payOrderNo,
+      if (payChannel > 0) 'payment_channel': payChannel,
     });
   }
 
@@ -944,6 +1009,8 @@ class Api {
     int peopleNum = 1,
     int vipId = 0,
     String phone = '',
+    String payOrderNo = '', // 星驿付支付流水号（扫码收款结算单退款关联）
+    int payChannel = 0, // 星驿付渠道：1支付宝 2微信 9银联 12数币
   }) async {
     return post('/api/tableorder/add', {
       'direct': 1,
@@ -958,6 +1025,8 @@ class Api {
       'cart': cart,
       if (vipId > 0) 'vip_id': vipId,
       if (phone.isNotEmpty) 'phone': phone,
+      if (payOrderNo.isNotEmpty) 'pay_order_no': payOrderNo,
+      if (payChannel > 0) 'payment_channel': payChannel,
     });
   }
 

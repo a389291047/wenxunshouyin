@@ -245,9 +245,30 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         refundGoods: (r['goods'] as List?)?.whereType<Map<String, dynamic>>().toList() ?? const [],
       );
       if (!mounted) return;
-      Navigator.pop(context);
       if ('${r2['code']}' == '200') {
-        toast(context, '${r2['msg'] ?? '退款成功'}');
+        final msg = '${r2['msg'] ?? '退款成功'}';
+        // 「退款申请已受理」= 星驿付退款中：轮询终态（最长约 40 秒），防误报成功
+        if (msg.contains('受理')) {
+          final st = await Api.pollRefundStatus(dining: false, orderId: orderId);
+          if (!mounted) return;
+          if (st == 'success') {
+            Navigator.pop(context); // loading
+            toast(context, '退款成功，资金将原路退回');
+          } else if (st == 'fail') {
+            Navigator.pop(context); // loading
+            toast(context, '退款失败：星驿付未完成退款，款项未退出', error: true);
+            widget.onRefunded();
+            return;
+          } else {
+            Navigator.pop(context); // loading
+            toast(context, '退款处理中，资金将原路退回（1-3 个工作日到账）');
+            widget.onRefunded();
+            return;
+          }
+        } else {
+          Navigator.pop(context); // loading
+          toast(context, msg);
+        }
         // 本地同步：累计退款金额 + 已退商品明细（父级列表随后会刷新覆盖）
         setState(() {
           final newRefunded = double.tryParse((refunded + (double.tryParse('${r['amount']}') ?? 0)).toStringAsFixed(2)) ?? 0;
@@ -273,6 +294,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         } catch (_) {}
         widget.onRefunded();
       } else {
+        Navigator.pop(context); // loading
         toast(context, '${r2['msg'] ?? '退款失败'}', error: true);
       }
     } on ApiError catch (e) {

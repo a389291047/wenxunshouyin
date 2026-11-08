@@ -13,12 +13,17 @@ import 'widgets.dart';
 ///
 /// [bizType] 业务类型：retail=零售订单 dining=餐饮订单 recharge=会员充值，
 /// 编入我方单号前缀便于对账（XYFR/XYFD/XYFC + 时间戳）
+/// [orderNo] 外部预生成的我方单号（收银场景传入，落单时与订单 pay_order_no 关联，退款按此原路退）
 Future<Map?> showXyfScanPayDialog(BuildContext context,
-    {required double amount, String title = '扫码收款', String bizType = 'retail'}) {
+    {required double amount,
+    String title = '扫码收款',
+    String bizType = 'retail',
+    String? orderNo}) {
   return showDialog<Map>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _XyfScanPayDialog(amount: amount, title: title, bizType: bizType),
+    builder: (_) => _XyfScanPayDialog(
+        amount: amount, title: title, bizType: bizType, orderNo: orderNo),
   );
 }
 
@@ -26,7 +31,12 @@ class _XyfScanPayDialog extends StatefulWidget {
   final double amount;
   final String title;
   final String bizType;
-  const _XyfScanPayDialog({required this.amount, required this.title, required this.bizType});
+  final String? orderNo;
+  const _XyfScanPayDialog(
+      {required this.amount,
+      required this.title,
+      required this.bizType,
+      this.orderNo});
   @override
   State<_XyfScanPayDialog> createState() => _XyfScanPayDialogState();
 }
@@ -48,7 +58,9 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
   }
 
   /// 我方业务单号：XYF + 业务前缀(R零售/D餐饮/C充值) + 时间戳 + 4位随机
+  /// 外部已传入（orderNo）则直接用，保证支付流水号与业务订单一致关联
   String _genOrderNo() {
+    if ((widget.orderNo ?? '').isNotEmpty) return widget.orderNo!;
     final biz = widget.bizType == 'dining'
         ? 'D'
         : (widget.bizType == 'recharge' ? 'C' : 'R');

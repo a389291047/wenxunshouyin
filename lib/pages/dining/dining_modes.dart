@@ -86,7 +86,8 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
     if (v != null && mounted) setState(() => vip = v);
   }
 
-  Future<void> _checkout(String method) async {
+  Future<void> _checkout(String method,
+      {String xyfOrderNo = '', int xyfChannel = 0}) async {
     if (cart.isEmpty) {
       toast(context, '请先点选菜品', error: true);
       return;
@@ -118,6 +119,8 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
         cart: cart,
         vipId: method == '会员余额' ? (int.tryParse('${vip!['id']}') ?? 0) : 0,
         phone: method == '会员余额' ? '${vip!['phone'] ?? ''}' : '',
+        payOrderNo: xyfOrderNo,
+        payChannel: xyfChannel,
       );
       if (!mounted) return;
       Navigator.pop(context); // loading
@@ -301,10 +304,16 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
 
   /// 扫码收款（v3.3.161）：星驿付付款码支付，扫码枪扫顾客付款码
   /// 微信/支付宝/云闪付自动识别，无需先选通道；成功后按「扫码收款」落单
+  /// 预生成我方单号：支付流水与结算单 pay_order_no 关联，退款按此原路退（v3.3.162）
   Future<void> _pickScanPay() async {
-    final pay = await showXyfScanPayDialog(context, amount: total, title: '扫码收款', bizType: 'dining');
+    final myNo = 'XYFD${DateTime.now().millisecondsSinceEpoch}'
+        '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+    final pay = await showXyfScanPayDialog(context,
+        amount: total, title: '扫码收款', bizType: 'dining', orderNo: myNo);
     if (pay == null || !mounted) return;
-    _checkout('扫码收款');
+    final ch = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
+    _checkout('扫码收款',
+        xyfOrderNo: '${pay['orderNo'] ?? myNo}', xyfChannel: ch);
   }
 }
 
