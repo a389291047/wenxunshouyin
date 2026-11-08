@@ -1099,7 +1099,9 @@ class _SettingsPageState extends State<SettingsPage> {
     try {
       final spec = UsbPrinter.specOf(usbSpec);
       await UsbPrinter.printTicket(sel, _usbSampleTicket('${sel['name']}', '${spec['label']}'),
-          paperWidth: spec['width'] as int, mode: spec['mode'] as String);
+          paperWidth: spec['width'] as int,
+          mode: spec['mode'] as String,
+          textW: spec['textW'] as int?);
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '测试小票已发送，出纸即为打印成功');
@@ -1773,9 +1775,9 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 8),
               Text(
                 spec == 'dot'
-                    ? '针式连续纸：两侧带孔的连打纸，打印完自动换页走纸'
+                    ? '针式连续纸 241mm：两侧带孔的连打纸，小票内容整张居中不贴左，打印完自动换页走纸'
                     : spec == 'a4'
-                        ? 'A4 单页纸：针式打印机单页送纸，打印完自动退纸'
+                        ? 'A4 单页纸：针式打印机单页送纸，小票内容整张居中，打印完自动退纸'
                         : '热敏小票机：打印完自动切纸（需打印机支持切刀）',
                 style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
               ),
@@ -1852,6 +1854,18 @@ class _TicketPaper extends StatelessWidget {
         fontSize = 12;
     }
     final isDot = spec == 'dot' || spec == 'a4';
+    // 针式纸：内容按版心整张居中（241mm 版心 48/92 列、A4 版心 60/80 列）
+    final double sideInset;
+    switch (spec) {
+      case 'dot':
+        sideInset = 86;
+        break;
+      case 'a4':
+        sideInset = 54;
+        break;
+      default:
+        sideInset = 0;
+    }
 
     final lines = <Widget>[];
     for (final raw in content.replaceAll('\r\n', '\n').split('\n')) {
@@ -1916,7 +1930,10 @@ class _TicketPaper extends StatelessWidget {
                   Container(width: 5, height: 5, decoration: const BoxDecoration(color: Color(0xFFE7E9EF), shape: BoxShape.circle)),
               ]),
             ),
-          ...lines,
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: sideInset),
+            child: Column(children: lines),
+          ),
           const SizedBox(height: 6),
           if (!isDot)
             Container(

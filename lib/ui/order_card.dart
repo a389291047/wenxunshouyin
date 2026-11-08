@@ -201,7 +201,9 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     setState(() => busy = true);
     try {
       await UsbPrinter.printTicket(p, CloudPrinter.orderTicket(o),
-          paperWidth: spec['width'] as int, mode: spec['mode'] as String);
+          paperWidth: spec['width'] as int,
+          mode: spec['mode'] as String,
+          textW: spec['textW'] as int?);
       if (!mounted) return;
       toast(context, 'USB 打印已发送（${spec['label']}）');
     } on ApiError catch (e) {

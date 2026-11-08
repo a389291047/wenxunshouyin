@@ -36,16 +36,19 @@ class UsbPrinter {
   }
 
   /// 纸张规格定义：mode pos=ESC/POS 热敏、escp=ESC/P2 针式
+  /// escp 规格：width=页宽（整页可打印列数）、textW=版心宽（小票排版宽度，整张在页上居中）
   static Map<String, dynamic> specOf(String spec) {
     switch (spec) {
       case 'pos80':
-        return {'key': 'pos80', 'mode': 'pos', 'width': 80, 'label': '热敏小票 80mm'};
+        return {'key': 'pos80', 'mode': 'pos', 'width': 80, 'textW': 48, 'label': '热敏小票 80mm'};
       case 'dot':
-        return {'key': 'dot', 'mode': 'escp', 'width': 48, 'label': '针式连续纸'};
+        // 241mm 连续纸（10cpi 约 92 列），小票按 48 列版心整张居中
+        return {'key': 'dot', 'mode': 'escp', 'width': 92, 'textW': 48, 'label': '针式连续纸 241mm'};
       case 'a4':
-        return {'key': 'a4', 'mode': 'escp', 'width': 80, 'label': 'A4 纸（针式）'};
+        // A4 单页（10cpi 约 80 列），小票按 60 列版心整张居中
+        return {'key': 'a4', 'mode': 'escp', 'width': 80, 'textW': 60, 'label': 'A4 纸（针式）'};
       default:
-        return {'key': 'pos58', 'mode': 'pos', 'width': 58, 'label': '热敏小票 58mm'};
+        return {'key': 'pos58', 'mode': 'pos', 'width': 58, 'textW': 32, 'label': '热敏小票 58mm'};
     }
   }
 
@@ -79,7 +82,9 @@ class UsbPrinter {
     }
     final spec = await currentSpec();
     await printTicket(p, content,
-        paperWidth: spec['width'] as int, mode: spec['mode'] as String);
+        paperWidth: spec['width'] as int,
+        mode: spec['mode'] as String,
+        textW: spec['textW'] as int?);
     return true;
   }
 
@@ -124,9 +129,9 @@ class UsbPrinter {
 
   static Future<void> printTicket(
       Map<String, dynamic> printer, String content,
-      {int paperWidth = 58, String mode = 'pos'}) async {
-    final bytes =
-        EscPos.encode(content, paperWidth: paperWidth, mode: mode);
+      {int paperWidth = 58, String mode = 'pos', int? textW}) async {
+    final bytes = EscPos.encode(content,
+        paperWidth: paperWidth, mode: mode, textW: textW);
     if (Platform.isWindows) {
       await _printWindows('${printer['id']}', bytes);
     } else if (Platform.isMacOS) {

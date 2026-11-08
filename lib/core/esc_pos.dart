@@ -25,8 +25,10 @@ class EscPos {
 
   /// 把云打印文本格式转成 ESC/POS 字节流（热敏小票机）
   /// mode = 'pos'（热敏 ESC/POS）| 'escp'（针式 ESC/P2，如 EPSON LQ 系列）
-  static Uint8List encode(String content, {int paperWidth = 58, String mode = 'pos'}) {
-    if (mode == 'escp') return _encodeEscP(content, paperWidth);
+  /// [textW] 版心宽（针式用）：小票内容排版列数，整张小票按版心在页面上水平居中；
+  /// 缺省等于 paperWidth
+  static Uint8List encode(String content, {int paperWidth = 58, String mode = 'pos', int? textW}) {
+    if (mode == 'escp') return _encodeEscP(content, paperWidth, textW ?? paperWidth);
     final width = paperWidth >= 80 ? width80 : width58;
     final out = BytesBuilder();
     out.add([0x1B, 0x40]); // ESC @ 初始化
@@ -71,20 +73,24 @@ class EscPos {
   }
 
   /// 针式打印机（ESC/P2，EPSON LQ 系列等）：
+  /// - [pageW] 页宽：整张纸可打印的半角列数（10cpi，如 241mm 连续纸约 92 列）；
+  ///   [textW] 版心宽：小票内容排版列数。整张小票按版心在页面上**水平居中**，
+  ///   解决 241mm 连续纸 / A4 上内容全部贴左打印的问题
+  /// - 分隔线统一拉伸到版心宽，标题类行在版心内再居中
   /// - 不发热敏专用指令（GS ! 倍大 / GS V 切刀 / ESC d 走纸），
   ///   针式机不认切刀指令会导致任务卡在「正在打印」
   /// - 末尾发 FF（0x0C）换页：手动送纸/连续纸立即走纸出页，不再卡住
-  /// - A4 等单页纸同样以 FF 结束触发退纸
-  static Uint8List _encodeEscP(String content, int width) {
+  static Uint8List _encodeEscP(String content, int pageW, int textW) {
     final out = BytesBuilder();
-    out.add([0x1B, 0x40]); // ESC @ 初始化
+    out.add([0x1B, 0x40]); // ESC @ 初始化（10cpi）
     out.add([0x1C, 0x26]); // FS & 中文模式（针式机内置 GB2312 字库）
 
-    final lines = content.replaceAll('\r\n', '\n').split('\n');
-    for (final raw in lines) {
+    // 1) 解析行：剥标签、识别居中/倍大/加粗/分隔线
+    final rows = <Map<String, Object?>>[];
+    for (final raw in content.replaceAll('\r\n', '\n').split('\n')) {
       final t = raw.trim();
       if (t.isEmpty) {
-        out.add([0x0A]);
+        rows.add({'empty': true});
         continue;
       }
       final lower = t.toLowerCase();
@@ -93,28 +99,61 @@ class EscPos {
       final bold = lower.contains('<fb>') || lower.contains('<cb>') || lower.contains('<bold>');
       final text = t.replaceAll(_tagRe, '');
       if (text.isEmpty) {
+        rows.add({'empty': true});
+        continue;
+      }
+      // 分隔线（纯符号且较长）：统一拉伸到版心宽
+      if (text.length >= 8 && RegExp(r'^[-=*_~·— ]+$').hasMatch(text)) {
+        rows.add({'sep': true});
+        continue;
+      }
+      for (final line in _wrap(text, double ? textW ~/ 2 : textW)) {
+        rows.add({'text': line, 'center': center, 'double': double, 'bold': bold});
+      }
+      if (double) rows.add({'empty': true}); // 倍大标题后空一行
+    }
+
+    // 2) 计算版心（整张小票的实际宽度）：分隔线定宽，其余取最长行
+    var blockW = textW;
+    for (final r in rows) {
+      if (r['text'] is! String) continue;
+      final w = (r['double'] == true ? 2 : 1) * _dispWidth(r['text'] as String);
+      if (w > blockW) blockW = w;
+    }
+    if (blockW > pageW) blockW = pageW;
+    final left = (pageW - blockW) ~/ 2; // 整张小票在纸上的水平居中偏移
+
+    void emit(String text, int pad, {bool double = false, bool bold = false}) {
+      if (pad > 0) out.add(List<int>.filled(pad, 0x20));
+      if (double) {
+        out.add([0x1B, 0x77, 1]); // ESC w 1 倍高
+        out.add([0x1B, 0x57, 1]); // ESC W 1 倍宽
+      }
+      if (bold) out.add([0x1B, 0x45, 1]); // ESC E 加粗
+      out.add(gbk.encode(text));
+      if (double) {
+        out.add([0x1B, 0x77, 0]);
+        out.add([0x1B, 0x57, 0]);
+      }
+      if (bold) out.add([0x1B, 0x45, 0]);
+      out.add([0x0A]);
+    }
+
+    // 3) 输出：整块右移 left 列；标题类行在版心内再居中
+    for (final r in rows) {
+      if (r['empty'] == true) {
         out.add([0x0A]);
         continue;
       }
-      for (final line in _wrap(text, double ? width ~/ 2 : width)) {
-        out.add([0x1B, 0x61, center ? 1 : 0]); // ESC a 对齐
-        if (double) {
-          out.add([0x1B, 0x77, 1]); // ESC w 1 倍高
-          out.add([0x1B, 0x57, 1]); // ESC W 1 倍宽
-        }
-        if (bold) out.add([0x1B, 0x45, 1]); // ESC E 加粗
-        out.add(gbk.encode(line));
-        if (double) {
-          out.add([0x1B, 0x77, 0]);
-          out.add([0x1B, 0x57, 0]);
-        }
-        if (bold || center) {
-          out.add([0x1B, 0x45, 0]);
-          out.add([0x1B, 0x61, 0]);
-        }
-        out.add([0x0A]);
+      if (r['sep'] == true) {
+        emit(''.padRight(blockW, '-'), left);
+        continue;
       }
-      if (double) out.add([0x0A]);
+      final double = r['double'] == true;
+      final w = (double ? 2 : 1) * _dispWidth(r['text'] as String);
+      var pad = left;
+      if (r['center'] == true) pad += ((blockW - w) ~/ 2).clamp(0, blockW);
+      emit(r['text'] as String, pad, double: double, bold: r['bold'] == true);
     }
 
     out.add([0x0A, 0x0A]);
