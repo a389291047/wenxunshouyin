@@ -714,6 +714,8 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
         // 打印结清小票
         final d = (r['data'] ?? {}) as Map;
         if (await PrintPrefs.on('dining')) {
+          final gzName = '${row['name'] ?? ''}'.trim();
+          final gzPhone = '${row['phone'] ?? ''}'.trim();
           CloudPrinter.print(CloudPrinter.diningReceipt(
           orderSn: '${d['order_sn'] ?? row['order_sn'] ?? ''}',
           tableTitle: '${row['table_title'] ?? ''}（挂账结清）',
@@ -722,6 +724,9 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
           goodsTotal: double.tryParse('${row['amount']}') ?? 0,
           finalTotal: double.tryParse('${row['amount']}') ?? 0,
           cart: const [],
+          extraLines: gzName.isEmpty
+              ? const []
+              : ['挂账人: $gzName${gzPhone.isNotEmpty ? '　电话: $gzPhone' : ''}'],
           )).catchError((_) => <String, dynamic>{});
         }
         _load();

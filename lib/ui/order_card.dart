@@ -161,7 +161,8 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     setState(() => busy = true);
     loadingDialog(context, '发送云打印…');
     try {
-      await CloudPrinter.print(CloudPrinter.orderTicket(o));
+      // 补打是主动操作，不受 USB「手动打印模式」限制（v3.3.156）
+      await CloudPrinter.printManual(CloudPrinter.orderTicket(o));
       if (!mounted) return;
       Navigator.pop(context);
       toast(context, '云打印已发送');
@@ -260,7 +261,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         try {
           final oo = Map<String, dynamic>.from(o);
           if (await PrintPrefs.on('refund')) {
-            await CloudPrinter.print(CloudPrinter.orderTicket(oo, isRefund: true));
+            await CloudPrinter.printManual(CloudPrinter.orderTicket(oo, isRefund: true));
           }
         } catch (_) {}
         widget.onRefunded();

@@ -2090,6 +2090,10 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         if (quiling > 0) extra.add('抹零: -¥${Fmt.money(quiling)}');
         if (jifenNum > 0) extra.add('积分抵扣: $jifenNum 分 (-¥${Fmt.money(jifenDeduct)})');
         if (picked == '现金' && cashRecv > 0) extra.add('实收现金: ¥${Fmt.money(cashRecv)}　找零: ¥${Fmt.money(cashChange)}');
+        // 挂账订单打印挂账人姓名/电话（v3.3.156）
+        if (picked == '挂账' && gzName.isNotEmpty) {
+          extra.add('挂账人: $gzName${gzPhone.isNotEmpty ? '　电话: $gzPhone' : ''}');
+        }
         if (remark.isNotEmpty) extra.add('整单备注: $remark');
         if (invoiceTitle.isNotEmpty) extra.add('发票: $invoiceTitle${invoiceNo.isNotEmpty ? '（税号 $invoiceNo）' : ''}');
         if (await PrintPrefs.on('dining')) {

@@ -35,6 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool usbEnabled = false;
   int usbPaper = 58;
   String usbSpec = 'pos58'; // pos58/pos80/dot/a4
+  String usbMode = 'auto'; // auto=自动打印 manual=手动打印
   Map<String, dynamic>? usbSelected;
   List<Map<String, dynamic>> usbPrinters = [];
 
@@ -1022,6 +1023,7 @@ class _SettingsPageState extends State<SettingsPage> {
       usbPaper = sp.getInt(UsbPrinter.prefPaper) ?? 58;
       usbSpec = sp.getString(UsbPrinter.prefSpec) ??
           ((usbPaper >= 80) ? 'pos80' : 'pos58');
+      usbMode = sp.getString(UsbPrinter.prefMode) ?? 'auto';
       final raw = sp.getString(UsbPrinter.prefPrinter);
       usbSelected = (raw == null || raw.isEmpty)
           ? null
@@ -1057,6 +1059,7 @@ class _SettingsPageState extends State<SettingsPage> {
     await sp.setBool(UsbPrinter.prefEnabled, usbEnabled);
     await sp.setInt(UsbPrinter.prefPaper, usbPaper);
     await sp.setString(UsbPrinter.prefSpec, usbSpec);
+    await sp.setString(UsbPrinter.prefMode, usbMode);
     await sp.setString(
         UsbPrinter.prefPrinter, usbSelected == null ? '' : jsonEncode(usbSelected));
   }
@@ -1517,6 +1520,29 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
       ),
+      // 出票模式：自动打印 / 手动打印（v3.3.156）
+      if (usbEnabled)
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const Text('出票模式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              _modeChip('auto', '自动打印'),
+              const SizedBox(width: 6),
+              _modeChip('manual', '手动打印'),
+            ]),
+            const SizedBox(height: 4),
+            Text(
+              usbMode == 'manual'
+                  ? '手动打印：收银 / 结账 / 后厨 / 预约等小票一律不自动出票，仅在补打小票、测试打印等主动操作时出票'
+                  : '自动打印：收银 / 结账 / 后厨 / 预约小票按「小票打印设置」自动出票',
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
+            ),
+          ]),
+        ),
       // 打印机列表
       if (usbLoading)
         const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: PosTheme.accent)))
@@ -1607,8 +1633,29 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Widget _specChip(String key, String label) {
-    final sel = usbSpec == key;
+  /// 出票模式选择 chip（自动/手动）
+  Widget _modeChip(String key, String label) {
+    final sel = usbMode == key;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () async {
+        setState(() => usbMode = key);
+        await _saveUsbPrefs();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: sel ? PosTheme.accent : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+        ),
+        child: Text(label,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
+      ),
+    );
+  }
+
+  Widget _specChip(String key, String label) {    final sel = usbSpec == key;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: () async {

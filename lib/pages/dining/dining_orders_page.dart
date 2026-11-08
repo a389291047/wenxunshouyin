@@ -317,6 +317,9 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
     ];
     final pay = '${o['pay1_type'] ?? ''}';
     if (pay.isNotEmpty && pay != 'null') parts.add(pay);
+    // 挂账订单显示挂账人（v3.3.156）
+    final gzName = '${o['guazhang_name'] ?? ''}'.trim();
+    if (gzName.isNotEmpty) parts.add('挂账:$gzName');
     return parts.join(' · ');
   }
 
@@ -381,6 +384,12 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             _kvRow('收银员', '${o['operator_name'] ?? '-'}'),
             if ('${o['pay1_type'] ?? ''}'.isNotEmpty && '${o['pay1_type']}' != 'null')
               _kvRow('支付方式', '${o['pay1_type']}'),
+            // 挂账订单显示挂账人姓名/电话（v3.3.156）
+            if ('${o['guazhang_name'] ?? ''}'.trim().isNotEmpty) ...[
+              _kvRow('挂账人', '${o['guazhang_name']}'),
+              if ('${o['guazhang_phone'] ?? ''}'.trim().isNotEmpty)
+                _kvRow('挂账电话', '${o['guazhang_phone']}'),
+            ],
             if (refunded > 0) _kvRow('已退款', '¥${Fmt.money(refunded)}', valueColor: PosTheme.red),
             const SizedBox(height: 8),
             const Divider(height: 1, color: PosTheme.line),

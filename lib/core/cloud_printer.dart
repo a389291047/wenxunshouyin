@@ -34,14 +34,22 @@ class CloudPrinter {
   }
 
   /// 收银/堂食结账小票（USB 优先，云打印兜底）
+  /// 「手动打印」模式下直接跳过（USB + 云打印都不出票），出票只发生在补打/测试等主动操作
   static Future<Map<String, dynamic>> print(String content) async {
+    if (await UsbPrinter.isManual()) return {};
+    if (await UsbPrinter.tryPrint(content)) return {};
+    return printCloud(content);
+  }
+
+  /// 手动出票（补打小票等用户主动点击）：不受「手动打印模式」限制
+  static Future<Map<String, dynamic>> printManual(String content) async {
     if (await UsbPrinter.tryPrint(content)) return {};
     return printCloud(content);
   }
 
   /// 后厨小票（USB 优先，云打印兜底）
   static Future<Map<String, dynamic>> printKitchen(String content) async {
-    if (await UsbPrinter.tryPrint(content)) return {};
+    if (await UsbPrinter.isManual()) return {};
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
@@ -209,7 +217,8 @@ class CloudPrinter {
   }
 
   /// 订单补打小票（v3.3.87）：USB 直连优先，云打印按绑定的前台机优先（无绑定取第一台）
-  static Future<Map<String, dynamic>> printReorder(String content) => print(content);
+  /// 补打是收银员主动操作，不受「手动打印模式」限制（v3.3.156）
+  static Future<Map<String, dynamic>> printReorder(String content) => printManual(content);
 
   /// 堂食订单补打小票模板（v3.3.87）：从订单行重组结账单，含附加费/优惠明细
   static String diningReprintTicket(Map o) {
@@ -237,6 +246,12 @@ class CloudPrinter {
     if (remark.isNotEmpty) extra.add('整单备注: $remark');
     final invoice = '${o['invoice_title'] ?? ''}';
     if (invoice.isNotEmpty) extra.add('发票: $invoice');
+    // 挂账人信息（v3.3.156：后端 getList/detail 返回）
+    final gzName = '${o['guazhang_name'] ?? ''}'.trim();
+    final gzPhone = '${o['guazhang_phone'] ?? ''}'.trim();
+    if (gzName.isNotEmpty) {
+      extra.add('挂账人: $gzName${gzPhone.isNotEmpty ? '　电话: $gzPhone' : ''}');
+    }
     final pays = ['${o['pay1_type'] ?? ''}', '${o['pay2_type'] ?? ''}', '${o['pay3_type'] ?? ''}']
         .where((p) => p.isNotEmpty && p != 'null')
         .toList();
@@ -252,6 +267,12 @@ class CloudPrinter {
     );
   }
 
+  /// 小票标题店铺名：登录商户名，未取到回退「稳讯收银」（v3.3.156）
+  static String get shopTitle {
+    final n = Session.shopName.trim();
+    return n.isEmpty ? '稳讯收银' : n;
+  }
+
   /// 组零售收银小票
   static String retailReceipt({
     required String orderNo,
@@ -260,7 +281,7 @@ class CloudPrinter {
     required List<Map<String, dynamic>> cart,
   }) {
     final sb = StringBuffer();
-    sb.writeln('<FS2><center>稳讯收银</center></FS2>');
+    sb.writeln('<FS2><center>$shopTitle</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('单号: $orderNo');
     sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
@@ -290,7 +311,9 @@ class CloudPrinter {
     List<String> extraLines = const [], // 费用/优惠/发票/备注明细（v3.3.71）
   }) {
     final sb = StringBuffer();
-    sb.writeln('<FS2><center>稳讯收银 · 结账单</center></FS2>');
+    // 店铺名一行居中，「结账单」单独一行居中（v3.3.156）
+    sb.writeln('<FS2><center>$shopTitle</center></FS2>');
+    sb.writeln('<FS2><center>结账单</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('单号: $orderSn');
     sb.writeln('桌台: $tableTitle   人数: $peopleNum');

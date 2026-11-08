@@ -5,6 +5,7 @@ import 'api.dart';
 import 'cloud_printer.dart';
 import 'print_prefs.dart';
 import 'session.dart';
+import 'usb_printer.dart';
 
 /// 预约单自动打印（v3.3.139；v3.3.152 修复漏打）
 /// 顾客扫码提交预约（待安排）后自动出一张「预约单」到前台/收银机，供备菜核对。
@@ -85,6 +86,8 @@ class PreorderAutoPrint {
       await _load(wid);
       if (!(await PrintPrefs.on('booking_auto'))) return 0;
       if (!(await PrintPrefs.on('booking'))) return 0;
+      // USB「手动打印」模式下不自动出任何小票（手动点「打印预约单」仍可出，v3.3.156）
+      if (await UsbPrinter.isManual()) return 0;
       final r = await Api.preorderList(wenxunId: Session.wenxunId, status: '0');
       final raw = r['data'];
       final d = raw is Map ? raw : const <String, dynamic>{};

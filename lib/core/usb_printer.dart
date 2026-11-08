@@ -20,6 +20,20 @@ class UsbPrinter {
   static const prefPaper = 'usb_print_paper';
   /// 纸张规格：pos58 / pos80（热敏 ESC/POS）、dot（针式连续纸）、a4（针式 A4 单页）
   static const prefSpec = 'usb_print_spec';
+  /// 出票模式：auto=自动打印（收银/结账自动出票）、manual=手动打印（不自动出任何小票，仅补打/测试时出）
+  static const prefMode = 'usb_print_mode';
+
+  /// 当前出票模式（默认 auto）
+  static Future<String> mode() async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getString(prefMode) ?? 'auto';
+  }
+
+  /// 手动打印模式：USB 已启用且选「手动打印」→ 收银/结账/预约等自动小票一律不打印
+  static Future<bool> isManual() async {
+    if (!await enabled()) return false;
+    return await mode() == 'manual';
+  }
 
   /// 纸张规格定义：mode pos=ESC/POS 热敏、escp=ESC/P2 针式
   static Map<String, dynamic> specOf(String spec) {
