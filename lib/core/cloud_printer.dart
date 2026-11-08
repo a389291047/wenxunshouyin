@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/api.dart';
 import '../core/session.dart';
 import '../core/theme.dart' show Fmt;
@@ -9,12 +11,23 @@ import 'usb_printer.dart';
 /// 小票打印统一入口：设置了 USB 打印机并启用时走本地 USB 直连，
 /// 否则走云打印机（易联云协议，服务端 /shouyin/jiaoban/dayin 代理）。
 class CloudPrinter {
+  /// 云打印总开关（设置 → 云打印机；默认开，v3.3.157）
+  static const prefEnabled = 'cloud_print_enabled';
+
+  static Future<bool> enabled() async {
+    final sp = await SharedPreferences.getInstance();
+    return sp.getBool(prefEnabled) ?? true;
+  }
+
   /// 商户启用中的打印机列表
   /// [{id, machine_code, msign, name, status, is_online, has_paper}]
   static Future<List> list() => Api.printers(Session.wenxunId);
 
   /// 强制走云打印机（不做 USB 分流，交班单「云打印」按钮等场景用）
   static Future<Map<String, dynamic>> printCloud(String content) async {
+    if (!await enabled()) {
+      throw ApiError('云打印已关闭（设置 → 云打印机 → 启用云打印）');
+    }
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
@@ -38,6 +51,7 @@ class CloudPrinter {
   static Future<Map<String, dynamic>> print(String content) async {
     if (await UsbPrinter.isManual()) return {};
     if (await UsbPrinter.tryPrint(content)) return {};
+    if (!await enabled()) return {}; // 云打印开关关闭：不出票
     return printCloud(content);
   }
 
@@ -50,6 +64,7 @@ class CloudPrinter {
   /// 后厨小票（USB 优先，云打印兜底）
   static Future<Map<String, dynamic>> printKitchen(String content) async {
     if (await UsbPrinter.isManual()) return {};
+    if (!await enabled()) return {};
     final List all = await list();
     final usable = all.where((p) =>
         '${p['status']}' == '1' &&
@@ -69,7 +84,9 @@ class CloudPrinter {
   }
 
   /// 指定云打印机打印（v3.3.82：前台单/后厨分单按商户配置路由）
-  static Future<Map<String, dynamic>> printTo(String machineCode, String content) {
+  /// 云打印开关关闭时静默跳过（v3.3.157）
+  static Future<Map<String, dynamic>> printTo(String machineCode, String content) async {
+    if (!await enabled()) return {};
     return Api.cloudPrint(
       wenxunId: Session.wenxunId,
       machineCode: machineCode,
@@ -346,6 +363,11 @@ class CloudPrinter {
     required double saoma,
     double refundAmount = 0,
     int refundCount = 0,
+    // 挂账统计（v3.3.157）：未核销 = 待收挂账；已核销 = 今日核销收款
+    double gzUnsettled = 0,
+    int gzUnsettledCount = 0,
+    double gzSettled = 0,
+    int gzSettledCount = 0,
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>交班单</center></FS2>');
@@ -362,6 +384,11 @@ class CloudPrinter {
     if (refundCount > 0) {
       sb.writeln('退款笔数: $refundCount');
       sb.writeln('退款金额: ¥${Fmt.money(refundAmount)}');
+    }
+    if (gzUnsettledCount > 0 || gzSettledCount > 0) {
+      sb.writeln('--------------------------------');
+      sb.writeln('挂账未核销: ¥${Fmt.money(gzUnsettled)} ($gzUnsettledCount 笔)');
+      sb.writeln('今日已核销: ¥${Fmt.money(gzSettled)} ($gzSettledCount 笔)');
     }
     sb.writeln('--------------------------------');
     sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');

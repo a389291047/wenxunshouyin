@@ -42,6 +42,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // 语音播报
   bool voiceEnabled = true;
 
+  // 云打印总开关（v3.3.157，商户自选：打印 / 不打印）
+  bool cloudEnabled = true;
+
   // 小票打印开关（云打印/USB 通用，v3.3.77）
   Map<String, bool> printOn = {};
 
@@ -69,6 +72,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadPrintPrefs();
     _loadStaffs();
     _loadRoute();
+    _loadCloudOn();
   }
 
   /// 加载打印机绑定配置：先与云端同步（换电脑/换账号自动拉取），再读本机缓存
@@ -1015,6 +1019,13 @@ class _SettingsPageState extends State<SettingsPage> {
     ]));
   }
 
+  /// 读取云打印总开关（v3.3.157）
+  Future<void> _loadCloudOn() async {
+    final on = await CloudPrinter.enabled();
+    if (!mounted) return;
+    setState(() => cloudEnabled = on);
+  }
+
   Future<void> _loadUsb() async {
     if (!UsbPrinter.supported) return;
     final sp = await SharedPreferences.getInstance();
@@ -1318,6 +1329,31 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Text('点「配置」把打印机绑定为前台单/后厨单：可设出票方式（主单一张/分单/整单/一菜一切）、负责分类、兜底双打。',
               style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
         ),
+      // 云打印总开关（v3.3.157：与 USB 打印各自独立，商户自选打印 / 不打印）
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('启用云打印', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('关闭后所有小票都不再发往云打印机（USB 打印不受影响）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: cloudEnabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => cloudEnabled = v);
+              final sp = await SharedPreferences.getInstance();
+              await sp.setBool(CloudPrinter.prefEnabled, v);
+            },
+          ),
+        ]),
+      ),
       if (isDining) _cloudSyncBar(),
       const SizedBox(height: 6),
       if (loading)

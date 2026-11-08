@@ -99,22 +99,26 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         usbLabel = '${spec['label']}';
       }
     }
+    final cloudOn = await CloudPrinter.enabled();
     final choice = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
         title: const Text('补打小票 · 选择打印方式', style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
         children: [
           SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, 'cloud'),
+            onPressed: cloudOn ? () => Navigator.pop(ctx, 'cloud') : null,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-              decoration: BoxDecoration(color: const Color(0xFFF5F7FF), borderRadius: BorderRadius.circular(12)),
+              decoration: BoxDecoration(
+                  color: cloudOn ? const Color(0xFFF5F7FF) : const Color(0xFFF7F8FA),
+                  borderRadius: BorderRadius.circular(12)),
               child: Row(children: [
-                const Icon(Icons.cloud_outlined, size: 22, color: PosTheme.blue),
+                Icon(Icons.cloud_outlined, size: 22, color: cloudOn ? PosTheme.blue : PosTheme.textHint),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('云打印机', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-                  Text('默认前台收银小票机（云打印机设置）',
+                  Text('云打印机', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600,
+                      color: cloudOn ? null : PosTheme.textHint)),
+                  Text(cloudOn ? '默认前台收银小票机（云打印机设置）' : '云打印已关闭（设置 → 云打印机）',
                       style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
                 ])),
               ]),

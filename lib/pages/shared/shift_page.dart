@@ -22,8 +22,15 @@ class _ShiftPageState extends State<ShiftPage> {
   List refundOrders = []; // 当天已退款订单明细
   double refundAmount = 0;
   int refundCount = 0;
+  // 挂账统计（v3.3.157）：餐饮版
+  double gzUnsettled = 0;   // 未核销（待收）总额
+  int gzUnsettledCount = 0;
+  double gzSettled = 0;     // 今日已核销总额
+  int gzSettledCount = 0;
   bool loading = true;
   String? error;
+  bool cloudOn = true;   // 云打印开关（设置 → 云打印机）
+  bool usbOn = false;    // USB 打印开关（设置 → USB小票打印机）
 
   @override
   void initState() {
@@ -75,12 +82,47 @@ class _ShiftPageState extends State<ShiftPage> {
         ro.sort((a, b) => ('${b['refund_time'] ?? b['update_time'] ?? ''}')
             .compareTo('${a['refund_time'] ?? a['update_time'] ?? ''}'));
       } catch (_) {}
+      // 挂账统计（餐饮版，v3.3.157）：未核销待收 + 今日已核销
+      var gzU = 0.0, gzUC = 0, gzS = 0.0, gzSC = 0;
+      if (Session.hangye == 2) {
+        try {
+          final now = DateTime.now();
+          final today =
+              '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+          final gz = await Api.guazhangLst();
+          for (final raw in (gz['list'] ?? const []) as List) {
+            final m = Map<String, dynamic>.from(raw as Map);
+            final amt = double.tryParse('${m['amount']}') ?? 0;
+            if (amt <= 0) continue;
+            if ('${m['status']}' == '1') {
+              // 已核销：只统计今天核销的
+              if ('${m['settle_time'] ?? ''}'.startsWith(today)) {
+                gzS += amt;
+                gzSC++;
+              }
+            } else {
+              gzU += amt;
+              gzUC++;
+            }
+          }
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      // 打印通道开关（商户自选：打印 / 不打印）
+      final cOn = await CloudPrinter.enabled();
+      final uOn = UsbPrinter.supported && await UsbPrinter.enabled();
       if (!mounted) return;
       setState(() {
         stats = s;
         refundOrders = ro;
         refundAmount = ra;
         refundCount = rc;
+        gzUnsettled = gzU;
+        gzUnsettledCount = gzUC;
+        gzSettled = gzS;
+        gzSettledCount = gzSC;
+        cloudOn = cOn;
+        usbOn = uOn;
         loading = false;
       });
     } on ApiError catch (e) {
@@ -97,6 +139,10 @@ class _ShiftPageState extends State<ShiftPage> {
         saoma: double.tryParse('${stats['saoma']}') ?? 0,
         refundAmount: refundAmount,
         refundCount: refundCount,
+        gzUnsettled: gzUnsettled,
+        gzUnsettledCount: gzUnsettledCount,
+        gzSettled: gzSettled,
+        gzSettledCount: gzSettledCount,
       );
 
   /// 云打印交班单（强制走云打印机，不做 USB 分流）
@@ -227,14 +273,36 @@ class _ShiftPageState extends State<ShiftPage> {
                                 Expanded(child: StatTile(label: '堂食营业额', value: '¥${Fmt.money(stats['lingshou'])}', icon: Icons.storefront_outlined, color: PosTheme.green)),
                               ]),
                             ],
-                            const Divider(height: 24, color: PosTheme.line),
-                            // 打印按钮
-                            BigButton('云打印交班单', onTap: _cloudPrintShift, height: 50),
-                            if (UsbPrinter.supported) ...[
-                              const SizedBox(height: 9),
-                              BigButton('USB打印交班单', onTap: _usbPrintShift,
-                                  color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 46),
+                            // 餐饮版：挂账统计（v3.3.157）
+                            if (Session.hangye == 2 && (gzUnsettledCount > 0 || gzSettledCount > 0)) ...[
+                              const SizedBox(height: 10),
+                              Row(children: [
+                                Expanded(child: StatTile(
+                                    label: '挂账未核销（$gzUnsettledCount 笔）',
+                                    value: '¥${Fmt.money(gzUnsettled)}',
+                                    icon: Icons.receipt_long_outlined, color: PosTheme.red)),
+                                const SizedBox(width: 10),
+                                Expanded(child: StatTile(
+                                    label: '今日已核销（$gzSettledCount 笔）',
+                                    value: '¥${Fmt.money(gzSettled)}',
+                                    icon: Icons.verified_outlined, color: PosTheme.green)),
+                              ]),
                             ],
+                            const Divider(height: 24, color: PosTheme.line),
+                            // 打印按钮（按商户开关显示：云打印 / USB 各自独立）
+                            if (cloudOn)
+                              BigButton('云打印交班单', onTap: _cloudPrintShift, height: 50),
+                            if (cloudOn && usbOn) const SizedBox(height: 9),
+                            if (usbOn)
+                              BigButton('USB打印交班单', onTap: _usbPrintShift,
+                                  color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub,
+                                  height: cloudOn ? 46 : 50),
+                            if (!cloudOn && !usbOn)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text('云打印与 USB 打印均已关闭（设置 → 云打印机 / USB小票打印机），开启后才能打印交班单',
+                                    style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                              ),
                           ]),
                         ),
                       ),

@@ -288,8 +288,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   maxLines: 1, overflow: TextOverflow.ellipsis)),
               const SizedBox(width: 6),
-              TagChip('${o['status_text'] ?? ''}',
-                  color: {0: PosTheme.accent, 1: PosTheme.green, 3: PosTheme.textHint}[int.tryParse('${o['order_status']}')] ?? PosTheme.textHint),
+              TagChip(_statusText(o), color: _statusColor(o)),
               if (refundTotal > 0) ...[
                 const SizedBox(width: 6),
                 const TagChip('有退款', color: PosTheme.red),
@@ -307,6 +306,18 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
       ),
     );
   }
+
+  /// 挂账未核销（v3.3.157）：后端 guazhang_status=0 未结 / 1 已结 / -1 未挂账
+  bool _gzPending(Map o) => int.tryParse('${o['guazhang_status']}') == 0;
+
+  /// 状态文案：挂账未核销 → 未结算（醒目）；核销后 → 已结算
+  String _statusText(Map o) =>
+      _gzPending(o) ? '未结算·挂账' : '${o['status_text'] ?? ''}';
+
+  Color _statusColor(Map o) => _gzPending(o)
+      ? PosTheme.red
+      : ({0: PosTheme.accent, 1: PosTheme.green, 3: PosTheme.textHint}[int.tryParse('${o['order_status']}')] ??
+          PosTheme.textHint);
 
   /// 列表副标题：就餐中显示「未结算 · 开台时间 · N项」；已结算显示单号+支付方式
   String _tableSubTitle(Map o) {
@@ -370,8 +381,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             const SizedBox(width: 8),
             Expanded(child: Text('${'${o['order_status']}' == '0' ? '就餐中' : '堂食订单'} · ${o['table_title'] ?? ''}',
                 style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700))),
-            TagChip('${o['status_text'] ?? ''}',
-                color: {0: PosTheme.accent, 1: PosTheme.green, 3: PosTheme.textHint}[int.tryParse('${o['order_status']}')] ?? PosTheme.textHint),
+            TagChip(_statusText(o), color: _statusColor(o)),
           ]),
         ),
         Expanded(child: ListView(
@@ -389,6 +399,11 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               _kvRow('挂账人', '${o['guazhang_name']}'),
               if ('${o['guazhang_phone'] ?? ''}'.trim().isNotEmpty)
                 _kvRow('挂账电话', '${o['guazhang_phone']}'),
+              // 核销状态醒目显示（v3.3.157）
+              if (_gzPending(o))
+                _kvRow('挂账状态', '未核销 · 待收款', valueColor: PosTheme.red)
+              else
+                _kvRow('挂账状态', '已核销', valueColor: PosTheme.green),
             ],
             if (refunded > 0) _kvRow('已退款', '¥${Fmt.money(refunded)}', valueColor: PosTheme.red),
             const SizedBox(height: 8),
