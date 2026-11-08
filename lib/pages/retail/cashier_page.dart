@@ -5,6 +5,7 @@ import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
+import '../../ui/brand_logos.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
@@ -656,14 +657,26 @@ class _PayDialogState extends State<RetailPayDialog> {
   final colors = {
     '现金': PosTheme.green,
     '扫码收款': PosTheme.blue,
-    '微信支付': PosTheme.green,
-    '支付宝': PosTheme.blue,
+    '微信支付': const Color(0xFF07C160),
+    '支付宝': const Color(0xFF1677FF),
     '会员支付': PosTheme.accent,
   };
 
   // 映射缺失时给个兜底，避免再有 null 断言把整个收款弹窗打崩
   IconData _iconOf(String m) => icons[m] ?? Icons.payments_outlined;
   Color _colorOf(String m) => colors[m] ?? PosTheme.textSub;
+
+  /// 支付方式图标：微信支付/支付宝用官方品牌 logo，其余用 Material 图标
+  Widget _methodIcon(String m, {double size = 30, Color? color}) {
+    final c = color ?? _colorOf(m);
+    if (m == '微信支付') {
+      return WechatPayLogo(size: size, tile: c, bubble: Colors.white);
+    }
+    if (m == '支付宝') {
+      return AlipayLogo(size: size, color: c);
+    }
+    return Icon(_iconOf(m), size: size, color: c);
+  }
 
   double get receivedVal => double.tryParse(received) ?? 0;
   double get change => (receivedVal - widget.total).clamp(0, double.maxFinite);
@@ -763,7 +776,7 @@ class _PayDialogState extends State<RetailPayDialog> {
               padding: const EdgeInsets.symmetric(vertical: 30),
               alignment: Alignment.center,
               child: Column(children: [
-                Icon(_iconOf(method!), size: 56, color: _colorOf(method!)),
+                _methodIcon(method!, size: 56),
                 const SizedBox(height: 12),
                 Text(method == '会员支付'
                         ? '将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}'
@@ -817,7 +830,7 @@ class _PayDialogState extends State<RetailPayDialog> {
           borderRadius: BorderRadius.circular(12),
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(_iconOf(m), size: 30, color: disabled ? PosTheme.textHint : _colorOf(m)),
+          _methodIcon(m, size: 30, color: disabled ? PosTheme.textHint : _colorOf(m)),
           const SizedBox(height: 6),
           Text(m + (disabled ? '（未选会员）' : ''),
               style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain)),

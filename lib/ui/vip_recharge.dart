@@ -158,6 +158,8 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           future: tiersFuture,
           builder: (_, snap) {
             final tiers = snap.data ?? [];
+            // 有充值档次时默认选中第一个（按金额升序），无需手动点选（v3.3.166）
+            if (tier == null && tiers.isNotEmpty) tier = tiers.first;
             return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (snap.connectionState != ConnectionState.done)
                 const Padding(

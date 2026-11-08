@@ -10,6 +10,7 @@ import '../../core/printer_route.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
+import '../../ui/brand_logos.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/receipt_preview.dart';
 import '../../ui/vip_recharge.dart';
@@ -3300,13 +3301,13 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   // 每种支付方式一个品牌色（v3.3.146 彩色大卡片）
   static const payColors = {
     '现金': Color(0xFF22B573),      // 现金绿
-    '微信支付': Color(0xFF09BB07),  // 微信绿
-    '支付宝': Color(0xFF1677FF),    // 支付宝蓝
+    '微信支付': Color(0xFF07C160),  // 微信支付官方绿
+    '支付宝': Color(0xFF1677FF),    // 支付宝官方蓝
     '会员余额': PosTheme.accent,    // 会员橙
     '挂账': Color(0xFFE4573D),      // 挂账红
   };
   static const payDarks = {
-    '现金': Color(0xFF189B5B), '微信支付': Color(0xFF079B07), '支付宝': Color(0xFF0F5FD6),
+    '现金': Color(0xFF189B5B), '微信支付': Color(0xFF06AD56), '支付宝': Color(0xFF0F5FD6),
     '会员余额': PosTheme.accentDeep, '挂账': Color(0xFFC23A22),
   };
   static const paySubs = {
@@ -3863,6 +3864,23 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
     );
   }
 
+  /// 支付方式图标：微信支付/支付宝用官方品牌 logo，其余用 Material 图标
+  Widget _payIcon(String m, bool on) {
+    final c = payColors[m] ?? PosTheme.textSub;
+    if (m == '微信支付') {
+      // 官方微信支付图标；选中反色（白方块 + 绿气泡）在彩色渐变卡上依然清晰
+      return WechatPayLogo(
+          size: 27,
+          tile: on ? Colors.white : const Color(0xFF07C160),
+          bubble: on ? const Color(0xFF07C160) : Colors.white);
+    }
+    if (m == '支付宝') {
+      return AlipayLogo(size: 27, color: on ? Colors.white : const Color(0xFF1677FF));
+    }
+    return Icon(payIcons[m] ?? Icons.payments_outlined,
+        size: 21, color: on ? Colors.white : c);
+  }
+
   /// 支付方式大卡片：每种方式独立品牌色，选中整卡彩色渐变 + 白字（v3.3.146）
   Widget _payCard(String m) {
     final on = method == m;
@@ -3887,7 +3905,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
               color: on ? Colors.white.withOpacity(0.22) : c.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(payIcons[m] ?? Icons.payments_outlined, size: 21, color: on ? Colors.white : c),
+            child: _payIcon(m, on),
           ),
           const SizedBox(width: 10),
           Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
