@@ -2,15 +2,15 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// 无码商品/无码菜品「常用」清单（v3.3.178）
+/// 无码商品/无码菜品「常用」清单（v3.3.179）
 ///
-/// - 本机配置（SharedPreferences，key: no_code_common），最多 10 条
-/// - 来源：① 设置页「无码商品常用」手工添加 ② 自动记录——
-///   零售/生鲜支付成功的无码商品、餐饮加菜成功的无码菜品
-/// - 无码弹窗右侧「常用」面板一键带入，免去重复输入相同名称/单价
+/// - 本机配置（SharedPreferences，key: no_code_common），最多 5 条
+///   （自动滚动：新记录置顶去重，超出裁掉最旧）
+/// - 来源：自动记录——零售/生鲜支付成功、餐饮加菜成功的无码项；设置页仅可删除
+/// - 无码弹窗名称输入框右侧「常用」按钮 → 弹窗展示最多 5 张渐变卡片，点击一键带入
 class NoCodeCommon {
   static const _key = 'no_code_common';
-  static const max = 10;
+  static const max = 5;
 
   static Future<List<Map>> load() async {
     final p = await SharedPreferences.getInstance();

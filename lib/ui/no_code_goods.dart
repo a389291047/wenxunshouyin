@@ -9,8 +9,8 @@ import 'widgets.dart';
 /// - 金额只能通过弹窗内置 12 宫格数字键盘输入（不用系统键盘），价格默认第一个输入
 /// - 商品名称：可选，可用物理/系统键盘输入
 /// - 商品数量：可选，默认 1，点数量框后用键盘输入几就加几件，小计 = 单价 × 数量
-/// - 右侧「常用」面板（v3.3.178）：展示常用无码项（最多 10 条，设置页可维护，
-///   支付成功/加菜成功自动记录），点击一键带入名称与单价
+/// - 名称输入框右侧「常用」按钮（v3.3.179）：点开弹窗展示最多 5 张渐变卡片
+///   （自动记录最近 5 条支付成功/加菜成功的无码项），点击一键带入名称与单价
 ///
 /// 返回 {'name': String, 'amount': double, 'num': int}；取消返回 null
 class NoCodeGoodsDialog extends StatefulWidget {
@@ -26,15 +26,6 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
   String num = '1'; // 数量（默认 1）
   bool priceActive = true; // 当前键盘作用域：true=单价（默认第一个）
   bool numTouched = false; // 数量是否被用户改过（改过则以输入为准，没改过视为 1）
-  List<Map> common = []; // 常用无码项（v3.3.178）
-
-  @override
-  void initState() {
-    super.initState();
-    NoCodeCommon.load().then((l) {
-      if (mounted) setState(() => common = l);
-    });
-  }
 
   double get amount => double.tryParse(price) ?? 0;
   int get qty => (int.tryParse(num) ?? 0) < 1 ? 1 : int.tryParse(num)!;
@@ -72,6 +63,78 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
     });
   }
 
+  /// 「常用」选择弹窗：最多 5 张渐变卡片，点击带入并关闭
+  Future<void> _pickFromCommon() async {
+    final items = await NoCodeCommon.load();
+    if (!mounted) return;
+    if (items.isEmpty) {
+      toast(context, '还没有常用项：无码${widget.title == '无码菜品' ? '菜品' : '商品'}支付成功后会自动记录最近 ${NoCodeCommon.max} 条');
+      return;
+    }
+    final picked = await showDialog<Map>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: 420,
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              const Icon(Icons.bookmark_border, size: 20, color: PosTheme.accent),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text('常用${widget.title}',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.textMain))),
+              Text('最多 ${NoCodeCommon.max} 条', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () => Navigator.pop(ctx),
+                borderRadius: BorderRadius.circular(20),
+                child: const SizedBox(width: 34, height: 34, child: Icon(Icons.close, size: 22, color: PosTheme.textHint)),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            for (final e in items)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: InkWell(
+                  onTap: () => Navigator.pop(ctx, e),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                          colors: [const Color(0xFFFF8A50), PosTheme.accent]),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.touch_app_outlined, size: 19, color: Colors.white),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text('${e['name']}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                      ),
+                      Text('¥${NoCodeCommon.priceText(double.tryParse('${e['price']}') ?? 0)}',
+                          style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ]),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 2),
+            const Text('点击卡片带入名称与单价（设置页可删除不用的常用项）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _pickCommon(picked);
+  }
+
   /// 常用项一键带入：名称 + 单价填入，单价框激活可直接用键盘微调
   void _pickCommon(Map e) {
     setState(() {
@@ -93,16 +156,13 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final hasCommon = common.isNotEmpty;
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: Container(
-        width: hasCommon ? 860 : 620,
+        width: 620,
         padding: const EdgeInsets.all(28),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // ===== 左侧：原有输入区 =====
-          Expanded(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // 标题
           Row(children: [
             Container(
@@ -124,7 +184,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
             ),
           ]),
           const SizedBox(height: 20),
-          // 名称（可选，物理/系统键盘输入）
+          // 名称（可选，物理/系统键盘输入）；右侧「常用」按钮打开常用选择弹窗
           TextField(
             controller: nameCtrl,
             maxLength: 30,
@@ -135,6 +195,20 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
               hintText: '${widget.title}名称（可选）',
               prefixIcon: const Icon(Icons.edit_outlined, size: 20),
               contentPadding: const EdgeInsets.symmetric(vertical: 15),
+              suffixIcon: InkWell(
+                onTap: _pickFromCommon,
+                borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  alignment: Alignment.center,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.bookmark_border, size: 18, color: PosTheme.accent),
+                    const SizedBox(width: 5),
+                    const Text('常用',
+                        style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                  ]),
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -190,65 +264,6 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
             onTap: amount > 0 ? _confirm : null,
             height: 60,
           ),
-        ])),
-          // ===== 右侧：常用面板（v3.3.178，最多显示 10 条）=====
-          if (hasCommon) ...[
-            const SizedBox(width: 20),
-            Container(
-              width: 212,
-              height: 570,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF7F8FA),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: PosTheme.line),
-              ),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [
-                  const Icon(Icons.bookmark_border, size: 17, color: PosTheme.accent),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                      child: Text('常用',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.textMain))),
-                  Text('${common.length}/${NoCodeCommon.max}',
-                      style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-                ]),
-                const SizedBox(height: 2),
-                const Text('点击带入名称与单价',
-                    style: TextStyle(fontSize: 11, color: PosTheme.textHint)),
-                const SizedBox(height: 8),
-                Expanded(child: ListView.builder(
-                  itemCount: common.length,
-                  itemBuilder: (_, i) {
-                    final e = common[i];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: InkWell(
-                        onTap: () => _pickCommon(e),
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: PosTheme.line),
-                          ),
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${e['name']}',
-                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
-                            const SizedBox(height: 2),
-                            Text('¥${NoCodeCommon.priceText(double.tryParse('${e['price']}') ?? 0)}',
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                          ]),
-                        ),
-                      ),
-                    );
-                  },
-                )),
-              ]),
-            ),
-          ],
         ]),
       ),
     );
