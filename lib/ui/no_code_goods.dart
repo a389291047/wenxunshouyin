@@ -26,6 +26,15 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
   String num = '1'; // 数量（默认 1）
   bool priceActive = true; // 当前键盘作用域：true=单价（默认第一个）
   bool numTouched = false; // 数量是否被用户改过（改过则以输入为准，没改过视为 1）
+  List<Map> common = []; // 常用无码项（v3.3.179：非空才在名称框右侧显示「常用」按钮）
+
+  @override
+  void initState() {
+    super.initState();
+    NoCodeCommon.load().then((l) {
+      if (mounted) setState(() => common = l);
+    });
+  }
 
   double get amount => double.tryParse(price) ?? 0;
   int get qty => (int.tryParse(num) ?? 0) < 1 ? 1 : int.tryParse(num)!;
@@ -184,7 +193,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
             ),
           ]),
           const SizedBox(height: 20),
-          // 名称（可选，物理/系统键盘输入）；右侧「常用」按钮打开常用选择弹窗
+          // 名称（可选，物理/系统键盘输入）；有常用项时右内侧显示紧凑「常用」按钮
           TextField(
             controller: nameCtrl,
             maxLength: 30,
@@ -195,20 +204,22 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
               hintText: '${widget.title}名称（可选）',
               prefixIcon: const Icon(Icons.edit_outlined, size: 20),
               contentPadding: const EdgeInsets.symmetric(vertical: 15),
-              suffixIcon: InkWell(
-                onTap: _pickFromCommon,
-                borderRadius: const BorderRadius.horizontal(right: Radius.circular(10)),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  alignment: Alignment.center,
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.bookmark_border, size: 18, color: PosTheme.accent),
-                    const SizedBox(width: 5),
-                    const Text('常用',
-                        style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                  ]),
-                ),
-              ),
+              // suffix 贴在输入内容之后靠右排，不占输入区、不影响正常输入
+              suffix: common.isEmpty
+                  ? null
+                  : InkWell(
+                      onTap: _pickFromCommon,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(10, 4, 2, 4),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          const Icon(Icons.bookmark_border, size: 17, color: PosTheme.accent),
+                          const SizedBox(width: 4),
+                          const Text('常用',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                        ]),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 14),
