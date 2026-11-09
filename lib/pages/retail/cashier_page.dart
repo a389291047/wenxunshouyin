@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/session.dart';
@@ -272,6 +273,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           return;
         }
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
+        _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.print(CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t,
@@ -302,6 +304,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (!mounted) return;
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
+      _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
 
       // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
       if (await PrintPrefs.on('retail')) {
@@ -316,6 +319,15 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
+    }
+  }
+
+  /// 支付成功的无码商品记入「常用」（v3.3.178）：cart 中 custom_ 前缀的行
+  Future<void> _recordCustomUsed() async {
+    for (final l in cart) {
+      if ('${l.goods['id']}'.startsWith('custom_')) {
+        await NoCodeCommon.add('${l.goods['title']}', _price(l.goods));
+      }
     }
   }
 

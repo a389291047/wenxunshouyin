@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
@@ -1682,18 +1683,21 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       builder: (_) => const NoCodeGoodsDialog(title: '无码菜品'),
     );
     if (r == null || !mounted) return;
-    await _pushDishes([{
+    final ok = await _pushDishes([{
       'goods_id': 0, // 无码菜品没有商品 id，后端强转 int 为 0
       'goods_name': r['name'],
       'goods_image': '',
       'unit_price': r['amount'],
       'quantity': r['num'],
     }], label: '${r['name']}×${r['num']}');
+    // 加菜成功的无码菜品记入「常用」（v3.3.178）
+    if (ok) await NoCodeCommon.add('${r['name']}', (r['amount'] as num).toDouble());
   }
 
   /// 统一加菜入口：请求后端 → 暂存待传清单 → 刷新账单
   /// （v3.3.99 起加菜不再即时打印，点「传后厨」统一出票，避免一菜一票浪费纸）
-  Future<void> _pushDishes(List<Map<String, dynamic>> cart, {required String label}) async {
+  /// 返回是否成功（v3.3.178 无码菜品常用记录用）
+  Future<bool> _pushDishes(List<Map<String, dynamic>> cart, {required String label}) async {
     loadingDialog(context, '加菜中…');
     try {
       final r = await Api.tableAddDish(
@@ -1701,13 +1705,14 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         kaitaiId: widget.kaitaiId,
         cart: cart,
       );
-      if (!mounted) return;
+      if (!mounted) return false;
       Navigator.pop(context);
       if ('${r['code']}' == '200') {
         toast(context, '已加：$label');
         // 后端已将新菜标记为「未传后厨」（is_xiachu=0，v3.3.115），
         // 重拉账单后「传后厨(N)」数量自动包含，无需内存暂存
         _loadBill();
+        return true;
       } else {
         toast(context, '${r['msg'] ?? '加菜失败'}', error: true);
       }
@@ -1715,6 +1720,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
+    return false;
   }
 
   // ==================== 打印路由（v3.3.82：多台云打印机分配） ====================

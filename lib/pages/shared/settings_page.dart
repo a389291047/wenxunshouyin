@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
@@ -79,9 +80,114 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadStaffs();
     _loadRoute();
     _loadCloudOn();
+    _loadNoCode();
     PayMethods.load().then((o) {
       if (mounted) setState(() => payOrder = o);
     });
+  }
+
+  // 无码商品常用（v3.3.178）：本机配置，最多 10 条
+  List<Map> noCodeItems = [];
+  final noCodeNameCtrl = TextEditingController();
+  final noCodePriceCtrl = TextEditingController();
+
+  Future<void> _loadNoCode() async {
+    final l = await NoCodeCommon.load();
+    if (mounted) setState(() => noCodeItems = l);
+  }
+
+  /// 无码商品常用：无码弹窗右侧「常用」一键带入，支付成功/加菜成功自动记录
+  Widget _noCodeCard() {
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle(Icons.bookmark_border, '无码商品常用'),
+      const SizedBox(height: 4),
+      Text('收银时打开「无码商品/无码菜品」弹窗，右侧「常用」面板点击即带入名称与单价，免去重复输入。'
+          '零售/生鲜支付成功、餐饮加菜成功的无码项会自动记录；也可在下方手工添加，最多 ${NoCodeCommon.max} 条。',
+          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 10),
+      for (int i = 0; i < noCodeItems.length; i++)
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7F8FA),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: PosTheme.line),
+          ),
+          child: Row(children: [
+            Expanded(
+              child: Text('${noCodeItems[i]['name']}',
+                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textMain),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 10),
+            Text('¥${NoCodeCommon.priceText(double.tryParse('${noCodeItems[i]['price']}') ?? 0)}',
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+            const SizedBox(width: 10),
+            InkWell(
+              onTap: () async {
+                await NoCodeCommon.removeAt(i);
+                await _loadNoCode();
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: const Icon(Icons.cancel_outlined, size: 18, color: PosTheme.textHint),
+            ),
+          ]),
+        ),
+      if (noCodeItems.isEmpty)
+        Text('暂无常用项。可手工添加，或收银时用过一次的无码项会自动出现在这里。',
+            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+      const SizedBox(height: 12),
+      Row(children: [
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: noCodeNameCtrl,
+            decoration: const InputDecoration(hintText: '名称，如：麻辣拌', isDense: true),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 120,
+          child: TextField(
+            controller: noCodePriceCtrl,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(hintText: '单价 ¥', isDense: true, prefixText: '¥ '),
+          ),
+        ),
+        const SizedBox(width: 10),
+        OutlinedButton.icon(
+          onPressed: _noCodeAdd,
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('添加'),
+        ),
+      ]),
+    ]));
+  }
+
+  Future<void> _noCodeAdd() async {
+    final name = noCodeNameCtrl.text.trim();
+    final price = double.tryParse(noCodePriceCtrl.text.trim()) ?? 0;
+    if (name.isEmpty) {
+      toast(context, '请输入名称', error: true);
+      return;
+    }
+    if (price <= 0) {
+      toast(context, '请输入正确的单价', error: true);
+      return;
+    }
+    if (noCodeItems.any((e) => '${e['name']}'.trim() == name && (double.tryParse('${e['price']}') ?? 0) == price)) {
+      toast(context, '「$name ¥${NoCodeCommon.priceText(price)}」已存在');
+      return;
+    }
+    if (noCodeItems.length >= NoCodeCommon.max) {
+      toast(context, '常用项最多 ${NoCodeCommon.max} 条，请先删除不用的', error: true);
+      return;
+    }
+    noCodeNameCtrl.clear();
+    noCodePriceCtrl.clear();
+    await NoCodeCommon.add(name, price);
+    await _loadNoCode();
   }
 
   /// 加载打印机绑定配置：先与云端同步（换电脑/换账号自动拉取），再读本机缓存
@@ -1232,6 +1338,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
     {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
+    {'key': 'nocode',   'icon': Icons.bookmark_border,      'label': '无码商品常用'},
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
     {'key': 'account',  'icon': Icons.manage_accounts_outlined, 'label': '当前账号'},
@@ -1258,6 +1365,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'usb':     return _usbCard();
       case 'receipt': return _printPrefsCard();
       case 'zuofa':   return _zuofaCard();
+      case 'nocode':  return _noCodeCard();
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();
       case 'account': return _accountCard();
