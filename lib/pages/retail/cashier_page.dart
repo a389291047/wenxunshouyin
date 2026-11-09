@@ -326,7 +326,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _recordCustomUsed() async {
     for (final l in cart) {
       if ('${l.goods['id']}'.startsWith('custom_')) {
-        await NoCodeCommon.add('${l.goods['title']}', _price(l.goods));
+        await NoCodeCommon.add('${l.goods['title']}');
       }
     }
   }

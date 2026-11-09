@@ -1691,7 +1691,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       'quantity': r['num'],
     }], label: '${r['name']}×${r['num']}');
     // 加菜成功的无码菜品记入「常用」（v3.3.178）
-    if (ok) await NoCodeCommon.add('${r['name']}', (r['amount'] as num).toDouble());
+    if (ok) await NoCodeCommon.add('${r['name']}');
   }
 
   /// 统一加菜入口：请求后端 → 暂存待传清单 → 刷新账单

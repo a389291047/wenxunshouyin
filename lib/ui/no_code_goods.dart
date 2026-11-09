@@ -26,7 +26,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
   String num = '1'; // 数量（默认 1）
   bool priceActive = true; // 当前键盘作用域：true=单价（默认第一个）
   bool numTouched = false; // 数量是否被用户改过（改过则以输入为准，没改过视为 1）
-  List<Map> common = []; // 常用无码项（v3.3.179：非空才在名称框右侧显示「常用」按钮）
+  List<String> common = []; // 常用无码项名称（v3.3.181：非空才在名称框右侧显示「常用」按钮）
 
   @override
   void initState() {
@@ -72,15 +72,15 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
     });
   }
 
-  /// 「常用」选择弹窗：最多 5 张渐变卡片，点击带入并关闭
+  /// 「常用」选择弹窗：最多 5 张渐变卡片（只带名称，价格需手输）
   Future<void> _pickFromCommon() async {
     final items = await NoCodeCommon.load();
     if (!mounted) return;
     if (items.isEmpty) {
-      toast(context, '还没有常用项：无码${widget.title == '无码菜品' ? '菜品' : '商品'}支付成功后会自动记录最近 ${NoCodeCommon.max} 条');
+      toast(context, '还没有常用项：无码${widget.title == '无码菜品' ? '菜品' : '商品'}支付成功后会自动记录最近 ${NoCodeCommon.max} 条名称');
       return;
     }
-    final picked = await showDialog<Map>(
+    final picked = await showDialog<String>(
       context: context,
       builder: (ctx) => Dialog(
         backgroundColor: Colors.white,
@@ -104,11 +104,11 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
               ),
             ]),
             const SizedBox(height: 12),
-            for (final e in items)
+            for (final name in items)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: InkWell(
-                  onTap: () => Navigator.pop(ctx, e),
+                  onTap: () => Navigator.pop(ctx, name),
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
@@ -123,18 +123,16 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
                       const Icon(Icons.touch_app_outlined, size: 19, color: Colors.white),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: Text('${e['name']}',
+                        child: Text(name,
                             maxLines: 1, overflow: TextOverflow.ellipsis,
                             style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.white)),
                       ),
-                      Text('¥${NoCodeCommon.priceText(double.tryParse('${e['price']}') ?? 0)}',
-                          style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.white)),
                     ]),
                   ),
                 ),
               ),
             const SizedBox(height: 2),
-            const Text('点击卡片带入名称与单价（设置页可删除不用的常用项）',
+            const Text('点击卡片只带入名称，单价请用下方键盘输入（设置页可删除不用的常用项）',
                 style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
           ]),
         ),
@@ -144,11 +142,10 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
     _pickCommon(picked);
   }
 
-  /// 常用项一键带入：名称 + 单价填入，单价框激活可直接用键盘微调
-  void _pickCommon(Map e) {
+  /// 常用项一键带入：只填名称，价格留给收银员输入（v3.3.181）
+  void _pickCommon(String name) {
     setState(() {
-      nameCtrl.text = '${e['name']}'.trim();
-      price = NoCodeCommon.priceText(double.tryParse('${e['price']}') ?? 0);
+      nameCtrl.text = name.trim();
       priceActive = true;
     });
   }

@@ -86,59 +86,48 @@ class _SettingsPageState extends State<SettingsPage> {
     });
   }
 
-  // 无码商品常用（v3.3.179）：本机配置，自动记录最近 5 条，只可删除不可手工添加
-  List<Map> noCodeItems = [];
+  // 无码商品常用（v3.3.181）：本机配置，自动记录最近 5 条名称，只可删除不可手工添加
+  List<String> noCodeItems = [];
 
   Future<void> _loadNoCode() async {
     final l = await NoCodeCommon.load();
     if (mounted) setState(() => noCodeItems = l);
   }
 
-  /// 无码商品常用：弹窗名称框右侧「常用」按钮选卡片带入；支付/加菜成功自动记录，此处仅可删除
+  /// 无码商品常用：只记名称（和常用做法同样的标签样式），支付/加菜成功自动记录，仅可删除
   Widget _noCodeCard() {
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       _sectionTitle(Icons.bookmark_border, '无码商品常用'),
       const SizedBox(height: 4),
-      Text('收银时点「无码商品/无码菜品」名称框右侧「常用」，弹窗选卡片一键带入名称与单价。'
-          '零售/生鲜支付成功、餐饮加菜成功的无码项自动记录，最多 ${NoCodeCommon.max} 条（新的顶掉最旧的），此处只可删除。',
+      Text('收银时点「无码商品/无码菜品」名称框右侧「常用」，选名称一键带入（单价仍需手输）。'
+          '零售/生鲜支付成功、餐饮加菜成功的无码项名称自动记录，最多 ${NoCodeCommon.max} 条（新的顶掉最旧的），此处只可删除。',
           style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 10),
-      for (int i = 0; i < noCodeItems.length; i++)
-        Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      Wrap(
+        spacing: 8, runSpacing: 8,
+        children: noCodeItems.asMap().entries.map((en) => Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [const Color(0xFFFF8A50), PosTheme.accent]),
-            borderRadius: BorderRadius.circular(10),
+            color: const Color(0xFFF7F8FA),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: PosTheme.line),
           ),
-          child: Row(children: [
-            Expanded(
-              child: Text('${noCodeItems[i]['name']}',
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: 10),
-            Text('¥${NoCodeCommon.priceText(double.tryParse('${noCodeItems[i]['price']}') ?? 0)}',
-                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Colors.white)),
-            const SizedBox(width: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text(en.value, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textMain)),
+            const SizedBox(width: 6),
             InkWell(
               onTap: () async {
-                await NoCodeCommon.removeAt(i);
+                await NoCodeCommon.removeAt(en.key);
                 await _loadNoCode();
               },
               borderRadius: BorderRadius.circular(20),
-              child: const Padding(
-                padding: EdgeInsets.all(4),
-                child: Icon(Icons.cancel_outlined, size: 18, color: Colors.white),
-              ),
+              child: const Icon(Icons.cancel_outlined, size: 17, color: PosTheme.textHint),
             ),
           ]),
-        ),
+        )).toList(),
+      ),
       if (noCodeItems.isEmpty)
-        Text('暂无常用项。收银时用过的无码项会自动出现在这里（最近 ${NoCodeCommon.max} 条）。',
+        Text('暂无常用项。收银时用过的无码项名称会自动出现在这里（最近 ${NoCodeCommon.max} 条）。',
             style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
     ]));
   }
