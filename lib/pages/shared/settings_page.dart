@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
@@ -10,6 +12,7 @@ import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
+import '../../core/scale.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
@@ -1281,6 +1284,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
     {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
     {'key': 'nocode',   'icon': Icons.bookmark_border,      'label': '无码商品常用'},
+    {'key': 'scale',    'icon': Icons.scale_outlined,        'label': '称重设备'},
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
     {'key': 'account',  'icon': Icons.manage_accounts_outlined, 'label': '当前账号'},
@@ -1308,6 +1312,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'receipt': return _printPrefsCard();
       case 'zuofa':   return _zuofaCard();
       case 'nocode':  return _noCodeCard();
+      case 'scale':   return const _ScaleCard();
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();
       case 'account': return _accountCard();
@@ -2444,5 +2449,353 @@ class _TicketPaper extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// 称重设备设置卡片（v3.3.183）
+/// 支持 Windows 收银机常见两类电子秤：
+/// - 键盘口（USB-HID，免驱）：秤把重量以键盘方式敲出来，以回车结束
+/// - 串口（COM，RS232/USB转串口）：波特率可配，跨平台读取
+class _ScaleCard extends StatefulWidget {
+  const _ScaleCard();
+  @override
+  State<_ScaleCard> createState() => _ScaleCardState();
+}
+
+class _ScaleCardState extends State<_ScaleCard> {
+  final p = ScalePrefs();
+  final portCtrl = TextEditingController();
+  bool loading = true;
+  bool testing = false;
+  double? testKg;
+  String testMsg = '';
+
+  SerialScale? _serial;
+  KeyboardScale? _kb;
+  Timer? _timer; // 20 秒自动停止
+  Timer? _poll;  // 键盘口秤静默帧轮询
+  bool _keyOn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final v = await ScalePrefs.load();
+    if (!mounted) return;
+    setState(() {
+      p.enabled = v.enabled;
+      p.mode = v.mode;
+      p.port = v.port;
+      p.baud = v.baud;
+      p.unit = v.unit;
+      portCtrl.text = v.port;
+      loading = false;
+    });
+  }
+
+  Future<void> _save() async {
+    p.port = portCtrl.text.trim();
+    await p.save();
+  }
+
+  @override
+  void dispose() {
+    _stopTest();
+    portCtrl.dispose();
+    super.dispose();
+  }
+
+  void _stopTest() {
+    _timer?.cancel();
+    _timer = null;
+    _poll?.cancel();
+    _poll = null;
+    if (_keyOn) {
+      HardwareKeyboard.instance.removeHandler(_onKey);
+      _keyOn = false;
+    }
+    _serial?.dispose();
+    _serial = null;
+    _kb?.clear();
+    _kb = null;
+    if (mounted) setState(() => testing = false);
+  }
+
+  bool _onKey(KeyEvent e) {
+    final k = _kb;
+    if (k == null) return false;
+    final kg = k.feed(e, unitPref: p.unit);
+    if (kg != null) _onRead(kg);
+    return false;
+  }
+
+  void _onRead(double kg) {
+    if (!mounted || kg <= 0) return;
+    setState(() {
+      testKg = kg;
+      testMsg = '已读到重量（千克）';
+    });
+  }
+
+  Future<void> _startTest() async {
+    await _save();
+    setState(() {
+      testing = true;
+      testKg = null;
+      testMsg = p.mode == 'serial' ? '正在打开 ${p.port}…' : '请把商品放到秤上（监听 20 秒）';
+    });
+    if (p.mode == 'serial') {
+      final s = SerialScale();
+      final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
+      if (!mounted) {
+        s.dispose();
+        return;
+      }
+      if (!ok) {
+        setState(() {
+          testing = false;
+          testMsg = '打开 ${p.port.isEmpty ? '串口' : p.port} 失败：检查端口号/是否被其他程序占用';
+        });
+        return;
+      }
+      _serial = s;
+      s.stream.listen(_onRead);
+    } else {
+      final k = KeyboardScale();
+      _kb = k;
+      HardwareKeyboard.instance.addHandler(_onKey);
+      _keyOn = true;
+      // 无回车协议兜底：定时取静默帧（与 20 秒超时分开计时）
+      _poll = Timer.periodic(const Duration(milliseconds: 250), (_) {
+        final kg = k.takePending();
+        if (kg != null) _onRead(kg);
+      });
+    }
+    _timer = Timer(const Duration(seconds: 20), _stopTest);
+  }
+
+  void _pickPort() {
+    final ports = SerialScale.availablePorts();
+    if (ports.isEmpty) {
+      toast(context, '未检测到串口设备：请确认秤已插好、驱动已装（设备管理器能看到 COM 口）', error: true);
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          width: 380,
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Text('选择串口', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+            ...ports.map((name) => InkWell(
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() => portCtrl.text = name);
+                    _save();
+                  },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+                    child: Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                  ),
+                )),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(String text, bool active, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        margin: const EdgeInsets.only(right: 8, bottom: 8),
+        decoration: BoxDecoration(
+          color: active ? PosTheme.accent.withOpacity(0.1) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: active ? PosTheme.accent : PosTheme.line, width: active ? 1.6 : 1),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active ? PosTheme.accent : PosTheme.textSub)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) return const AppCard(child: SizedBox(height: 120, child: Center(child: CircularProgressIndicator())));
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+          child: const Icon(Icons.scale_outlined, size: 20, color: PosTheme.accent),
+        ),
+        const SizedBox(width: 10),
+        const Text('称重设备', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+      ]),
+      const SizedBox(height: 6),
+      const Text('适配 Windows 收银机电子秤：键盘口秤免驱即插即用，串口秤选 COM 口和波特率。'
+          '启用后打开「称重商品」会自动读取重量并填入，收银员核对后确认即可。',
+          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+      const SizedBox(height: 14),
+      // 总开关
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 8),
+              Text('启用电子秤', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              SizedBox(height: 2),
+              Text('称重商品弹窗自动读数；关闭则只能手动输入重量', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              SizedBox(height: 8),
+            ]),
+          ),
+          Switch(
+            value: p.enabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => p.enabled = v);
+              await _save();
+            },
+          ),
+        ]),
+      ),
+      if (p.enabled) ...[
+        const SizedBox(height: 16),
+        const Text('连接方式', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(children: [
+          _chip('键盘口（USB-HID，免驱）', p.mode == 'keyboard', () async {
+            _stopTest();
+            setState(() => p.mode = 'keyboard');
+            await _save();
+          }),
+          if (SerialScale.supported)
+            _chip('串口（COM / RS232）', p.mode == 'serial', () async {
+              _stopTest();
+              setState(() => p.mode = 'serial');
+              await _save();
+            }),
+        ]),
+        if (!SerialScale.supported)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('当前系统（非 Windows）不支持串口秤，请使用键盘口秤；串口模式在 Windows 收银机上可用。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          ),
+        if (p.mode == 'serial') ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            SizedBox(
+              width: 180,
+              child: TextField(
+                controller: portCtrl,
+                decoration: const InputDecoration(labelText: '串口号', hintText: 'COM3', isDense: true),
+                onChanged: (_) => _save(),
+              ),
+            ),
+            const SizedBox(width: 10),
+            OutlinedButton.icon(
+              onPressed: _pickPort,
+              icon: const Icon(Icons.usb, size: 16),
+              label: const Text('检测端口'),
+            ),
+            const SizedBox(width: 14),
+            const Text('波特率', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(width: 8),
+            DropdownButton<int>(
+              value: p.baud,
+              items: const [2400, 4800, 9600, 19200, 38400, 115200]
+                  .map((b) => DropdownMenuItem(value: b, child: Text('$b')))
+                  .toList(),
+              onChanged: (v) async {
+                if (v == null) return;
+                setState(() => p.baud = v);
+                await _save();
+              },
+            ),
+          ]),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text('常见收银秤：9600 / 8 / 无校验 / 1 停止位（默认即可）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          ),
+        ],
+        const SizedBox(height: 14),
+        const Text('秤的输出单位', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(children: [
+          _chip('自动识别（推荐）', p.unit == 'auto', () async {
+            setState(() => p.unit = 'auto');
+            await _save();
+          }),
+          _chip('千克 kg', p.unit == 'kg', () async {
+            setState(() => p.unit = 'kg');
+            await _save();
+          }),
+          _chip('克 g', p.unit == 'g', () async {
+            setState(() => p.unit = 'g');
+            await _save();
+          }),
+          _chip('斤', p.unit == 'jin', () async {
+            setState(() => p.unit = 'jin');
+            await _save();
+          }),
+        ]),
+        const Padding(
+          padding: EdgeInsets.only(top: 2, bottom: 8),
+          child: Text('秤显示什么单位就选什么；「自动识别」按报文里的 kg/g/斤 判断，裸数字按千克处理。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        ),
+        // 测试读数
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  testKg == null ? '测试读数' : '${testKg!.toStringAsFixed(3)} kg  ·  ${(testKg! * 2).toStringAsFixed(2)} 斤',
+                  style: TextStyle(
+                      fontSize: testKg == null ? 14 : 20,
+                      fontWeight: FontWeight.w800,
+                      color: testKg == null ? PosTheme.textMain : PosTheme.accent),
+                ),
+                const SizedBox(height: 3),
+                Text(testMsg.isEmpty ? '点右侧按钮，放上商品看是否能读到重量' : testMsg,
+                    style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              ]),
+            ),
+            const SizedBox(width: 12),
+            OutlinedButton.icon(
+              onPressed: testing ? _stopTest : _startTest,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: testing ? PosTheme.textSub : PosTheme.accent,
+                side: BorderSide(color: testing ? PosTheme.line : PosTheme.accent),
+              ),
+              icon: Icon(testing ? Icons.stop_circle_outlined : Icons.play_circle_outline, size: 17),
+              label: Text(testing ? '停止' : '开始读数'),
+            ),
+          ]),
+        ),
+      ],
+    ]));
   }
 }

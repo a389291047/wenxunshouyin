@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../core/scale.dart';
 import '../core/theme.dart';
 import 'widgets.dart';
 
@@ -30,6 +34,14 @@ class _WeighDialogState extends State<WeighDialog> {
   String input = ''; // 当前录入值（重量或金额）
   bool amountMode = false; // false=输重量 true=输金额
 
+  // 电子秤（设置页配置，本机保存）
+  ScalePrefs? prefs;
+  SerialScale? _serial;
+  StreamSubscription<double>? _sub;
+  KeyboardScale? _kbd;
+  double? scaleKg;      // 最近一次秤读数（千克）
+  bool scaleReady = false; // 串口是否已打开
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +51,76 @@ class _WeighDialogState extends State<WeighDialog> {
       s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
       input = s;
     }
+    _initScale();
+  }
+
+  /// 商品单位 ← 千克换算（秤统一输出 kg）
+  double _kgToUnit(double kg) {
+    switch (unit) {
+      case 'g':
+        return kg * 1000;
+      case '斤':
+        return kg * 2;
+      default:
+        return kg;
+    }
+  }
+
+  Future<void> _initScale() async {
+    final p = await ScalePrefs.load();
+    if (!mounted) return;
+    setState(() => prefs = p);
+    if (!p.enabled) return;
+
+    if (p.mode == 'serial') {
+      final s = SerialScale();
+      final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
+      if (!mounted) {
+        s.dispose();
+        return;
+      }
+      _serial = s;
+      setState(() => scaleReady = ok);
+      _sub = s.stream.listen(_onScaleKg);
+    } else {
+      final k = KeyboardScale();
+      _kbd = k;
+      HardwareKeyboard.instance.addHandler(_onKey);
+      // 无回车协议的秤：定时取静默帧
+      _sub = Stream<double>.periodic(const Duration(milliseconds: 250), (_) => 0).listen((_) {
+        final kg = k.takePending();
+        if (kg != null) _onScaleKg(kg);
+      });
+    }
+  }
+
+  bool _onKey(KeyEvent e) {
+    final k = _kbd;
+    if (k == null) return false;
+    final kg = k.feed(e, unitPref: prefs?.unit ?? 'auto');
+    if (kg != null) _onScaleKg(kg);
+    // 数字/回车/字母键交给秤解析，不冒泡（弹窗内没有输入框，不影响手输）
+    return false;
+  }
+
+  void _onScaleKg(double kg) {
+    if (!mounted || kg <= 0) return;
+    final w = _kgToUnit(kg);
+    setState(() {
+      scaleKg = kg;
+      // 秤读数直接填进「重量」框，收银员核对后点确认；已手动输金额时不动金额
+      if (!amountMode) {
+        input = w.toStringAsFixed(3);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_kbd != null) HardwareKeyboard.instance.removeHandler(_onKey);
+    _sub?.cancel();
+    _serial?.dispose();
+    super.dispose();
   }
 
   String get unit => widget.unit.trim().isEmpty ? 'kg' : widget.unit.trim();
@@ -126,6 +208,38 @@ class _WeighDialogState extends State<WeighDialog> {
             const SizedBox(width: 12),
             Expanded(child: _modeChip('输金额（元）', amountMode, () => setState(() => amountMode = true))),
           ]),
+          // 电子秤状态（设置页启用后显示）
+          if (prefs?.enabled == true) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              decoration: BoxDecoration(
+                color: (prefs!.mode == 'serial' ? scaleReady : true)
+                    ? const Color(0xFFEAF8F0)
+                    : const Color(0xFFFFF2ED),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Row(children: [
+                Icon(
+                  (prefs!.mode == 'serial' ? scaleReady : true) ? Icons.check_circle_outline : Icons.error_outline,
+                  size: 17,
+                  color: (prefs!.mode == 'serial' ? scaleReady : true) ? const Color(0xFF2FBF71) : PosTheme.accent,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    prefs!.mode == 'serial'
+                        ? (scaleReady ? '电子秤已连接（${prefs!.port}）· 放上商品自动读数' : '电子秤未连接（${prefs!.port} 打不开，检查串口设置）')
+                        : '键盘口电子秤已就绪 · 放上商品自动读数',
+                    style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
+                  ),
+                ),
+                if (scaleKg != null)
+                  Text('${_kgToUnit(scaleKg!).toStringAsFixed(3)} $unit',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+              ]),
+            ),
+          ],
           const SizedBox(height: 14),
           // 当前录入值
           Container(
