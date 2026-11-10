@@ -1298,6 +1298,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (it['key'] == 'password' && Session.isCashierOnly) continue; // 收银员不显示权限密码
       if (it['key'] == 'usb' && !UsbPrinter.supported) continue;      // 不支持 USB 的设备不显示
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
+      if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
       list.add(it);
     }
     return list;
@@ -2452,10 +2453,11 @@ class _TicketPaper extends StatelessWidget {
   }
 }
 
-/// 称重设备设置卡片（v3.3.183）
-/// 支持 Windows 收银机常见两类电子秤：
-/// - 键盘口（USB-HID，免驱）：秤把重量以键盘方式敲出来，以回车结束
-/// - 串口（COM，RS232/USB转串口）：波特率可配，跨平台读取
+/// 称重设备设置卡片（v3.3.184）
+///
+/// 只在这两端出现（苹果端不接秤，称重只用键盘手输）：
+/// - Windows：键盘口秤（USB-HID，免驱）+ 串口秤（COM/RS232，市面通用收银秤，支持自动检测）
+/// - 安卓：键盘口秤 + 一体机内置秤（商米/天波等一体机自带秤）
 class _ScaleCard extends StatefulWidget {
   const _ScaleCard();
   @override
@@ -2467,13 +2469,15 @@ class _ScaleCardState extends State<_ScaleCard> {
   final portCtrl = TextEditingController();
   bool loading = true;
   bool testing = false;
+  bool probing = false;
   double? testKg;
   String testMsg = '';
 
   SerialScale? _serial;
+  BuiltinScale? _builtin;
   KeyboardScale? _kb;
   Timer? _timer; // 20 秒自动停止
-  Timer? _poll;  // 键盘口秤静默帧轮询
+  Timer? _poll; // 键盘口秤静默帧轮询
   bool _keyOn = false;
 
   @override
@@ -2519,6 +2523,8 @@ class _ScaleCardState extends State<_ScaleCard> {
     }
     _serial?.dispose();
     _serial = null;
+    _builtin?.dispose();
+    _builtin = null;
     _kb?.clear();
     _kb = null;
     if (mounted) setState(() => testing = false);
@@ -2536,18 +2542,20 @@ class _ScaleCardState extends State<_ScaleCard> {
     if (!mounted || kg <= 0) return;
     setState(() {
       testKg = kg;
-      testMsg = '已读到重量（千克）';
+      testMsg = '已连接，读到重量';
     });
   }
 
   Future<void> _startTest() async {
     await _save();
+    _stopTest();
     setState(() {
       testing = true;
       testKg = null;
-      testMsg = p.mode == 'serial' ? '正在打开 ${p.port}…' : '请把商品放到秤上（监听 20 秒）';
+      testMsg = '请把商品放到秤上（监听 20 秒）';
     });
-    if (p.mode == 'serial') {
+
+    if (p.mode == 'serial' && ScaleSupport.hasSerial) {
       final s = SerialScale();
       final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
       if (!mounted) {
@@ -2557,12 +2565,28 @@ class _ScaleCardState extends State<_ScaleCard> {
       if (!ok) {
         setState(() {
           testing = false;
-          testMsg = '打开 ${p.port.isEmpty ? '串口' : p.port} 失败：检查端口号/是否被其他程序占用';
+          testMsg = '串口打不开：确认秤已插好、驱动已装，或点「自动检测」让系统自己找';
         });
         return;
       }
       _serial = s;
       s.stream.listen(_onRead);
+    } else if (p.mode == 'builtin' && ScaleSupport.hasBuiltin) {
+      final b = BuiltinScale();
+      final ok = await b.start(unitPref: p.unit);
+      if (!mounted) {
+        b.dispose();
+        return;
+      }
+      _builtin = b;
+      b.stream.listen(_onRead);
+      if (!ok) {
+        setState(() {
+          testing = false;
+          testMsg = '这台机器没有开放内置秤接口，建议改用键盘口秤';
+        });
+        return;
+      }
     } else {
       final k = KeyboardScale();
       _kb = k;
@@ -2575,6 +2599,35 @@ class _ScaleCardState extends State<_ScaleCard> {
       });
     }
     _timer = Timer(const Duration(seconds: 20), _stopTest);
+  }
+
+  /// Windows：自动找串口 + 波特率（收银员不用懂 COM 号）
+  Future<void> _autoDetect() async {
+    _stopTest();
+    setState(() {
+      probing = true;
+      testKg = null;
+      testMsg = '正在自动检测串口和波特率，请把商品放在秤上…';
+    });
+    final r = await SerialScale.autoDetect();
+    if (!mounted) return;
+    if (r == null) {
+      setState(() {
+        probing = false;
+        testMsg = '没找到秤：确认秤已插好并开机，或改用键盘口秤';
+      });
+      return;
+    }
+    setState(() {
+      probing = false;
+      p.mode = 'serial';
+      p.port = r.port;
+      p.baud = r.baud;
+      portCtrl.text = r.port;
+      testKg = r.kg;
+      testMsg = '已自动连接 ${r.port}（${r.baud}）';
+    });
+    await _save();
   }
 
   void _pickPort() {
@@ -2638,6 +2691,7 @@ class _ScaleCardState extends State<_ScaleCard> {
   @override
   Widget build(BuildContext context) {
     if (loading) return const AppCard(child: SizedBox(height: 120, child: Center(child: CircularProgressIndicator())));
+    final isWin = ScaleSupport.isWindows;
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Container(
@@ -2649,9 +2703,12 @@ class _ScaleCardState extends State<_ScaleCard> {
         const Text('称重设备', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
       ]),
       const SizedBox(height: 6),
-      const Text('适配 Windows 收银机电子秤：键盘口秤免驱即插即用，串口秤选 COM 口和波特率。'
-          '启用后打开「称重商品」会自动读取重量并填入，收银员核对后确认即可。',
-          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+      Text(
+          isWin
+              ? '适配收银机常用电子秤：键盘口秤免驱即插即用，串口秤（托利多/顶尖/大华等）插上点「自动检测」即可。'
+                  '启用后称重弹窗自动读数，秤连上会显示绿色图标。'
+              : '适配商米、天波等一体机自带秤（内置秤）和键盘口秤。启用后称重弹窗自动读数，秤连上会显示绿色图标。',
+          style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
       const SizedBox(height: 14),
       // 总开关
       Container(
@@ -2687,17 +2744,29 @@ class _ScaleCardState extends State<_ScaleCard> {
             setState(() => p.mode = 'keyboard');
             await _save();
           }),
-          if (SerialScale.supported)
+          if (ScaleSupport.hasSerial)
             _chip('串口（COM / RS232）', p.mode == 'serial', () async {
               _stopTest();
               setState(() => p.mode = 'serial');
               await _save();
             }),
+          if (ScaleSupport.hasBuiltin)
+            _chip('一体机内置秤（商米等）', p.mode == 'builtin', () async {
+              _stopTest();
+              setState(() => p.mode = 'builtin');
+              await _save();
+            }),
         ]),
-        if (!SerialScale.supported)
+        if (p.mode == 'keyboard')
           const Padding(
             padding: EdgeInsets.only(bottom: 6),
-            child: Text('当前系统（非 Windows）不支持串口秤，请使用键盘口秤；串口模式在 Windows 收银机上可用。',
+            child: Text('秤把重量当键盘敲进来自动识别，USB 直插免驱，Windows 和安卓一体机都通用；秤若不发数据，先确认秤已设为「连续发送」。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          ),
+        if (p.mode == 'builtin')
+          const Padding(
+            padding: EdgeInsets.only(bottom: 6),
+            child: Text('不需要插线，直接读一体机自带秤。个别机型未开放秤接口，读不到时改用键盘口秤即可。',
                 style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
           ),
         if (p.mode == 'serial') ...[
@@ -2732,10 +2801,23 @@ class _ScaleCardState extends State<_ScaleCard> {
               },
             ),
           ]),
-          const Padding(
-            padding: EdgeInsets.only(top: 6),
-            child: Text('常见收银秤：9600 / 8 / 无校验 / 1 停止位（默认即可）',
-                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(children: [
+              OutlinedButton.icon(
+                onPressed: probing ? null : _autoDetect,
+                style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+                icon: probing
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.auto_fix_high, size: 16),
+                label: Text(probing ? '检测中…' : '自动检测（推荐）'),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Text('不用管 COM 号和波特率，系统自己试一遍',
+                    style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              ),
+            ]),
           ),
         ],
         const SizedBox(height: 14),
@@ -2767,8 +2849,16 @@ class _ScaleCardState extends State<_ScaleCard> {
         // 测试读数
         Container(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          decoration: BoxDecoration(
+            color: testKg == null ? const Color(0xFFF7F8FA) : const Color(0xFFEAF8F0),
+            borderRadius: BorderRadius.circular(10),
+            border: testKg == null ? null : Border.all(color: const Color(0xFF2FBF71).withOpacity(0.45)),
+          ),
           child: Row(children: [
+            if (testKg != null) ...[
+              const Icon(Icons.check_circle, size: 20, color: Color(0xFF2FBF71)),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(

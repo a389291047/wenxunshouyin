@@ -34,13 +34,15 @@ class _WeighDialogState extends State<WeighDialog> {
   String input = ''; // 当前录入值（重量或金额）
   bool amountMode = false; // false=输重量 true=输金额
 
-  // 电子秤（设置页配置，本机保存）
+  // 电子秤（仅 Windows / 安卓；苹果端只用键盘手输）
   ScalePrefs? prefs;
-  SerialScale? _serial;
+  SerialScale? _serial;   // Windows 串口
+  BuiltinScale? _builtin; // 安卓一体机内置秤
   StreamSubscription<double>? _sub;
   KeyboardScale? _kbd;
-  double? scaleKg;      // 最近一次秤读数（千克）
-  bool scaleReady = false; // 串口是否已打开
+  Timer? _poll;
+  double? scaleKg;        // 最近一次秤读数（千克）
+  bool connected = false; // 真正读到重量才算连上 → 显示绿色图标
 
   @override
   void initState() {
@@ -67,27 +69,36 @@ class _WeighDialogState extends State<WeighDialog> {
   }
 
   Future<void> _initScale() async {
+    // 苹果端（macOS）：不接秤，只手工输重量
+    if (!ScaleSupport.canUseScale) return;
+
     final p = await ScalePrefs.load();
     if (!mounted) return;
     setState(() => prefs = p);
     if (!p.enabled) return;
 
-    if (p.mode == 'serial') {
+    if (p.mode == 'serial' && ScaleSupport.hasSerial) {
       final s = SerialScale();
       final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
       if (!mounted) {
         s.dispose();
         return;
       }
+      // 打不开就静默（不提示、不显示图标），收银员照常手输
+      if (!ok) return;
       _serial = s;
-      setState(() => scaleReady = ok);
       _sub = s.stream.listen(_onScaleKg);
+    } else if (p.mode == 'builtin' && ScaleSupport.hasBuiltin) {
+      final b = BuiltinScale();
+      _builtin = b;
+      _sub = b.stream.listen(_onScaleKg);
+      await b.start(unitPref: p.unit);
     } else {
       final k = KeyboardScale();
       _kbd = k;
       HardwareKeyboard.instance.addHandler(_onKey);
       // 无回车协议的秤：定时取静默帧
-      _sub = Stream<double>.periodic(const Duration(milliseconds: 250), (_) => 0).listen((_) {
+      _poll = Timer.periodic(const Duration(milliseconds: 250), (_) {
         final kg = k.takePending();
         if (kg != null) _onScaleKg(kg);
       });
@@ -107,6 +118,7 @@ class _WeighDialogState extends State<WeighDialog> {
     if (!mounted || kg <= 0) return;
     final w = _kgToUnit(kg);
     setState(() {
+      connected = true;
       scaleKg = kg;
       // 秤读数直接填进「重量」框，收银员核对后点确认；已手动输金额时不动金额
       if (!amountMode) {
@@ -118,8 +130,10 @@ class _WeighDialogState extends State<WeighDialog> {
   @override
   void dispose() {
     if (_kbd != null) HardwareKeyboard.instance.removeHandler(_onKey);
+    _poll?.cancel();
     _sub?.cancel();
     _serial?.dispose();
+    _builtin?.dispose();
     super.dispose();
   }
 
@@ -208,31 +222,26 @@ class _WeighDialogState extends State<WeighDialog> {
             const SizedBox(width: 12),
             Expanded(child: _modeChip('输金额（元）', amountMode, () => setState(() => amountMode = true))),
           ]),
-          // 电子秤状态（设置页启用后显示）
-          if (prefs?.enabled == true) ...[
+          // 电子秤连接成功才显示绿色标识（未连上不占位、不提示）
+          if (connected) ...[
             const SizedBox(height: 10),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
               decoration: BoxDecoration(
-                color: (prefs!.mode == 'serial' ? scaleReady : true)
-                    ? const Color(0xFFEAF8F0)
-                    : const Color(0xFFFFF2ED),
+                color: const Color(0xFFEAF8F0),
                 borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: const Color(0xFF2FBF71).withOpacity(0.45)),
               ),
               child: Row(children: [
-                Icon(
-                  (prefs!.mode == 'serial' ? scaleReady : true) ? Icons.check_circle_outline : Icons.error_outline,
-                  size: 17,
-                  color: (prefs!.mode == 'serial' ? scaleReady : true) ? const Color(0xFF2FBF71) : PosTheme.accent,
-                ),
+                const Icon(Icons.check_circle, size: 18, color: Color(0xFF2FBF71)),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    prefs!.mode == 'serial'
-                        ? (scaleReady ? '电子秤已连接（${prefs!.port}）· 放上商品自动读数' : '电子秤未连接（${prefs!.port} 打不开，检查串口设置）')
-                        : '键盘口电子秤已就绪 · 放上商品自动读数',
-                    style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
-                  ),
+                Text(
+                  '电子秤已连接',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E9C58)),
+                ),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text('放上商品自动读数', style: TextStyle(fontSize: 12, color: PosTheme.textSub)),
                 ),
                 if (scaleKg != null)
                   Text('${_kgToUnit(scaleKg!).toStringAsFixed(3)} $unit',

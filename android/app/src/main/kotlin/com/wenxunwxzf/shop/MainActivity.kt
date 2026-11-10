@@ -97,7 +97,82 @@ class MainActivity : FlutterActivity() {
         if (!okFlag[0]) throw Exception("打印机执行失败（缺纸/过热/开盖）")
     }
 
+    // ==================== 一体机内置秤（商米/天波等） ====================
+    //
+    // 一体机自带秤没有统一 SDK：商米、天波等厂商多数通过系统广播把重量抛出来，
+    // 各家 action / extra key 不统一，这里把市面上常见的都监听一遍，
+    // 谁先发就用谁；用户也可以用键盘口秤作为兜底。
+    // 收到重量后通过 wenxun/scale 通道回传（单位：克或千克，Dart 侧换算）。
+
+    private var scaleChannel: MethodChannel? = null
+    private var scaleReceiver: BroadcastReceiver? = null
+
+    private val scaleActions = arrayOf(
+        "com.sunmi.weigh.WEIGHT_DATA",
+        "com.sunmi.weigh.action.WEIGHT",
+        "com.sunmi.weigh.WEIGHT",
+        "com.sunmi.weight",
+        "com.sunmi.scaleservice.WEIGHT",
+        "android.intent.action.SUNMI_WEIGHT",
+        "com.woyou.weigh.WEIGHT",
+        "com.telpo.weigh.WEIGHT"
+    )
+
+    private val scaleKeys = arrayOf(
+        "weight", "weight_data", "weightValue", "Weight", "WEIGHT", "value", "data"
+    )
+
+    /** 开始监听内置秤广播；返回是否注册成功（非一体机也返回 true，只是收不到数据） */
+    private fun startScale(): Boolean {
+        if (scaleReceiver != null) return true
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val v = extractWeight(intent ?: return) ?: return
+                runOnUiThread {
+                    runCatching { scaleChannel?.invokeMethod("weight", v) }
+                }
+            }
+        }
+        val filter = IntentFilter()
+        scaleActions.forEach { runCatching { filter.addAction(it) } }
+        val ok = runCatching {
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(receiver, filter)
+            }
+        }.isSuccess
+        if (ok) scaleReceiver = receiver
+        return ok
+    }
+
+    private fun stopScale() {
+        scaleReceiver?.let { runCatching { unregisterReceiver(it) } }
+        scaleReceiver = null
+    }
+
+    /** 从广播里抠出重量数值（兼容 int/long/double/float/String 及 "12.5kg" 文本） */
+    private fun extractWeight(intent: Intent): Double? {
+        val bundle = intent.extras ?: return null
+        for (k in scaleKeys) {
+            val raw = runCatching { bundle.get(k) }.getOrNull() ?: continue
+            val d = when (raw) {
+                is Double -> raw
+                is Float -> raw.toDouble()
+                is Int -> raw.toDouble()
+                is Long -> raw.toDouble()
+                is Short -> raw.toDouble()
+                is String -> raw.trim().replace(Regex("[^0-9.\\-]"), "").toDoubleOrNull()
+                else -> null
+            }
+            if (d != null && d >= 0) return d
+        }
+        return null
+    }
+
     override fun onDestroy() {
+        stopScale()
         if (sunmiBound) runCatching { unbindService(sunmiConn) }
         super.onDestroy()
     }
@@ -108,6 +183,21 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         // 进页就开始绑商米打印服务（非商米设备 bind 失败无副作用）
         bindSunmi()
+
+        // 一体机内置秤（商米等）：由 Dart 侧按需 start/stop
+        val scaleCh = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wenxun/scale")
+        scaleChannel = scaleCh
+        scaleCh.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> result.success(runCatching { startScale() }.getOrDefault(false))
+                "stop" -> {
+                    runCatching { stopScale() }
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wenxun/usb_printer")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

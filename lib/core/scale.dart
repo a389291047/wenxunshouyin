@@ -1,19 +1,40 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'scale_win.dart';
 
+/// 平台能力：哪些端支持接电子秤
+///
+/// - Windows：键盘口秤（USB-HID）+ 串口秤（COM / RS232，市面通用收银秤）
+/// - 安卓：键盘口秤 + 一体机内置秤（商米等，走原生广播）
+/// - 苹果 macOS：不接秤，称重弹窗只手工输入重量（保持 v3.3.182 的交互）
+class ScaleSupport {
+  static bool get isWindows => Platform.isWindows;
+  static bool get isAndroid => Platform.isAndroid;
+
+  /// 本机是否支持接电子秤（苹果端为 false，设置页不显示「称重设备」）
+  static bool get canUseScale => isWindows || isAndroid;
+
+  /// 是否有「一体机内置秤」（安卓走原生广播监听）
+  static bool get hasBuiltin => isAndroid;
+
+  /// 是否支持串口秤（仅 Windows）
+  static bool get hasSerial => isWindows;
+}
+
 /// 电子秤配置（本机保存，随收银机走）
 ///
-/// 支持两类 Windows 常见收银秤：
-/// - 键盘口（USB-HID，免驱）：秤把重量当键盘输入发出来，以回车结束，最常见
-/// - 串口（RS232 / USB转串口）：COM 口 + 波特率，票据秤/大台秤常用
+/// 连接方式 mode：
+/// - keyboard：键盘口秤（USB-HID，免驱）—— Windows / 安卓通用
+/// - serial：串口秤（COM / RS232）—— 仅 Windows
+/// - builtin：一体机内置秤（商米等）—— 仅安卓
 class ScalePrefs {
   static const kEnabled = 'scale_enabled';
-  static const kMode = 'scale_mode'; // keyboard / serial
+  static const kMode = 'scale_mode'; // keyboard / serial / builtin
   static const kPort = 'scale_port'; // COM3
   static const kBaud = 'scale_baud'; // 9600
   static const kUnit = 'scale_unit'; // auto / kg / g / jin
@@ -26,9 +47,11 @@ class ScalePrefs {
 
   static Future<ScalePrefs> load() async {
     final sp = await SharedPreferences.getInstance();
+    final m = sp.getString(kMode) ?? 'keyboard';
     return ScalePrefs()
       ..enabled = sp.getBool(kEnabled) ?? false
-      ..mode = sp.getString(kMode) ?? 'keyboard'
+      // 非 Android 不允许 builtin（换端后不残留）
+      ..mode = (m == 'builtin' && !ScaleSupport.hasBuiltin) ? 'keyboard' : m
       ..port = sp.getString(kPort) ?? ''
       ..baud = sp.getInt(kBaud) ?? 9600
       ..unit = sp.getString(kUnit) ?? 'auto';
@@ -43,15 +66,21 @@ class ScalePrefs {
     await sp.setString(kUnit, unit);
   }
 
-  String get modeLabel => mode == 'serial' ? '串口（COM）' : '键盘口（USB-HID）';
+  String get modeLabel => const {
+        'serial': '串口（COM）',
+        'builtin': '一体机内置秤',
+        'keyboard': '键盘口（USB-HID）',
+      }[mode] ??
+      '键盘口（USB-HID）';
+
   String get unitLabel => const {'auto': '自动识别', 'kg': '千克 kg', 'g': '克 g', 'jin': '斤'}[unit] ?? '自动识别';
 }
 
 /// 电子秤报文解析：把各种秤的原始行解析成「千克」
 ///
 /// 兼容常见格式：
-/// - `ST,GS,+  0.525kg`（顶尖/大华 ACS 系列，稳定位+总重位）
-/// - `= 0.525 kg`
+/// - `ST,GS,+  0.525kg`（托利多/顶尖/大华 ACS 系列，稳定位+总重位）
+/// - `= 0.525 kg` / `US,GS,+ 0.525kg`
 /// - `0525 g` / `525g`（克为单位）
 /// - `12.5斤`
 /// - 裸数字 `0.525`（按配置单位解释）
@@ -61,8 +90,7 @@ class ScaleParser {
     final line = raw.trim();
     if (line.isEmpty) return null;
 
-    // 报文形如 "ST,GS,+ 0.525kg" / "= 0.525 kg" / " 0.525"：
-    // 状态位（ST/GS/US）不含数字，取最后一个十进制数即重量
+    // 报文形如 "ST,GS,+ 0.525kg"：状态位（ST/GS/US）不含数字，取最后一个十进制数即重量
     final matches = RegExp(r'\d+(?:\.\d+)?').allMatches(line).toList();
     if (matches.isEmpty) return null;
     final value = double.tryParse(matches.last.group(0)!);
@@ -91,25 +119,101 @@ class ScaleParser {
         return value;
     }
   }
+
+  /// 一体机内置秤（原生广播）给的是纯数值，没有单位
+  ///
+  /// 商米/天波等机型多数回传「克」（如 525 表示 525g），也有回传千克的；
+  /// 自动模式下 ≥20 按克处理（20kg 以上的散称商品极少，误判风险低）。
+  static double? fromRawValue(double v, {String unitPref = 'auto'}) {
+    if (v.isNaN || v.isInfinite || v <= 0) return null;
+    switch (unitPref) {
+      case 'g':
+        return v / 1000.0;
+      case 'jin':
+        return v * 0.5;
+      case 'kg':
+        return v;
+      default:
+        return v >= 20 ? v / 1000.0 : v;
+    }
+  }
+}
+
+/// 一体机内置秤（安卓）：走原生广播（商米 / 天波等一体机自带秤）
+///
+/// 原生端（MainActivity）监听常见厂商广播 action，收到重量后通过
+/// `wenxun/scale` 通道的 `weight` 回传（单位按克/千克原样给，Dart 侧换算）。
+/// 非安卓设备调用 start() 返回 false，不影响手输。
+class BuiltinScale {
+  static const _ch = MethodChannel('wenxun/scale');
+
+  final _out = StreamController<double>.broadcast();
+  Stream<double> get stream => _out.stream;
+
+  bool _connected = false;
+  bool get connected => _connected;
+
+  static bool get supported => ScaleSupport.hasBuiltin;
+
+  static bool _handlerSet = false;
+
+  Future<bool> start({String unitPref = 'auto'}) async {
+    if (!supported) return false;
+    try {
+      if (!_handlerSet) {
+        _ch.setMethodCallHandler((call) async {
+          if (call.method == 'weight') {
+            final v = (call.arguments as num?)?.toDouble();
+            if (v == null) return null;
+            final kg = ScaleParser.fromRawValue(v, unitPref: unitPref);
+            if (kg != null && kg >= 0) {
+              _connected = true;
+              if (!_out.isClosed) _out.add(kg);
+            }
+          }
+          return null;
+        });
+        _handlerSet = true;
+      }
+      final ok = await _ch.invokeMethod<bool>('start');
+      return ok ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void stop() {
+    if (!supported) return;
+    try {
+      _ch.invokeMethod('stop');
+    } catch (_) {}
+  }
+
+  void dispose() {
+    stop();
+    if (!_out.isClosed) _out.close();
+  }
 }
 
 /// 串口电子秤读取
 ///
 /// Windows：Win32 API 直读（scale_win.dart），无需第三方驱动/插件；
-/// 其它系统：暂不支持（回退键盘口秤）。
+/// 其它系统：不支持（安卓走内置秤/键盘口）。
 class SerialScale {
   WinSerial? _port;
   Timer? _timer;
   String _buf = '';
   double? _last;
   DateTime? _lastAt;
+  bool _gotData = false;
   final _out = StreamController<double>.broadcast();
 
   Stream<double> get stream => _out.stream;
   double? get last => _last;
-  bool get connected => _port?.isOpen ?? false;
 
-  /// 当前系统是否支持串口模式（仅 Windows）
+  /// 真正「连上」= 端口打开且读到过重量（只打开端口不算，避免误报绿灯）
+  bool get connected => _port != null && _gotData;
+
   static bool get supported => WinSerial.supported;
 
   static List<String> availablePorts() => WinSerial.availablePorts();
@@ -125,6 +229,7 @@ class SerialScale {
     }
     _port = port;
     _buf = '';
+    _gotData = false;
     _timer = Timer.periodic(const Duration(milliseconds: 120), (_) => _poll(unitPref));
     return true;
   }
@@ -155,7 +260,45 @@ class SerialScale {
     if (_lastAt != null && now.difference(_lastAt!).inMilliseconds < 300 && kg == _last) return;
     _lastAt = now;
     _last = kg;
+    _gotData = true;
     if (!_out.isClosed) _out.add(kg);
+  }
+
+  /// 等第一帧读数（用于现场检测/自动探测端口）
+  Future<double?> firstReading(Duration window) async {
+    try {
+      return await stream.first.timeout(window);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 自动探测：遍历 COM1..COM20 × 常见波特率，谁先读到重量就用谁
+  ///
+  /// 收银员不用懂 COM 号和波特率，插上秤点「自动检测」即可。
+  /// 打不开的口会瞬间跳过，正常只有 1~2 个串口存在，耗时很短。
+  static Future<ScaleProbe?> autoDetect({
+    List<int> bauds = const [9600, 4800, 19200, 38400, 115200],
+    Duration window = const Duration(milliseconds: 900),
+  }) async {
+    if (!WinSerial.supported) return null;
+    for (var i = 1; i <= 20; i++) {
+      final name = 'COM$i';
+      // 先试探这个口是否存在，不存在直接跳过（不浪费时间试波特率）
+      final probe = WinSerial();
+      final opened = probe.open(name, 9600);
+      probe.close();
+      if (!opened) continue;
+
+      for (final b in bauds) {
+        final s = SerialScale();
+        if (!s.start(portName: name, baud: b, unitPref: 'auto')) continue;
+        final kg = await s.firstReading(window);
+        s.dispose();
+        if (kg != null && kg > 0) return ScaleProbe(port: name, baud: b, kg: kg);
+      }
+    }
+    return null;
   }
 
   void stop() {
@@ -166,12 +309,21 @@ class SerialScale {
     } catch (_) {}
     _port = null;
     _buf = '';
+    _gotData = false;
   }
 
   void dispose() {
     stop();
     _out.close();
   }
+}
+
+/// 自动探测结果
+class ScaleProbe {
+  final String port;
+  final int baud;
+  final double kg;
+  const ScaleProbe({required this.port, required this.baud, required this.kg});
 }
 
 /// 键盘口电子秤：秤以键盘方式「打」出重量并回车。
