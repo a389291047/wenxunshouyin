@@ -10,6 +10,7 @@ import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
+import '../../ui/weigh_dialog.dart';
 import '../../ui/widgets.dart';
 import '../../ui/xyf_scan_pay.dart';
 
@@ -24,8 +25,14 @@ class RetailCashierPage extends StatefulWidget {
 
 class _CartLine {
   final Map goods;
-  int num;
+  double num; // 按件为整数；称重商品为重量（3 位小数，单位见商品 danwei）
   _CartLine(this.goods, this.num);
+  bool get byWeight => '${goods['sell_type'] ?? 0}' == '1';
+  String get unit => byWeight ? _unitOf(goods) : '';
+  static String _unitOf(Map g) {
+    final u = '${g['danwei'] ?? ''}'.trim();
+    return u.isEmpty ? 'kg' : u;
+  }
 }
 
 class _RetailCashierPageState extends State<RetailCashierPage> {
@@ -77,7 +84,25 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   double get total => cart.fold(0, (s, l) => s + _price(l.goods) * l.num);
-  int get count => cart.fold(0, (s, l) => s + l.num);
+  // 件数：按件商品累加数量，称重行按 1 笔计
+  int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
+
+  /// 是否称重商品（商品资料 sell_type=1）
+  bool _isWeighted(Map g) => '${g['sell_type'] ?? 0}' == '1';
+
+  /// 称重商品单位（商品 danwei，缺省 kg）
+  String _unitOf(Map g) {
+    final u = '${g['danwei'] ?? ''}'.trim();
+    return u.isEmpty ? 'kg' : u;
+  }
+
+  /// 数量展示：按件整数 / 称重 3 位小数去尾零
+  String _qtyText(_CartLine l) {
+    if (!l.byWeight) return '${l.num.round()}';
+    var s = l.num.toStringAsFixed(3);
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return s;
+  }
 
   double _price(Map g) => double.tryParse('${g['amount'] ?? g['price'] ?? 0}') ?? 0;
 
@@ -114,7 +139,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 购物车行唯一键：商品 id + 规格 id（多规格同一商品多个 SKU 并存）
   String _cartKey(Map g) => '${g['id']}_${g['sku_id'] ?? ''}';
 
-  void _add(Map g, {int qty = 1}) {
+  void _add(Map g, {double qty = 1}) {
     final key = _cartKey(g);
     final i = cart.indexWhere((l) => _cartKey(l.goods) == key);
     if (i > -1) {
@@ -125,8 +150,35 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     setState(() {});
   }
 
-  /// 点击商品：多规格弹规格组合弹窗，单规格直接加购
+  /// 称重商品：弹称重面板。已存在该行时预填当前重量（改重量，不累加）
+  Future<void> _weighAndAdd(Map g) async {
+    final key = _cartKey(g);
+    final i = cart.indexWhere((l) => _cartKey(l.goods) == key);
+    final cur = i > -1 ? cart[i].num : 0.0;
+    final w = await showDialog<double>(
+      context: context,
+      builder: (_) => WeighDialog(
+        title: '${g['title']}',
+        price: _price(g),
+        unit: _unitOf(g),
+        initial: cur,
+      ),
+    );
+    if (w == null || w <= 0 || !mounted) return;
+    setState(() {
+      if (i > -1) {
+        cart[i].num = w; // 已有行：改成新重量
+      } else {
+        cart.add(_CartLine(g, w));
+      }
+    });
+  }
+
+  /// 点击商品：称重商品走称重面板；多规格弹规格组合弹窗；单规格直接加购
   Future<void> _tapGoods(Map g) async {
+    if (_isWeighted(g)) {
+      return _weighAndAdd(g);
+    }
     if (_hasSpecs(g)) {
       final sku = await showDialog<Map>(
         context: context,
@@ -149,6 +201,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   void _dec(_CartLine l) {
+    if (l.byWeight) {
+      // 称重行：减号=删除该行（改重量请点重量数字）
+      cart.remove(l);
+      setState(() {});
+      return;
+    }
     l.num--;
     if (l.num <= 0) cart.remove(l);
     setState(() {});
@@ -172,7 +230,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       'title': r['name'],
       'amount': r['amount'],
       'guige': '',
-    }, qty: r['num']);
+    }, qty: ((r['num'] as num?) ?? 1).toDouble());
   }
 
   // ==================== 结算收款 ====================
@@ -243,7 +301,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       'id': l.goods['id'],
       'name': l.goods['title'],
       'price': _price(l.goods),
-      'quantity': l.num,
+      'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+      'unit': l.byWeight ? l.unit : '',
       'guige': '${l.goods['guige'] ?? ''}',
       'image': _img(l.goods),
     }).toList();
@@ -277,7 +336,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.print(CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t,
-            cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num, 'unit': l.byWeight ? l.unit : ''}).toList(),
           )).catchError((_) => <String, dynamic>{});
         }
         _clearCart();
@@ -310,7 +369,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (await PrintPrefs.on('retail')) {
         CloudPrinter.print(CloudPrinter.retailReceipt(
           orderNo: orderNo, payMethod: picked, total: t,
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num, 'unit': l.byWeight ? l.unit : ''}).toList(),
         )).catchError((_) => <String, dynamic>{});
       }
 
@@ -535,13 +594,22 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                         child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
                       ),
                     ),
+                  if (_isWeighted(g))
+                    Positioned(
+                      top: 6, left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(color: const Color(0xFF1677FF), borderRadius: BorderRadius.circular(6)),
+                        child: const Text('称重', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                      ),
+                    ),
                 ],
               ),
             ),
             const SizedBox(height: 8),
             Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500)),
             const SizedBox(height: 3),
-            Text('¥${Fmt.money(_price(g))}', style: const TextStyle(fontSize: 17, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+            Text(_isWeighted(g) ? '¥${Fmt.money(_price(g))}/${_unitOf(g)}' : '¥${Fmt.money(_price(g))}', style: const TextStyle(fontSize: 17, color: PosTheme.accent, fontWeight: FontWeight.w800)),
           ]),
         ),
       ),
@@ -620,7 +688,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                             const SizedBox(height: 3),
                             Text(guige.isNotEmpty
                                 ? '规格：$guige · ¥${Fmt.money(_price(l.goods))}'
-                                : '¥${Fmt.money(_price(l.goods))}', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                                : (l.byWeight
+                                    ? '¥${Fmt.money(_price(l.goods))}/${l.unit}'
+                                    : '¥${Fmt.money(_price(l.goods))}'), style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
                           ])),
                           _stepper(l),
                           SizedBox(width: 72, child: Text('¥${Fmt.money(_price(l.goods) * l.num)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
@@ -663,6 +733,37 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   // 步进器（44px 大触摸区）
   Widget _stepper(_CartLine l) {
+    if (l.byWeight) {
+      // 称重行：显示重量，点数字改重量，右侧 × 删除
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        InkWell(
+          onTap: () => _weighAndAdd(l.goods),
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            height: 46,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7F4),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: PosTheme.accent.withOpacity(0.5)),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text('${_qtyText(l)} ${l.unit}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+              const SizedBox(width: 6),
+              const Icon(Icons.edit_outlined, size: 15, color: PosTheme.accent),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 6),
+        InkWell(
+          onTap: () => _dec(l),
+          borderRadius: BorderRadius.circular(23),
+          child: const SizedBox(width: 40, height: 46, child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
+        ),
+      ]);
+    }
     return Container(
       decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [

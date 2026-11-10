@@ -291,6 +291,14 @@ class CloudPrinter {
   }
 
   /// 组零售收银小票
+  /// 数量文本：整数原样，小数去尾零（0.525 / 1.2 / 2）
+  static String _qtyStr(double q) {
+    if (q == q.roundToDouble()) return '${q.round()}';
+    var s = q.toStringAsFixed(3);
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return s;
+  }
+
   static String retailReceipt({
     required String orderNo,
     required String payMethod,
@@ -306,8 +314,14 @@ class CloudPrinter {
     sb.writeln('--------------------------------');
     for (final g in cart) {
       final name = '${g['name']}';
+      final price = double.tryParse('${g['price']}') ?? 0;
+      final qty = double.tryParse('${g['quantity']}') ?? 0;
+      final unit = '${g['unit'] ?? ''}'.trim();
+      final sub = price * qty;
+      // 称重行：0.525kg × 18.00；按件行：x2
+      final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
       sb.writeln('$name');
-      sb.writeln('  ¥${Fmt.money(g['price'])} x${g['quantity']}   ¥${Fmt.money((double.tryParse('${g['price']}') ?? 0) * (int.tryParse('${g['quantity']}') ?? 0))}');
+      sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(sub)}');
     }
     sb.writeln('--------------------------------');
     sb.writeln('合计: ¥${Fmt.money(total)}');
