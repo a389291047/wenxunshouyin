@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/layout_prefs.dart';
@@ -52,6 +55,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // 购物车面板位置（v3.3.189，设置 → 功能设置可切换左/右）
   String cartSide = 'right';
 
+  // 挂单（v3.3.191）：暂存购物车（含会员），本机持久化，最多 20 单
+  final List<Map<String, dynamic>> holds = [];
+  static const _holdsKey = 'retail_holds';
+
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
 
@@ -62,6 +69,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     CartSide.side().then((v) {
       if (mounted && v != cartSide) setState(() => cartSide = v);
     });
+    _loadHolds();
     _load();
   }
 
@@ -236,6 +244,109 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     if (cart.isEmpty) return;
     setState(() { cart.clear(); vip = null; });
   }
+
+  // ==================== 挂单 / 取单（v3.3.191） ====================
+
+  Future<void> _loadHolds() async {
+    final sp = await SharedPreferences.getInstance();
+    final raw = sp.getString(_holdsKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final list = (jsonDecode(raw) as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
+      if (mounted) setState(() => holds..clear()..addAll(list));
+    } catch (_) {} // 数据损坏时忽略，不影响收银
+  }
+
+  Future<void> _saveHolds() async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_holdsKey, jsonEncode(holds));
+  }
+
+  /// 挂单/取单入口：购物车有内容 → 挂单；为空且有挂单 → 取单列表
+  Future<void> _holdTap() async {
+    if (cart.isNotEmpty) return _holdOrder();
+    if (holds.isNotEmpty) return _pickHold();
+  }
+
+  /// 挂单：把当前购物车（含选中会员）暂存到列表头部，清空购物车
+  Future<void> _holdOrder() async {
+    final n = DateTime.now();
+    final t = '${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')} '
+        '${n.hour.toString().padLeft(2, '0')}:${n.minute.toString().padLeft(2, '0')}';
+    setState(() {
+      holds.insert(0, {
+        'time': t,
+        'vip': vip,
+        'items': cart.map((l) => {'goods': l.goods, 'num': l.num}).toList(),
+      });
+      if (holds.length > 20) holds.removeLast(); // 最多 20 单，超出丢最旧
+      cart.clear();
+      vip = null;
+    });
+    await _saveHolds();
+    if (!mounted) return;
+    toast(context, '已挂单（共 ${holds.length} 单，点「取单」找回）');
+  }
+
+  /// 取单列表：恢复到购物车（若当前购物车非空需确认替换）或删除
+  Future<void> _pickHold() async {
+    final picked = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _HoldListDialog(
+        holds: holds,
+        onRestore: (h) => Navigator.pop(context, h),
+        onDelete: (h) {
+          setState(() => holds.remove(h));
+          _saveHolds();
+        },
+      ),
+    );
+    if (picked == null || !mounted) return;
+    await _restoreHold(picked);
+  }
+
+  /// 恢复挂单到购物车
+  Future<void> _restoreHold(Map<String, dynamic> h) async {
+    if (cart.isNotEmpty) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('取单', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+          content: const Text('当前购物车还有商品，取单将替换为挂单内容。', style: TextStyle(fontSize: 14.5)),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: PosTheme.accent),
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('替换', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    final items = ((h['items'] as List?) ?? [])
+        .map((e) {
+          final m = e as Map;
+          return _CartLine(Map<String, dynamic>.from(m['goods'] as Map), (m['num'] as num?)?.toDouble() ?? 1);
+        })
+        .toList();
+    final v = h['vip'] == null ? null : Map<String, dynamic>.from(h['vip'] as Map);
+    setState(() {
+      cart
+        ..clear()
+        ..addAll(items);
+      vip = v;
+      holds.remove(h);
+    });
+    await _saveHolds();
+    if (!mounted) return;
+    toast(context, items.isEmpty ? '挂单内容为空，已移除' : '已取单：${items.length} 个商品');
+  }
+
+
 
   /// 无码商品：手输名称/单价/数量，直接加入购物车
   Future<void> _noCodeGoods() async {
@@ -801,10 +912,24 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 Expanded(
                   child: SizedBox(
                     height: 62,
+                    child: BigButton(
+                      holds.isEmpty
+                          ? '挂单'
+                          : (cart.isEmpty ? '取单 ${holds.length}' : '挂单 ${holds.length}'),
+                      onTap: (cart.isEmpty && holds.isEmpty) ? null : _holdTap,
+                      color: const Color(0xFFFFF2ED),
+                      textColor: PosTheme.accent,
+                      height: 62),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 62,
                     child: BigButton('清空', onTap: cart.isEmpty ? null : _clearCart, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 62),
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
                 Expanded(
                   flex: 2,
                   child: BigButton('收款 ¥${Fmt.money(total)}', onTap: cart.isEmpty ? null : _checkout, height: 62),
@@ -1554,6 +1679,129 @@ class _SuccessDialogState extends State<_SuccessDialog> {
           SizedBox(
             width: 280,
             child: BigButton('继续收银', onTap: () => Navigator.pop(context), height: 56),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// 挂单列表弹窗（v3.3.191）：恢复 / 删除
+class _HoldListDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> holds;
+  final void Function(Map<String, dynamic>) onRestore;
+  final void Function(Map<String, dynamic>) onDelete;
+  const _HoldListDialog({required this.holds, required this.onRestore, required this.onDelete});
+
+  @override
+  State<_HoldListDialog> createState() => _HoldListDialogState();
+}
+
+class _HoldListDialogState extends State<_HoldListDialog> {
+  String _holdTitle(Map h) {
+    final items = (h['items'] as List?) ?? const [];
+    final total = items.fold<double>(0, (s, e) {
+      final g = (e as Map)['goods'] as Map? ?? {};
+      final price = double.tryParse('${g['amount'] ?? 0}') ?? 0;
+      final qty = (e['num'] as num?)?.toDouble() ?? 0;
+      return s + price * qty;
+    });
+    final cnt = items.fold<int>(0, (s, e) => s + (((e as Map)['num'] as num?)?.round() ?? 0));
+    final vip = h['vip'] as Map?;
+    return '共 $cnt 件 · ¥${Fmt.money(total)}${vip == null ? '' : ' · 会员 ${vip['name'] ?? vip['phone']}'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final holds = widget.holds;
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 520,
+        constraints: const BoxConstraints(maxHeight: 620),
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Icon(Icons.bookmark_border_rounded, size: 22, color: PosTheme.accent),
+            const SizedBox(width: 8),
+            const Text('挂单列表', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const SizedBox(width: 8),
+            Text('${holds.length} 单', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+            const Spacer(),
+            InkWell(
+              onTap: () => Navigator.pop(context),
+              borderRadius: BorderRadius.circular(16),
+              child: const SizedBox(width: 32, height: 32, child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
+            ),
+          ]),
+          const SizedBox(height: 6),
+          const Text('点「取单」把挂单恢复到购物车继续收银，按时间从新到旧排列（最多保留 20 单）。',
+              style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+          const SizedBox(height: 10),
+          Flexible(
+            child: holds.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text('暂无挂单', style: TextStyle(fontSize: 14.5, color: PosTheme.textHint))),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: holds.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, i) {
+                      final h = holds[i];
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF7F8FA),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: PosTheme.line),
+                        ),
+                        child: Row(children: [
+                          Container(
+                            width: 34, height: 34,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(17)),
+                            child: Text('${i + 1}', style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(_holdTitle(h), maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 2),
+                            Text('挂单时间 ${h['time'] ?? ''}', style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
+                          ])),
+                          InkWell(
+                            onTap: () => widget.onRestore(h),
+                            borderRadius: BorderRadius.circular(9),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                              decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(9)),
+                              child: const Text('取单', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white)),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: () {
+                              widget.onDelete(h);
+                              setState(() {}); // 本弹窗自刷新（列表引用与父级共享）
+                            },
+                            borderRadius: BorderRadius.circular(9),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(9),
+                                border: Border.all(color: PosTheme.line),
+                              ),
+                              child: const Icon(Icons.delete_outline, size: 18, color: PosTheme.textSub),
+                            ),
+                          ),
+                        ]),
+                      );
+                    },
+                  ),
           ),
         ]),
       ),
