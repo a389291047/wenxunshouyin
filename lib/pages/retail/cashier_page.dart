@@ -46,6 +46,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   // 搜索框始终聚焦（v3.3.187，扫码枪适配）
   final searchKeeper = SearchFocusKeeper();
+  final searchCtrl = TextEditingController();
 
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
@@ -60,6 +61,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   @override
   void dispose() {
     searchKeeper.dispose();
+    searchCtrl.dispose();
     super.dispose();
   }
 
@@ -465,61 +467,118 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
   }
 
+  // v3.3.188：去掉「收银」标题与右侧时间；无码商品移到左上角原标题处，
+  // 搜索框占用其余全部宽度（右侧预留位置给后续新增按钮）
   Widget _topBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
-      child: Row(children: [
-        const Text('收银', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
-        const SizedBox(width: 20),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 340),
-          child: TextField(
-            focusNode: searchKeeper.node,
-            onChanged: (v) => setState(() => keyword = v.trim()),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 12),
-              hintText: '搜索商品名称 / 简拼',
-              prefixIcon: const Icon(Icons.search, size: 22),
-              suffixIcon: keyword.isEmpty ? null : GestureDetector(
-                onTap: () => setState(() => keyword = ''),
-                child: const Icon(Icons.close, size: 20),
-              ),
-            ),
-          ),
-        ),
-        const Spacer(),
-        // 无码商品（扫码枪扫不到的商品手动录入）
-        InkWell(
-          onTap: _noCodeGoods,
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF2ED),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
-            ),
-            child: const Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.keyboard_outlined, size: 20, color: PosTheme.accent),
-              SizedBox(width: 8),
-              Text('无码商品', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-            ]),
-          ),
-        ),
-        const SizedBox(width: 14),
-        _clock(),
-      ]),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _noCodeBtn(),
+          const SizedBox(width: 14),
+          Expanded(child: _searchBox()),
+        ],
+      ),
     );
   }
 
-  Widget _clock() {
-    final n = DateTime.now();
-    final t = '${n.year}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}  ${n.hour.toString().padLeft(2, '0')}:${n.minute.toString().padLeft(2, '0')}';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: PosTheme.line)),
-      child: Text(t, style: const TextStyle(fontSize: 14, color: PosTheme.textSub)),
+  /// 无码商品入口（扫码枪扫不到的商品手动录入）
+  Widget _noCodeBtn() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _noCodeGoods,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF2ED),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: PosTheme.accent.withOpacity(0.35)),
+          ),
+          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.keyboard_alt_outlined, size: 21, color: PosTheme.accent),
+            SizedBox(width: 8),
+            Text('无码商品',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: PosTheme.accent)),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// 商品搜索框：与大按钮同高 48，圆角白底 + 柔和阴影，字号放大
+  Widget _searchBox() {
+    return SizedBox(
+      height: 48,
+      child: TextField(
+        controller: searchCtrl,
+        focusNode: searchKeeper.node,
+        textAlignVertical: TextAlignVertical.center,
+        cursorColor: PosTheme.accent,
+        style: const TextStyle(
+            fontSize: 17, fontWeight: FontWeight.w500, color: PosTheme.textMain),
+        onChanged: (v) => setState(() => keyword = v.trim()),
+        decoration: InputDecoration(
+          isDense: true,
+          filled: true,
+          fillColor: Colors.white,
+          hintText: '搜索商品名称 / 简拼 / 条码',
+          hintStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: PosTheme.textHint),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+          prefixIcon: const Icon(Icons.search_rounded,
+              size: 24, color: PosTheme.textSub),
+          prefixIconConstraints:
+              const BoxConstraints(minWidth: 50, minHeight: 48),
+          suffixIcon: keyword.isEmpty ? null : _clearBtn(),
+          suffixIconConstraints:
+              const BoxConstraints(minWidth: 46, minHeight: 48),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: PosTheme.line),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: PosTheme.accent, width: 1.6),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 清空按钮：真正清空输入框内容 + 过滤条件，并把焦点还给搜索框（扫码枪继续可用）
+  Widget _clearBtn() {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, left: 4),
+      child: Material(
+        color: const Color(0xFFF1F2F5),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () {
+            searchCtrl.clear();
+            setState(() => keyword = '');
+            searchKeeper.node.requestFocus();
+          },
+          child: const SizedBox(
+            width: 26,
+            height: 26,
+            child: Icon(Icons.close_rounded, size: 17, color: PosTheme.textSub),
+          ),
+        ),
+      ),
     );
   }
 
