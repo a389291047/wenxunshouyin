@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/api.dart';
+import '../core/bt_printer.dart';
 import '../core/session.dart';
 import '../core/theme.dart' show Fmt;
 import 'printer_route.dart';
@@ -46,11 +47,12 @@ class CloudPrinter {
     );
   }
 
-  /// 收银/堂食结账小票（USB 优先，云打印兜底）
-  /// 「手动打印」模式下直接跳过（USB + 云打印都不出票），出票只发生在补打/测试等主动操作
+  /// 收银/堂食结账小票（USB 优先 → 蓝牙 → 云打印兜底）
+  /// 「手动打印」模式下直接跳过（本地 + 云打印都不出票），出票只发生在补打/测试等主动操作
   static Future<Map<String, dynamic>> print(String content) async {
     if (await UsbPrinter.isManual()) return {};
     if (await UsbPrinter.tryPrint(content)) return {};
+    if (await BtPrinter.tryPrint(content)) return {}; // 蓝牙兜底（v3.3.185）
     if (!await enabled()) return {}; // 云打印开关关闭：不出票
     return printCloud(content);
   }
@@ -58,6 +60,7 @@ class CloudPrinter {
   /// 手动出票（补打小票等用户主动点击）：不受「手动打印模式」限制
   static Future<Map<String, dynamic>> printManual(String content) async {
     if (await UsbPrinter.tryPrint(content)) return {};
+    if (await BtPrinter.tryPrint(content)) return {};
     return printCloud(content);
   }
 

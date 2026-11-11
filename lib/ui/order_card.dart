@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
+import '../core/bt_printer.dart';
 import '../core/cloud_printer.dart';
 import '../core/print_prefs.dart';
 import '../core/session.dart';
@@ -183,36 +184,38 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   }
 
   Future<void> _usbPrint() async {
-    if (!UsbPrinter.supported) {
-      toast(context, '当前平台不支持 USB 打印', error: true);
+    // USB 未启用时自动走蓝牙（v3.3.185），两者都没启用才提示去设置
+    if (UsbPrinter.supported && await UsbPrinter.enabled()) {
+      final p = await UsbPrinter.selectedPrinter();
+      if (p == null) {
+        toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
+        return;
+      }
+      final spec = await UsbPrinter.currentSpec();
+      setState(() => busy = true);
+      try {
+        await UsbPrinter.printTicket(p, CloudPrinter.orderTicket(o),
+            paperWidth: spec['width'] as int,
+            mode: spec['mode'] as String,
+            textW: spec['textW'] as int?,
+            offsetCols: spec['offsetCols'] as int? ?? 0);
+        if (!mounted) return;
+        toast(context, 'USB 打印已发送（${spec['label']}）');
+      } on ApiError catch (e) {
+        if (mounted) toast(context, e.message, error: true);
+      } catch (e) {
+        if (mounted) toast(context, 'USB 打印失败：$e', error: true);
+      } finally {
+        if (mounted) setState(() => busy = false);
+      }
       return;
     }
-    if (!await UsbPrinter.enabled()) {
-      toast(context, '请先到「设置 → USB小票打印机」启用并选择打印机', error: true);
+    // 蓝牙兜底
+    if (await BtPrinter.tryPrint(CloudPrinter.orderTicket(o))) {
+      if (mounted) toast(context, '蓝牙打印已发送');
       return;
     }
-    final p = await UsbPrinter.selectedPrinter();
-    if (p == null) {
-      toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
-      return;
-    }
-    final spec = await UsbPrinter.currentSpec();
-    setState(() => busy = true);
-    try {
-      await UsbPrinter.printTicket(p, CloudPrinter.orderTicket(o),
-          paperWidth: spec['width'] as int,
-          mode: spec['mode'] as String,
-          textW: spec['textW'] as int?,
-          offsetCols: spec['offsetCols'] as int? ?? 0);
-      if (!mounted) return;
-      toast(context, 'USB 打印已发送（${spec['label']}）');
-    } on ApiError catch (e) {
-      if (mounted) toast(context, e.message, error: true);
-    } catch (e) {
-      if (mounted) toast(context, 'USB 打印失败：$e', error: true);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
+    toast(context, '请先到「设置 → USB打印」或「设置 → 蓝牙打印」启用打印机', error: true);
   }
 
   // ==================== 退款（支持部分退款 + 退款密码） ====================

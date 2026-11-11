@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
+import '../../core/bt_printer.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
@@ -46,6 +47,15 @@ class _SettingsPageState extends State<SettingsPage> {
   // 每规格自定义配置缓存（v3.3.159）：key → {pageMm, offMm}
   Map<String, Map<String, double>> usbCfgs = const {};
 
+  // 蓝牙打印机（v3.3.185）
+  bool btLoading = false;
+  bool btEnabled = false;
+  String btSpec = 'pos58'; // pos58/pos80
+  Map<String, dynamic>? btSelected;
+  List<Map<String, dynamic>> btDevices = [];
+  List<Map<String, dynamic>> btScanResults = []; // Android 扫描结果（含未配对）
+  bool btScanning = false;
+
   // 语音播报
   bool voiceEnabled = true;
 
@@ -78,6 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _load();
     _loadUsb();
+    _loadBt();
     _loadVoice();
     _loadPrintPrefs();
     _loadStaffs();
@@ -1195,6 +1206,114 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  // ==================== 蓝牙打印（v3.3.185） ====================
+
+  Future<void> _loadBt() async {
+    if (!BtPrinter.supported) return;
+    final sp = await SharedPreferences.getInstance();
+    setState(() {
+      btEnabled = sp.getBool(BtPrinter.prefEnabled) ?? false;
+      btSpec = sp.getString(BtPrinter.prefSpec) ?? 'pos58';
+      final raw = sp.getString(BtPrinter.prefDevice);
+      btSelected = (raw == null || raw.isEmpty)
+          ? null
+          : () {
+              try {
+                return jsonDecode(raw) as Map<String, dynamic>;
+              } catch (_) {
+                return null;
+              }
+            }();
+    });
+    await _refreshBt();
+  }
+
+  Future<void> _refreshBt() async {
+    if (!BtPrinter.supported) return;
+    setState(() => btLoading = true);
+    try {
+      final list = await BtPrinter.list();
+      if (!mounted) return;
+      setState(() {
+        btDevices = list;
+        btLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => btLoading = false);
+    }
+  }
+
+  Future<void> _btScanPair() async {
+    if (!Platform.isAndroid) return;
+    // 先申请蓝牙运行时权限
+    final ok = await BtPrinter.requestPermission();
+    if (!ok && mounted) {
+      toast(context, '未授权蓝牙权限，无法扫描', error: true);
+      return;
+    }
+    setState(() => btScanning = true);
+    try {
+      final list = await BtPrinter.scan();
+      if (!mounted) return;
+      setState(() => btScanResults = list);
+      if (list.isEmpty) toast(context, '没扫到蓝牙设备，请确认打印机处于可配对状态');
+    } catch (e) {
+      if (mounted) toast(context, '扫描失败：$e', error: true);
+    } finally {
+      if (mounted) setState(() => btScanning = false);
+    }
+  }
+
+  Future<void> _btPairDevice(Map<String, dynamic> p) async {
+    loadingDialog(context, '正在配对…');
+    try {
+      final ok = await BtPrinter.pair('${p['id']}');
+      if (!mounted) return;
+      Navigator.pop(context);
+      if (ok) {
+        toast(context, '配对成功');
+        await _refreshBt();
+      } else {
+        toast(context, '配对未完成，请重试', error: true);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '配对失败：$e', error: true);
+    }
+  }
+
+  Future<void> _pickBtPrinter(Map<String, dynamic> p) async {
+    setState(() => btSelected = p);
+    await BtPrinter.selectDevice(p);
+    if (mounted) toast(context, '已选择：${p['name']}');
+  }
+
+  Future<void> _btTest() async {
+    final sel = btSelected;
+    if (sel == null) {
+      toast(context, '请先选择蓝牙打印机', error: true);
+      return;
+    }
+    loadingDialog(context, '发送测试小票…');
+    try {
+      final spec = BtPrinter.specOf(btSpec);
+      await BtPrinter.printTicket(sel, _usbSampleTicket('${sel['name']}', '${spec['label']}'),
+          paperWidth: spec['width'] as int,
+          textW: spec['textW'] as int?);
+      if (!mounted) return;
+      Navigator.pop(context);
+      toast(context, '测试小票已发送，出纸即为打印成功');
+    } on ApiError catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      toast(context, '打印失败：$e', error: true);
+    }
+  }
+
   // ==================== 在线更新（v3.3.79） ====================
 
   /// 在线更新卡片：商户手动点击「检查更新」→ 有新版弹更新窗（下载/安装全程确认）
@@ -1281,6 +1400,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'update',   'icon': Icons.system_update_alt,    'label': '在线更新'},
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
+    {'key': 'bt',       'icon': Icons.bluetooth_outlined,   'label': '蓝牙打印'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
     {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
     {'key': 'nocode',   'icon': Icons.bookmark_border,      'label': '无码商品常用'},
@@ -1297,6 +1417,7 @@ class _SettingsPageState extends State<SettingsPage> {
     for (final it in _navDefs) {
       if (it['key'] == 'password' && Session.isCashierOnly) continue; // 收银员不显示权限密码
       if (it['key'] == 'usb' && !UsbPrinter.supported) continue;      // 不支持 USB 的设备不显示
+      if (it['key'] == 'bt' && !BtPrinter.supported) continue;        // 不支持蓝牙的设备不显示
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
       if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
       list.add(it);
@@ -1310,6 +1431,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'payorder':return _payOrderCard();
       case 'cloud':   return _cloudCard();
       case 'usb':     return _usbCard();
+      case 'bt':      return _btCard();
       case 'receipt': return _printPrefsCard();
       case 'zuofa':   return _zuofaCard();
       case 'nocode':  return _noCodeCard();
@@ -1869,6 +1991,191 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'usb': return Platform.isMacOS ? 'USB设备' : 'USB直连';
       default: return 'USB';
     }
+  }
+
+  /// 蓝牙打印卡片（v3.3.185）：Windows/macOS 选已配对设备，Android 支持扫描配对
+  Widget _btCard() {
+    if (!BtPrinter.supported) {
+      return const SizedBox.shrink();
+    }
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.bluetooth_outlined, '蓝牙打印机'),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: _refreshBt,
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('刷新'),
+        ),
+      ]),
+      const SizedBox(height: 4),
+      // 启用开关
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('启用蓝牙打印', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('开启后小票发往蓝牙打印机（USB 打印未启用时自动生效，便携蓝牙机适配移动收银场景）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: btEnabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => btEnabled = v);
+              await BtPrinter.setEnabled(v);
+            },
+          ),
+        ]),
+      ),
+      // Android：扫描附近蓝牙设备
+      if (btEnabled && Platform.isAndroid)
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: const Text('打印机还没配对？扫描附近蓝牙设备并配对',
+                  style: TextStyle(fontSize: 13))),
+              OutlinedButton.icon(
+                onPressed: btScanning ? null : _btScanPair,
+                style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+                icon: btScanning
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.accent))
+                    : const Icon(Icons.bluetooth_searching, size: 16),
+                label: Text(btScanning ? '扫描中…' : '扫描配对'),
+              ),
+            ]),
+          ]),
+        ),
+      // Android 扫描结果（未配对设备）
+      if (btEnabled && btScanResults.isNotEmpty)
+        ...btScanResults.where((p) => p['paired'] != true).map((p) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F8FA),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(children: [
+              const Icon(Icons.bluetooth_disabled_outlined, size: 19, color: PosTheme.textHint),
+              const SizedBox(width: 10),
+              Expanded(child: Text('${p['name']}',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  maxLines: 1, overflow: TextOverflow.ellipsis)),
+              TextButton(
+                onPressed: () => _btPairDevice(p),
+                child: const Text('配对'),
+              ),
+            ]),
+          );
+        }),
+      // 已配对设备列表
+      if (btEnabled)
+        if (btLoading)
+          const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: PosTheme.accent)))
+        else if (btDevices.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Text(
+              Platform.isAndroid
+                  ? '没有已配对的蓝牙打印机。点上方「扫描配对」，或到系统蓝牙设置配对后刷新。'
+                  : '未发现已配对的蓝牙打印机。请先到系统蓝牙设置配对小票打印机（开机并处于可配对状态），然后点右上角「刷新」。',
+              style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint),
+            ),
+          )
+        else
+          ...btDevices.map((p) {
+            final sel = btSelected != null && '${btSelected!['id']}' == '${p['id']}';
+            final noSpp = '${p['kind']}' == 'nospp';
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(
+                color: sel ? const Color(0xFFEFF7F0) : const Color(0xFFF7F8FA),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: sel ? PosTheme.accent : Colors.transparent),
+              ),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: noSpp ? null : () => _pickBtPrinter(p),
+                child: Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: Row(children: [
+                    Icon(noSpp
+                        ? Icons.block_outlined
+                        : (sel ? Icons.radio_button_checked : Icons.radio_button_off),
+                        size: 19, color: sel ? PosTheme.accent : PosTheme.textHint),
+                    const SizedBox(width: 10),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('${p['name']}',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: noSpp ? PosTheme.textHint : PosTheme.textMain),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      if (noSpp)
+                        const Text('该设备没有串口(SPP)服务，无法直接打印',
+                            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                    ])),
+                    TagChip(noSpp ? '不可用' : '蓝牙SPP', color: noSpp ? Colors.grey : PosTheme.blue),
+                  ]),
+                ),
+              ),
+            );
+          }),
+      // 纸张规格 + 测试
+      if (btEnabled && btSelected != null) ...[
+        const SizedBox(height: 4),
+        Row(children: [
+          const Text('纸张规格', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+          const SizedBox(width: 10),
+          _btSpecChip('pos58', '58mm小票'),
+          const SizedBox(width: 6),
+          _btSpecChip('pos80', '80mm小票'),
+          const Spacer(),
+          OutlinedButton.icon(
+            onPressed: _btTest,
+            style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+            icon: const Icon(Icons.local_printshop_outlined, size: 16),
+            label: const Text('测试打印'),
+          ),
+        ]),
+        const Padding(
+          padding: EdgeInsets.only(top: 4),
+          child: Text('提示：蓝牙打印按「先 USB、后蓝牙」顺序出票——USB 打印关闭时小票自动走蓝牙；关闭蓝牙开关则改走云打印机。测试不出票时，请确认打印机开机、在蓝牙范围内且没被手机占用。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        ),
+      ],
+    ]));
+  }
+
+  /// 蓝牙纸张规格 chip（58/80）
+  Widget _btSpecChip(String key, String label) {
+    final sel = btSpec == key;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () async {
+        setState(() => btSpec = key);
+        await BtPrinter.setSpec(key);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: sel ? PosTheme.accent : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+        ),
+        child: Text(label,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: sel ? Colors.white : PosTheme.textSub)),
+      ),
+    );
   }
 
   /// 出票模式选择 chip（自动/手动）

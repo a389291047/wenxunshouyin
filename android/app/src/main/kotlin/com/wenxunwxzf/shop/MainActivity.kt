@@ -1,12 +1,19 @@
 package com.wenxunwxzf.shop
 
+import android.Manifest
 import android.app.PendingIntent
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothSocket
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbEndpoint
@@ -19,6 +26,7 @@ import woyou.aidlservice.jiuiv5.IWoyouService
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -177,6 +185,197 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
+    /** 蓝牙运行时权限弹窗结果 */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 4201) {
+            btPermGranted = grantResults.isNotEmpty() &&
+                grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+            btPermLatch?.countDown()
+        }
+    }
+
+    // ==================== 蓝牙小票打印机（经典蓝牙 SPP） ====================
+    //
+    // 便携蓝牙小票机走 SPP 串口协议（UUID 00001101）：
+    // list = 已配对设备（标注是否打印机型）
+    // scan = 扫描附近蓝牙设备（12 秒），配合 pair 完成 App 内配对
+    // print = 连接 SPP socket 写 ESC/POS 字节流
+
+    private val btSppUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+    private val btAdapter: BluetoothAdapter?
+        get() = runCatching {
+            (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        }.getOrNull()
+
+    private fun btPermissions(): Array<String> {
+        val out = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 31) {
+            out.add(Manifest.permission.BLUETOOTH_CONNECT)
+            out.add(Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            out.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        return out.toTypedArray()
+    }
+
+    private fun hasBtPermission(): Boolean {
+        // API 22 及以下清单权限自动授予
+        if (Build.VERSION.SDK_INT < 23) return true
+        return btPermissions().all {
+            checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    /** 阻塞等待用户授权（Flutter 权限弹窗），结果经 onRequestPermissionsResult 唤醒 */
+    private var btPermLatch: CountDownLatch? = null
+    private var btPermGranted: Boolean = false
+
+    private fun awaitBtPermission(timeoutSec: Long = 60): Boolean {
+        if (hasBtPermission()) return true
+        val latch = CountDownLatch(1)
+        btPermLatch = latch
+        btPermGranted = false
+        runOnUiThread { requestPermissions(btPermissions(), 4201) }
+        if (!latch.await(timeoutSec, TimeUnit.SECONDS)) return false
+        return btPermGranted
+    }
+
+    private fun isPrinterDevice(d: BluetoothDevice): Boolean {
+        if (d.type == BluetoothDevice.DEVICE_TYPE_LE) return false // 纯 BLE 设备不走 SPP
+        // 部分小票机蓝牙类型不规范：设备类是打印机 或 名字带打印关键词 都算
+        val name = runCatching { d.name }.getOrNull()?.uppercase() ?: ""
+        val nameHit = listOf("PRINT", "POS-", "58", "80", "XP-", "HM-", "ZJ", "GZ", "SNBC", "CNB")
+            .any { name.contains(it) }
+        val cls = runCatching { d.bluetoothClass }.getOrNull()
+        val clsHit = cls == null ||
+            cls.majorDeviceClass == BluetoothClass.Device.Major.IMAGING
+        return clsHit || nameHit
+    }
+
+    private fun btDeviceMap(d: BluetoothDevice, paired: Boolean): Map<String, Any> {
+        val name = runCatching { d.name }.getOrNull() ?: ""
+        val printer = isPrinterDevice(d)
+        return mapOf(
+            "id" to d.address,
+            "name" to if (name.isEmpty()) "蓝牙设备 ${d.address}" else name,
+            "kind" to if (printer) "spp" else "other",
+            "paired" to paired
+        )
+    }
+
+    private fun btList(): List<Map<String, Any>> {
+        val adapter = btAdapter ?: throw Exception("本机没有蓝牙模块")
+        if (!hasBtPermission()) throw Exception("未授权蓝牙权限")
+        return adapter.bondedDevices
+            .filter { isPrinterDevice(it) }
+            .map { btDeviceMap(it, true) }
+            .sortedBy { it["name"] as String }
+    }
+
+    private fun btScan(): List<Map<String, Any>> {
+        val adapter = btAdapter ?: throw Exception("本机没有蓝牙模块")
+        if (!awaitBtPermission()) throw Exception("未授权蓝牙权限，无法扫描")
+        if (!adapter.isEnabled) throw Exception("蓝牙未开启，请先到系统设置打开蓝牙")
+        val paired = adapter.bondedDevices.map { it.address }.toSet()
+        val found = LinkedHashMap<String, BluetoothDevice>()
+        val latch = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                if (intent?.action == BluetoothDevice.ACTION_FOUND) {
+                    val d = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                    if (d != null && isPrinterDevice(d)) found[d.address] = d
+                }
+            }
+        }
+        val finishReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) { latch.countDown() }
+        }
+        val f1 = IntentFilter(BluetoothDevice.ACTION_FOUND)
+        val f2 = IntentFilter(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, f1, Context.RECEIVER_EXPORTED)
+            registerReceiver(finishReceiver, f2, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, f1)
+            @Suppress("DEPRECATION")
+            registerReceiver(finishReceiver, f2)
+        }
+        try {
+            if (adapter.isDiscovering) adapter.cancelDiscovery()
+            adapter.startDiscovery()
+            // 最多等 13 秒扫描结束
+            latch.await(13, TimeUnit.SECONDS)
+        } finally {
+            runCatching { unregisterReceiver(receiver) }
+            runCatching { unregisterReceiver(finishReceiver) }
+            runCatching { adapter.cancelDiscovery() }
+        }
+        return found.values.map { btDeviceMap(it, it.address in paired) }
+    }
+
+    private fun btPair(address: String): Boolean {
+        val adapter = btAdapter ?: throw Exception("本机没有蓝牙模块")
+        if (!awaitBtPermission()) throw Exception("未授权蓝牙权限")
+        val d = adapter.getRemoteDevice(address) ?: throw Exception("未找到设备：$address")
+        if (d.bondState == BluetoothDevice.BOND_BONDED) return true
+        val latch = CountDownLatch(1)
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val state = intent?.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1) ?: -1
+                if (state == BluetoothDevice.BOND_BONDED || state == BluetoothDevice.BOND_NONE) {
+                    latch.countDown()
+                }
+            }
+        }
+        val f = IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(receiver, f, Context.RECEIVER_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(receiver, f)
+        }
+        try {
+            val ok = runCatching { d.createBond() }.getOrDefault(false)
+            if (!ok) throw Exception("发起配对失败（设备可能不在范围内）")
+            if (!latch.await(30, TimeUnit.SECONDS)) throw Exception("配对超时，请重试")
+            return d.bondState == BluetoothDevice.BOND_BONDED
+        } finally {
+            runCatching { unregisterReceiver(receiver) }
+        }
+    }
+
+    private fun btPrint(address: String, bytes: ByteArray) {
+        val adapter = btAdapter ?: throw Exception("本机没有蓝牙模块")
+        if (!awaitBtPermission()) throw Exception("未授权蓝牙权限")
+        adapter.cancelDiscovery()
+        val d = adapter.getRemoteDevice(address) ?: throw Exception("未找到蓝牙打印机：$address")
+        val socket: BluetoothSocket = runCatching {
+            d.createRfcommSocketToServiceRecord(btSppUuid)
+        }.getOrElse { throw Exception("蓝牙串口创建失败：${it.message}") }
+        socket.connect() // 超时约 12 秒，连不上抛 IOException
+        try {
+            val out = socket.outputStream
+            var offset = 0
+            while (offset < bytes.size) {
+                val len = minOf(1024, bytes.size - offset)
+                out.write(bytes, offset, len)
+                out.flush()
+                offset += len
+                Thread.sleep(15) // 老机器缓冲小，分块匀速发
+            }
+            Thread.sleep(120) // 等打印机收完
+        } finally {
+            runCatching { socket.close() }
+        }
+    }
+
     // ==================== Flutter MethodChannel ====================
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -197,6 +396,61 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 蓝牙小票打印机
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wenxun/bt_printer")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "list" -> {
+                        Thread {
+                            try {
+                                runOnUiThread { result.success(btList()) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("BT", e.message, null) }
+                            }
+                        }.start()
+                    }
+                    "scan" -> {
+                        Thread {
+                            try {
+                                runOnUiThread { result.success(btScan()) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("BT", e.message, null) }
+                            }
+                        }.start()
+                    }
+                    "pair" -> {
+                        Thread {
+                            try {
+                                val addr = call.argument<String>("address") ?: ""
+                                val ok = btPair(addr)
+                                runOnUiThread { result.success(ok) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("BT", e.message, null) }
+                            }
+                        }.start()
+                    }
+                    "requestPermission" -> {
+                        Thread {
+                            val ok = runCatching { awaitBtPermission() }.getOrDefault(false)
+                            runOnUiThread { result.success(ok) }
+                        }.start()
+                    }
+                    "print" -> {
+                        Thread {
+                            try {
+                                val addr = call.argument<String>("address") ?: ""
+                                val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
+                                btPrint(addr, bytes)
+                                runOnUiThread { result.success(true) }
+                            } catch (e: Exception) {
+                                runOnUiThread { result.error("BT", e.message, null) }
+                            }
+                        }.start()
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "wenxun/usb_printer")
             .setMethodCallHandler { call, result ->

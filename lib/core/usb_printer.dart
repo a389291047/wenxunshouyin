@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
+import 'bt_printer.dart';
 import 'esc_pos.dart';
 
 /// 本机 USB 小票打印机（Windows winspool RAW / macOS CUPS raw 队列 / Android USB Host）
@@ -32,9 +33,11 @@ class UsbPrinter {
     return sp.getString(prefMode) ?? 'auto';
   }
 
-  /// 手动打印模式：USB 已启用且选「手动打印」→ 收银/结账/预约等自动小票一律不打印
+  /// 手动打印模式：USB 或蓝牙已启用且选「手动打印」→ 收银/结账/预约等自动小票一律不打印
   static Future<bool> isManual() async {
-    if (!await enabled()) return false;
+    final usbOn = await enabled();
+    final btOn = await BtPrinter.enabled();
+    if (!usbOn && !btOn) return false;
     return await mode() == 'manual';
   }
 

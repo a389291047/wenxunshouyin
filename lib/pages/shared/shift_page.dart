@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api.dart';
+import '../../core/bt_printer.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/print_prefs.dart';
-import '../../core/session.dart';import '../../core/theme.dart';
+import '../../core/session.dart';
+import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
 import '../../ui/widgets.dart';
 
@@ -191,37 +193,47 @@ class _ShiftPageState extends State<ShiftPage> {
       toast(context, '交班单打印已关闭（设置 → 小票打印设置）');
       return;
     }
-    if (!UsbPrinter.supported) {
-      toast(context, '当前平台不支持 USB 打印', error: true);
+    if (UsbPrinter.supported && await UsbPrinter.enabled()) {
+      final p = await UsbPrinter.selectedPrinter();
+      if (p == null) {
+        toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
+        return;
+      }
+      final spec = await UsbPrinter.currentSpec();
+      loadingDialog(context, 'USB 打印交班单…');
+      try {
+        await UsbPrinter.printTicket(p, _shiftTicket,
+            paperWidth: spec['width'] as int,
+            mode: spec['mode'] as String,
+            textW: spec['textW'] as int?,
+            offsetCols: spec['offsetCols'] as int? ?? 0);
+        if (!mounted) return;
+        Navigator.pop(context);
+        toast(context, '交班单已发送 USB 打印');
+      } on ApiError catch (e) {
+        if (mounted) Navigator.pop(context);
+        if (mounted) toast(context, e.message, error: true);
+      } catch (e) {
+        if (mounted) Navigator.pop(context);
+        if (mounted) toast(context, 'USB 打印失败：$e', error: true);
+      }
       return;
     }
-    if (!await UsbPrinter.enabled()) {
-      toast(context, '请先到「设置 → USB小票打印机」启用并选择打印机', error: true);
-      return;
-    }
-    final p = await UsbPrinter.selectedPrinter();
-    if (p == null) {
-      toast(context, '请先到「设置 → USB小票打印机」选择打印机', error: true);
-      return;
-    }
-    final spec = await UsbPrinter.currentSpec();
-    loadingDialog(context, 'USB 打印交班单…');
+    // 蓝牙兜底（v3.3.185）
     try {
-      await UsbPrinter.printTicket(p, _shiftTicket,
-          paperWidth: spec['width'] as int,
-          mode: spec['mode'] as String,
-          textW: spec['textW'] as int?,
-          offsetCols: spec['offsetCols'] as int? ?? 0);
-      if (!mounted) return;
-      Navigator.pop(context);
-      toast(context, '交班单已发送 USB 打印');
+      final ok = await BtPrinter.tryPrint(_shiftTicket);
+      if (ok) {
+        if (mounted) toast(context, '交班单已发送蓝牙打印');
+        return;
+      }
     } on ApiError catch (e) {
-      if (mounted) Navigator.pop(context);
       if (mounted) toast(context, e.message, error: true);
+      return;
     } catch (e) {
-      if (mounted) Navigator.pop(context);
-      if (mounted) toast(context, 'USB 打印失败：$e', error: true);
+      if (mounted) toast(context, '蓝牙打印失败：$e', error: true);
+      return;
     }
+    toast(context, '请先到「设置 → USB打印」或「设置 → 蓝牙打印」启用打印机', error: true);
   }
 
   @override
