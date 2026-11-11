@@ -466,8 +466,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                       children: cartSide == 'left'
                           ? [
                               _cartPanel(), // 购物车在左（v3.3.189 可配置）
-                              _catRail(),
                               Expanded(child: _goodsGrid()),
+                              _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
                             ]
                           : [
                               _catRail(),
@@ -604,7 +604,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   // 分类栏（加宽 + 大点击区）
-  Widget _catRail() {
+  /// [indicatorRight]：分类栏贴在屏幕右缘（购物车在左布局）时，选中线画在右侧
+  Widget _catRail({bool indicatorRight = false}) {
     final all = [{'id': -1, 'title': '全部'}, ...cats];
     return Container(
       width: 124,
@@ -614,6 +615,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         itemBuilder: (_, i) {
           final c = all[i];
           final on = selectedCat == c['id'];
+          final line = BorderSide(color: on ? PosTheme.accent : Colors.transparent, width: 4);
           return InkWell(
             onTap: () => setState(() => selectedCat = c['id']),
             child: Container(
@@ -621,7 +623,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
-                border: Border(left: BorderSide(color: on ? PosTheme.accent : Colors.transparent, width: 4)),
+                border: indicatorRight ? Border(right: line) : Border(left: line),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
