@@ -106,12 +106,18 @@ class BtMac {
     final addrSel = _sel('addressString');
     final servicesSel = _sel('services');
     final chanIdSel = _sel('getRFCOMMChannelID:');
+    final codSel = _sel('classOfDevice');
 
     final n = _msgSendUint0(devices, countSel);
     final out = <Map<String, dynamic>>[];
     for (var i = 0; i < n; i++) {
       final dev = _msgSendObj1(devices, objAtSel, ffi.Pointer<ffi.Void>.fromAddress(i));
       if (dev.address == 0) continue;
+      // 按蓝牙设备类型过滤：手机(0x02)/音频(0x04)设备不参与打印
+      // （iPhone 等手机带 OBEX 文件传输服务也有 RFCOMM 通道号，会被误判为 SPP）
+      final cod = _msgSendUint0(dev, codSel);
+      final major = (cod >> 8) & 0x1F;
+      if (major == 0x02 || major == 0x04) continue;
       final name = _str(_msgSendObj0(dev, nameSel)) ?? '蓝牙设备';
       final addr = _str(_msgSendObj0(dev, addrSel)) ?? '';
       if (addr.isEmpty) continue;

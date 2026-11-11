@@ -250,8 +250,10 @@ class MainActivity : FlutterActivity() {
         if (d.type == BluetoothDevice.DEVICE_TYPE_LE) return false // 纯 BLE 设备不走 SPP
         // 部分小票机蓝牙类型不规范：设备类是打印机 或 名字带打印关键词 都算
         val name = runCatching { d.name }.getOrNull()?.uppercase() ?: ""
-        val nameHit = listOf("PRINT", "POS-", "58", "80", "XP-", "HM-", "ZJ", "GZ", "SNBC", "CNB")
-            .any { name.contains(it) }
+        val nameHit = listOf(
+            "PRINT", "打印", "POS-", "XP-", "58MM", "80MM",
+            "GP-", "HM-", "SNBC", "CNB", "ZJIANG", "RONGTA"
+        ).any { name.contains(it) }
         val cls = runCatching { d.bluetoothClass }.getOrNull()
         val clsHit = cls == null ||
             cls.majorDeviceClass == BluetoothClass.Device.Major.IMAGING
