@@ -8,6 +8,7 @@ import '../../core/pay_methods.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
+import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
@@ -1386,6 +1387,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   String orderRemark = ''; // 整单备注（v3.3.71）
   // 商品搜索（名称/简拼，v3.3.75）
   final searchCtrl = TextEditingController();
+  // 搜索框始终聚焦（v3.3.187，扫码枪适配）
+  final searchKeeper = SearchFocusKeeper();
   String keyword = '';
   List allGoods = []; // 全部商品缓存（首次搜索时拉取）
   bool allGoodsLoading = false;
@@ -1433,8 +1436,15 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   @override
   void initState() {
     super.initState();
+    searchKeeper.init();
     _loadBill();
     _loadCats();
+  }
+
+  @override
+  void dispose() {
+    searchKeeper.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBill() async {
@@ -2293,6 +2303,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           height: 40,
           child: TextField(
             controller: searchCtrl,
+            focusNode: searchKeeper.node,
             onChanged: _onSearch,
             style: const TextStyle(fontSize: 13.5),
             decoration: InputDecoration(

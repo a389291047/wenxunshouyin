@@ -4,6 +4,7 @@ import '../../core/cloud_printer.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
+import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/voice.dart';
@@ -43,13 +44,23 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   bool loading = true;
   String? error;
 
+  // 搜索框始终聚焦（v3.3.187，扫码枪适配）
+  final searchKeeper = SearchFocusKeeper();
+
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
 
   @override
   void initState() {
     super.initState();
+    searchKeeper.init();
     _load();
+  }
+
+  @override
+  void dispose() {
+    searchKeeper.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -463,6 +474,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 340),
           child: TextField(
+            focusNode: searchKeeper.node,
             onChanged: (v) => setState(() => keyword = v.trim()),
             decoration: InputDecoration(
               isDense: true,

@@ -52,12 +52,33 @@ class WenxunPosApp extends StatelessWidget {
   final bool loggedIn;
   const WenxunPosApp({super.key, required this.loggedIn});
 
+  /// 桌面端按窗口宽度自适应整体缩放（v3.3.187）：
+  /// 参考稳讯另一套收银系统的小屏适配——小屏收银机（1024/1280 宽）
+  /// 自动缩小整体字号让内容显示更完整，大屏保持原样。
+  static double adaptiveScale(BuildContext context) {
+    if (!Platform.isWindows && !Platform.isMacOS) return 1.0;
+    final w = MediaQuery.of(context).size.width;
+    if (w >= 1600) return 1.0;
+    if (w >= 1366) return 0.94;
+    if (w >= 1200) return 0.88;
+    return 0.8;
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '稳讯收银',
       debugShowCheckedModeBanner: false,
       theme: PosTheme.light(),
+      builder: (context, child) {
+        final scale = adaptiveScale(context);
+        if (scale == 1.0) return child ?? const SizedBox.shrink();
+        return MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: loggedIn ? const ShellPage() : const LoginPage(),
     );
   }

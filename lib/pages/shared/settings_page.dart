@@ -14,6 +14,7 @@ import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
 import '../../core/scale.dart';
+import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
@@ -56,6 +57,9 @@ class _SettingsPageState extends State<SettingsPage> {
   List<Map<String, dynamic>> btScanResults = []; // Android 扫描结果（含未配对）
   bool btScanning = false;
 
+  // 功能设置（v3.3.187）
+  bool searchFocusOn = false; // 搜索框始终聚焦
+
   // 语音播报
   bool voiceEnabled = true;
 
@@ -89,6 +93,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _load();
     _loadUsb();
     _loadBt();
+    _loadFunc();
     _loadVoice();
     _loadPrintPrefs();
     _loadStaffs();
@@ -1316,6 +1321,48 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // ==================== 在线更新（v3.3.79） ====================
 
+  /// 功能设置卡片（v3.3.187，参考稳讯另一套收银系统的功能设置）
+  Future<void> _loadFunc() async {
+    final on = await SearchFocus.enabled();
+    if (!mounted) return;
+    setState(() => searchFocusOn = on);
+  }
+
+  Widget _funcCard() {
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.tune_outlined, '功能设置'),
+      ]),
+      const SizedBox(height: 4),
+      // 搜索框始终聚焦
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('搜索框始终聚焦', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('开启后，零售/生鲜/堂食收银页的商品搜索框始终保持聚焦：扫码枪扫商品条码直接进搜索框，点选商品后焦点自动回到搜索框，无需先点输入框。关闭后正常点选输入。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          Switch(
+            value: searchFocusOn,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => searchFocusOn = v);
+              await SearchFocus.setEnabled(v);
+            },
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      const Text('提示：适配扫码枪扫码搜商品场景。开启后如果同时使用键盘快捷操作，输入会优先进入搜索框。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+    ]));
+  }
+
   /// 在线更新卡片：商户手动点击「检查更新」→ 有新版弹更新窗（下载/安装全程确认）
   /// 没点或没新版本什么都不发生；更新只替换程序文件，不丢数据
   Widget _updateCard() {
@@ -1396,6 +1443,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   static const List<Map<String, Object>> _navDefs = [
     {'key': 'store',    'icon': Icons.storefront,           'label': '店铺信息'},
+    {'key': 'func',     'icon': Icons.tune_outlined,        'label': '功能设置'},
     {'key': 'payorder', 'icon': Icons.low_priority,         'label': '支付方式排序'},
     {'key': 'update',   'icon': Icons.system_update_alt,    'label': '在线更新'},
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
@@ -1441,6 +1489,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'account': return _accountCard();
       case 'kefu':    return _kefuCard();
       case 'about':   return _aboutCard();
+      case 'func':    return _funcCard();
       case 'store':
       default:        return _storeCard();
     }
