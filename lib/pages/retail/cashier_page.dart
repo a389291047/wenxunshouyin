@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
@@ -48,6 +49,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   final searchKeeper = SearchFocusKeeper();
   final searchCtrl = TextEditingController();
 
+  // 购物车面板位置（v3.3.189，设置 → 功能设置可切换左/右）
+  String cartSide = 'right';
+
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
 
@@ -55,6 +59,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   void initState() {
     super.initState();
     searchKeeper.init();
+    CartSide.side().then((v) {
+      if (mounted && v != cartSide) setState(() => cartSide = v);
+    });
     _load();
   }
 
@@ -456,11 +463,17 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               : error != null
                   ? _errorView()
                   : Row(
-                      children: [
-                        _catRail(),
-                        Expanded(child: _goodsGrid()),
-                        _cartPanel(),
-                      ],
+                      children: cartSide == 'left'
+                          ? [
+                              _cartPanel(), // 购物车在左（v3.3.189 可配置）
+                              _catRail(),
+                              Expanded(child: _goodsGrid()),
+                            ]
+                          : [
+                              _catRail(),
+                              Expanded(child: _goodsGrid()),
+                              _cartPanel(), // 购物车在右（默认）
+                            ],
                     ),
         ),
       ],

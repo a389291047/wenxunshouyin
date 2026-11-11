@@ -54,14 +54,18 @@ class SearchFocusKeeper {
       if (_disposed || !_enabled) return;
       final ctx = node.context;
       if (ctx != null && !ctx.mounted) return;
-      // 页面已不在导航栈顶（弹窗/切页）时不抢
+      // 页面不在导航栈顶（有弹窗盖在本页上）：暂不抢，稍后重试，
+      // 等弹窗关闭后焦点自动回到搜索框（v3.3.189 修复充值等弹窗光标被抢）
+      final route = ctx == null ? null : ModalRoute.of(ctx);
+      if (ctx != null && route != null && !route.isCurrent) {
+        _scheduled = false;
+        _scheduleSteal();
+        return;
+      }
       final primary = FocusManager.instance.primaryFocus;
       if (primary != null && primary != node) {
         final w = primary.context?.widget;
         if (w is EditableText) return; // 其它输入框持有焦点：不抢
-      }
-      if (primary != null && primary != node && primary.context != null) {
-        // 非输入框持有（按钮等）：继续抢回
       }
       if (SchedulerBinding.instance.schedulerPhase != SchedulerPhase.persistentCallbacks) {
         node.requestFocus();

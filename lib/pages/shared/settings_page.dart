@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
 import '../../core/bt_printer.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
@@ -59,6 +60,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // 功能设置（v3.3.187）
   bool searchFocusOn = false; // 搜索框始终聚焦
+  String cartSide = 'right'; // 购物车显示位置（left/right）
 
   // 语音播报
   bool voiceEnabled = true;
@@ -1324,8 +1326,12 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 功能设置卡片（v3.3.187，参考稳讯另一套收银系统的功能设置）
   Future<void> _loadFunc() async {
     final on = await SearchFocus.enabled();
+    final side = await CartSide.side();
     if (!mounted) return;
-    setState(() => searchFocusOn = on);
+    setState(() {
+      searchFocusOn = on;
+      cartSide = side;
+    });
   }
 
   Widget _funcCard() {
@@ -1353,6 +1359,40 @@ class _SettingsPageState extends State<SettingsPage> {
             onChanged: (v) async {
               setState(() => searchFocusOn = v);
               await SearchFocus.setEnabled(v);
+            },
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 购物车显示位置（v3.3.189）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('购物车显示位置', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('零售收银页购物车面板显示在右侧（默认）还是左侧，按操作习惯选择，切换页面后生效。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'right', label: Text('右侧', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'left', label: Text('左侧', style: TextStyle(fontSize: 13))),
+            ],
+            selected: {cartSide},
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: PosTheme.accent,
+              selectedForegroundColor: Colors.white,
+              foregroundColor: PosTheme.textSub,
+            ),
+            onSelectionChanged: (sel) async {
+              final v = sel.first;
+              setState(() => cartSide = v);
+              await CartSide.setSide(v);
             },
           ),
         ]),
