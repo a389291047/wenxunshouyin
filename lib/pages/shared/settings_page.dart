@@ -8,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/bt_printer.dart';
+import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/display_prefs.dart';
 import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
@@ -18,6 +20,7 @@ import '../../core/scale.dart';
 import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/theme_prefs.dart';
 import '../../core/usb_printer.dart';
 import '../../core/updater.dart';
 import '../../core/voice.dart';
@@ -102,9 +105,31 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadRoute();
     _loadCloudOn();
     _loadNoCode();
+    // 显示自定义设置（v3.3.193）：改完即时反映到设置页自身（整体字体缩放直接生效）
+    DisplayPrefs.fontScale.addListener(_onDisplayChanged);
+    DisplayPrefs.fontWeight.addListener(_onDisplayChanged);
+    DisplayPrefs.goodsFont.addListener(_onDisplayChanged);
+    DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
+    DisplayPrefs.goodsImage.addListener(_onDisplayChanged);
+    ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格（v3.3.194）
     PayMethods.load().then((o) {
       if (mounted) setState(() => payOrder = o);
     });
+  }
+
+  void _onDisplayChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    DisplayPrefs.fontScale.removeListener(_onDisplayChanged);
+    DisplayPrefs.fontWeight.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsFont.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
+    ThemePrefs.skinId.removeListener(_onDisplayChanged);
+    super.dispose();
   }
 
   // 无码商品常用（v3.3.181）：本机配置，自动记录最近 5 条名称，只可删除不可手工添加
@@ -1385,7 +1410,7 @@ class _SettingsPageState extends State<SettingsPage> {
             selected: {cartSide},
             showSelectedIcon: false,
             style: SegmentedButton.styleFrom(
-              selectedBackgroundColor: PosTheme.accent,
+              selectedBackgroundColor: PosTheme.accentLive,
               selectedForegroundColor: Colors.white,
               foregroundColor: PosTheme.textSub,
             ),
@@ -1398,9 +1423,341 @@ class _SettingsPageState extends State<SettingsPage> {
         ]),
       ),
       const SizedBox(height: 8),
+      // 清空购物车需权限码（v3.3.192）
+      const _ClearPinRow(),
+      const SizedBox(height: 8),
       const Text('提示：适配扫码枪扫码搜商品场景。开启后如果同时使用键盘快捷操作，输入会优先进入搜索框。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
     ]));
+  }
+
+  /// 显示设置卡片（v3.3.193）：整体字体缩放 / 商品字体 / 商品每行显示个数
+  /// 全部自定义，适配不同商户的屏幕与视力需求；改动即时生效，本机保存。
+  Widget _displayCard() {
+    final isDefault = DisplayPrefs.fontScale.value == 1.0 &&
+        DisplayPrefs.fontWeight.value == 'normal' &&
+        DisplayPrefs.goodsFont.value.isEmpty &&
+        DisplayPrefs.goodsCols.value == 0 &&
+        DisplayPrefs.goodsImage.value;
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.format_size, '显示设置'),
+        const Spacer(),
+        if (!isDefault)
+          TextButton.icon(
+            onPressed: () async {
+              await DisplayPrefs.resetAll();
+              if (mounted) toast(context, '已恢复默认显示');
+            },
+            icon: const Icon(Icons.restart_alt, size: 16),
+            label: const Text('恢复默认', style: TextStyle(fontSize: 13)),
+          ),
+      ]),
+      const SizedBox(height: 4),
+      const Text('按商户需求自定义界面显示：整体字体大小与粗细影响全软件文字；商品字体、商品图片开关、每行个数只影响零售收银页商品区。改动即时生效，保存在本机。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 10),
+      // 1. 整体字体大小（0.8~1.4，5% 一档）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(height: 8),
+          Row(children: [
+            const Expanded(child: Text('整体字体大小', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: PosTheme.line)),
+              child: Text('${(DisplayPrefs.fontScale.value * 100).round()}%',
+                  style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: PosTheme.accentLive)),
+            ),
+          ]),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: PosTheme.accentLive,
+              inactiveTrackColor: PosTheme.line,
+              thumbColor: PosTheme.accentLive,
+              overlayColor: PosTheme.accentLive.withValues(alpha: 0.12),
+              trackHeight: 4,
+              valueIndicatorColor: PosTheme.accentLive,
+            ),
+            child: Slider(
+              value: DisplayPrefs.fontScale.value,
+              min: 0.8, max: 1.4, divisions: 12, // 5% 一档：80%~140%
+              label: '${(DisplayPrefs.fontScale.value * 100).round()}%',
+              onChanged: (v) => DisplayPrefs.setFontScale(v),
+            ),
+          ),
+          const Align(
+            alignment: Alignment.centerRight,
+            child: Text('80% —— 140%，默认 100%；与窗口自适应缩放叠加', style: TextStyle(fontSize: 11, color: PosTheme.textHint)),
+          ),
+          const SizedBox(height: 6),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 1.5 字体粗细（细 / 正常 / 加粗，v3.3.193）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('字体粗细', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('全软件文字笔画：细 / 正常 / 加粗（含按钮、输入框）。原来加粗的标题与金额保持加粗，老人看店可调粗更清楚。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'light', label: Text('细', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'normal', label: Text('正常', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'bold', label: Text('加粗', style: TextStyle(fontSize: 13))),
+            ],
+            selected: {DisplayPrefs.fontWeight.value},
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: PosTheme.accentLive,
+              selectedForegroundColor: Colors.white,
+              foregroundColor: PosTheme.textSub,
+            ),
+            onSelectionChanged: (sel) => DisplayPrefs.setFontWeight(sel.first),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 2. 商品字体大小（零售收银页商品卡片名称/价格）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('商品字体大小', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('零售收银页商品卡片上的名称与价格字号，老人看店/大屏远看可调大。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 's', label: Text('小', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: '', label: Text('标准', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'm', label: Text('大', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'l', label: Text('特大', style: TextStyle(fontSize: 13))),
+            ],
+            selected: {DisplayPrefs.goodsFont.value},
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: PosTheme.accentLive,
+              selectedForegroundColor: Colors.white,
+              foregroundColor: PosTheme.textSub,
+            ),
+            onSelectionChanged: (sel) => DisplayPrefs.setGoodsFont(sel.first),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 2.5 商品图片（v3.3.196）：显示 / 不显示，不显示时用纯文字卡片
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('商品图片', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('不显示图片时，收银页商品卡改为纯文字样式（大字品名 + 价格 + 规格角标），'
+                '一行能放更多商品，适合没上传图片或按名称点单的商户。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: true, label: Text('显示图片', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: false, label: Text('不显示', style: TextStyle(fontSize: 13))),
+            ],
+            selected: {DisplayPrefs.goodsImage.value},
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: PosTheme.accentLive,
+              selectedForegroundColor: Colors.white,
+              foregroundColor: PosTheme.textSub,
+            ),
+            onSelectionChanged: (sel) => DisplayPrefs.setGoodsImage(sel.first),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 3. 商品图片每行显示个数（零售收银页商品网格）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('商品图片每行显示个数', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 3),
+          const Text('零售收银页商品区一行放几张图：「自动」按屏幕宽度自适应；固定个数适合大屏多列或触摸大卡片的需求。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            _colOpt(0, '自动'),
+            _colOpt(3, '3 个'),
+            _colOpt(4, '4 个'),
+            _colOpt(5, '5 个'),
+            _colOpt(6, '6 个'),
+            _colOpt(7, '7 个'),
+            _colOpt(8, '8 个'),
+          ]),
+        ]),
+      ),
+    ]));
+  }
+
+  /// 主体风格（v3.3.194）：6 套渐变色配色方案，适配不同行业商户 / 新店开业
+  /// v3.3.195：默认不启用配色，保持旧版默认外观；商户点选后才换色
+  Widget _themeCard() {
+    final cur = ThemePrefs.active;
+    final on = ThemePrefs.hasSkin;
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        _sectionTitle(Icons.palette_outlined, '主体风格'),
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            gradient: on ? cur.linear : null,
+            color: on ? null : const Color(0xFFF0F2F5),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(on ? '当前：${cur.name}' : '未使用配色 · 默认外观',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: on ? Colors.white : PosTheme.textSub,
+                  fontWeight: FontWeight.w700)),
+        ),
+      ]),
+      const SizedBox(height: 4),
+      const Text('默认不启用配色，界面保持原有外观；选任意一套方案才会换成对应渐变色'
+          '（侧边栏、登录页品牌区、收款等主按钮、价格与选中态）。'
+          '配色只影响界面外观，不影响商品、订单、打印与任何数据。改动即时生效，保存在本机。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      const SizedBox(height: 14),
+      Wrap(spacing: 14, runSpacing: 14, children: ThemePrefs.skins.map(_skinTile).toList()),
+      if (on)
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () async {
+              await ThemePrefs.clear();
+              if (mounted) toast(context, '已取消配色，恢复默认外观');
+            },
+            icon: const Icon(Icons.restart_alt, size: 16),
+            label: const Text('取消配色（恢复默认外观）', style: TextStyle(fontSize: 13)),
+          ),
+        ),
+      const SizedBox(height: 12),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.lightbulb_outline, size: 16, color: PosTheme.amber),
+          SizedBox(width: 8),
+          Expanded(child: Text('新店开业推荐「开门红」（红金渐变，喜庆醒目）；生鲜果蔬推荐「生鲜绿」；便利店/数码推荐「海洋蓝」；'
+              '奶茶/美妆推荐「紫罗兰」；烘焙/花店推荐「玫瑰金」；想统一成品牌橙选「稳讯橙」。'
+              '不选则保持默认外观。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textSub, height: 1.5))),
+        ]),
+      ),
+    ]));
+  }
+
+  /// 单套配色方案卡片（渐变预览 + 选中状态）
+  Widget _skinTile(PosSkin s) {
+    final on = ThemePrefs.hasSkin && ThemePrefs.skinId.value == s.id;
+    return InkWell(
+      onTap: () async {
+        await ThemePrefs.set(s.id);
+        if (mounted) toast(context, '已切换主体风格：${s.name}');
+      },
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 208,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: on ? s.accent : PosTheme.line, width: on ? 2 : 1),
+          boxShadow: on
+              ? [BoxShadow(color: s.accent.withValues(alpha: 0.18), blurRadius: 12, offset: const Offset(0, 4))]
+              : null,
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            height: 54,
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(gradient: s.linear, borderRadius: BorderRadius.circular(10)),
+            child: Stack(children: [
+              Positioned(
+                left: 0, bottom: 9,
+                child: Text(s.name,
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+              ),
+              if (on)
+                const Positioned(
+                  right: 0, top: 8,
+                  child: Icon(Icons.check_circle, color: Colors.white, size: 18),
+                ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Text(s.desc,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          const SizedBox(height: 8),
+          Row(children: [
+            _skinDot(s.accent),
+            _skinDot(s.accentDeep),
+            _skinDot(s.sidebar),
+            const Spacer(),
+            if (on)
+              Text('使用中',
+                  style: TextStyle(fontSize: 11.5, color: s.accent, fontWeight: FontWeight.w700)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _skinDot(Color c) {
+    return Container(
+      width: 14, height: 14,
+      margin: const EdgeInsets.only(right: 6),
+      decoration: BoxDecoration(
+        color: c,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.black12),
+      ),
+    );
+  }
+
+  /// 每行个数选项（自动=0）
+  Widget _colOpt(int v, String label) {
+    final on = DisplayPrefs.goodsCols.value == v;
+    return InkWell(
+      onTap: () => DisplayPrefs.setGoodsCols(v),
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: on ? PosTheme.accentLive : Colors.white,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: on ? PosTheme.accentLive : PosTheme.line, width: on ? 1.5 : 1),
+        ),
+        child: Text(label, style: TextStyle(
+            fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+            color: on ? Colors.white : PosTheme.textMain)),
+      ),
+    );
   }
 
   /// 在线更新卡片：商户手动点击「检查更新」→ 有新版弹更新窗（下载/安装全程确认）
@@ -1484,6 +1841,8 @@ class _SettingsPageState extends State<SettingsPage> {
   static const List<Map<String, Object>> _navDefs = [
     {'key': 'store',    'icon': Icons.storefront,           'label': '店铺信息'},
     {'key': 'func',     'icon': Icons.tune_outlined,        'label': '功能设置'},
+    {'key': 'display',  'icon': Icons.format_size,          'label': '显示设置'},
+    {'key': 'theme',    'icon': Icons.palette_outlined,     'label': '主体风格'},
     {'key': 'payorder', 'icon': Icons.low_priority,         'label': '支付方式排序'},
     {'key': 'update',   'icon': Icons.system_update_alt,    'label': '在线更新'},
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
@@ -1530,6 +1889,8 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'kefu':    return _kefuCard();
       case 'about':   return _aboutCard();
       case 'func':    return _funcCard();
+      case 'display': return _displayCard();
+      case 'theme':   return _themeCard();
       case 'store':
       default:        return _storeCard();
     }
@@ -1563,7 +1924,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Material(
-                    color: sel ? PosTheme.accent.withOpacity(0.1) : Colors.transparent,
+                    color: sel ? PosTheme.tint : Colors.transparent,
                     borderRadius: BorderRadius.circular(10),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(10),
@@ -1572,12 +1933,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
                         child: Row(children: [
                           Icon(n['icon'] as IconData, size: 18,
-                              color: sel ? PosTheme.accent : PosTheme.textSub),
+                              color: sel ? PosTheme.accentLive : PosTheme.textSub),
                           const SizedBox(width: 10),
                           Expanded(child: Text('${n['label']}',
                               style: TextStyle(fontSize: 13.5,
                                   fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-                                  color: sel ? PosTheme.accent : PosTheme.textMain))),
+                                  color: sel ? PosTheme.accentLive : PosTheme.textMain))),
                         ]),
                       ),
                     ),
@@ -2691,7 +3052,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _sectionTitle(IconData icon, String text) {
     return Row(children: [
-      Icon(icon, size: 19, color: PosTheme.accent),
+      Icon(icon, size: 19, color: PosTheme.accentLive),
       const SizedBox(width: 8),
       Text(text, style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
     ]);
@@ -2708,6 +3069,84 @@ class _SettingsPageState extends State<SettingsPage> {
         Text(v.isEmpty ? '-' : v, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
       ]),
     ));
+  }
+}
+
+/// 清空购物车二次确认设置（v3.3.192）
+/// 开关按设备保存；密码校验走云端员工权限密码（与退款/现金充值同一套），本机不存密码
+class _ClearPinRow extends StatefulWidget {
+  const _ClearPinRow();
+  @override
+  State<_ClearPinRow> createState() => _ClearPinRowState();
+}
+
+class _ClearPinRowState extends State<_ClearPinRow> {
+  bool loading = true;
+  bool enabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final e = await ClearPin.enabled();
+    if (!mounted) return;
+    setState(() {
+      enabled = e;
+      loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('清空购物车需权限密码', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('开启后，零售收银界面点「清空」会弹出数字键盘，输入正确的员工权限密码才能清空购物车（防止误触把整单清掉）。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          Switch(
+            value: enabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => enabled = v);
+              await ClearPin.setEnabled(v);
+            },
+          ),
+        ]),
+        if (enabled && !loading)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: PosTheme.line),
+              ),
+              child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.info_outline, size: 16, color: PosTheme.accent),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '密码与「订单退款 / 现金充值」共用同一套：由商户在「设置 → 权限密码」中为每位收银员分配 6 位数字，收银员本人不可修改，也不保存在本机。未分配密码的收银员无法清空购物车。',
+                    style: TextStyle(fontSize: 11.5, height: 1.5, color: PosTheme.textSub),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+      ]),
+    );
   }
 }
 

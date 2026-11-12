@@ -60,7 +60,7 @@ class _LoginPageState extends State<LoginPage> {
               children: shops
                   .map((s) => ListTile(
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        leading: const Icon(Icons.storefront, color: PosTheme.accent),
+                        leading: Icon(Icons.storefront, color: PosTheme.accentLive),
                         title: Text('${s['name']}'),
                         onTap: () => Navigator.pop(context, s),
                       ))
@@ -192,19 +192,46 @@ class _LoginPageState extends State<LoginPage> {
                       const SizedBox(height: 14),
                       SizedBox(
                         height: 56,
-                        child: ElevatedButton(
-                          onPressed: _busy ? null : () => _login(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: PosTheme.accent,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-                            textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                          ),
-                          child: _busy
-                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4))
-                              : const Text('登 录'),
-                        ),
+                        // 选了配色方案 → 渐变按钮；未选择 → 旧版品牌橙纯色按钮
+                        child: PosTheme.hasSkin
+                            ? Material(
+                                color: Colors.transparent,
+                                borderRadius: BorderRadius.circular(28),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    gradient: PosTheme.brandGradient,
+                                    borderRadius: BorderRadius.circular(28),
+                                    boxShadow: [
+                                      BoxShadow(
+                                          color: PosTheme.accentLive.withValues(alpha: 0.28),
+                                          blurRadius: 14,
+                                          offset: const Offset(0, 6)),
+                                    ],
+                                  ),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(28),
+                                    onTap: _busy ? null : () => _login(),
+                                    child: Center(
+                                      child: _busy
+                                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4))
+                                          : const Text('登 录', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : ElevatedButton(
+                                onPressed: _busy ? null : () => _login(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: PosTheme.accent,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                                  textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                                ),
+                                child: _busy
+                                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.4))
+                                    : const Text('登 录'),
+                              ),
                       ),
                       const SizedBox(height: 4),
                       TextButton(
@@ -223,8 +250,8 @@ class _LoginPageState extends State<LoginPage> {
                                   });
                                 }
                               },
-                        child: const Text('没有账号？注册商家',
-                            style: TextStyle(fontSize: 14, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+                        child: Text('没有账号？注册商家',
+                            style: TextStyle(fontSize: 14, color: PosTheme.accentLive, fontWeight: FontWeight.w600)),
                       ),
                     ]),
                   ),
@@ -257,11 +284,11 @@ class _LoginPageState extends State<LoginPage> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: active ? PosTheme.accent : PosTheme.line, width: active ? 2 : 1),
-          boxShadow: active ? [BoxShadow(color: PosTheme.accent.withValues(alpha: 0.10), blurRadius: 10, offset: const Offset(0, 2))] : null,
+          border: Border.all(color: active ? PosTheme.accentLive : PosTheme.line, width: active ? 2 : 1),
+          boxShadow: active ? [BoxShadow(color: PosTheme.accentLive.withValues(alpha: 0.10), blurRadius: 10, offset: const Offset(0, 2))] : null,
         ),
         child: Row(children: [
-          Text(label, style: TextStyle(fontSize: 14, color: active ? PosTheme.accent : PosTheme.textSub, fontWeight: FontWeight.w600)),
+          Text(label, style: TextStyle(fontSize: 14, color: active ? PosTheme.accentLive : PosTheme.textSub, fontWeight: FontWeight.w600)),
           const SizedBox(width: 14),
           Expanded(
             child: Text(
@@ -380,7 +407,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _keyBtn(String k, {String? label, bool compact = false, bool isAction = false, bool active = false, Color? color, IconData? icon}) {
     final bg = active
-        ? PosTheme.accent
+        ? PosTheme.accentLive
         : isAction
             ? const Color(0xFFF2F3F7)
             : Colors.white;
@@ -453,7 +480,7 @@ class _BrandPanelState extends State<BrandPanel> with SingleTickerProviderStateM
     return AnimatedBuilder(
       animation: _c,
       builder: (_, __) => CustomPaint(
-        painter: _BubblePainter(t: _c.value, bubbles: _bubbles),
+        painter: _BubblePainter(t: _c.value, bubbles: _bubbles, colors: PosTheme.brandColors),
         child: Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: const [
             Text('稳讯收银',
@@ -501,22 +528,19 @@ class _VersionBadges extends StatelessWidget {
 class _BubblePainter extends CustomPainter {
   final double t; // 0~1 循环进度
   final List<(double, double, double, double, double)> bubbles;
-  _BubblePainter({required this.t, required this.bubbles});
+  final List<Color> colors; // 品牌渐变色（跟随主体风格配色方案）
+  _BubblePainter({required this.t, required this.bubbles, required this.colors});
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 多段渐变底：左上亮橙 → 右下深红，中段过渡
+    // 多段渐变底：跟随商户选择的配色方案（默认品牌橙：左上亮橙 → 右下深红）
     final bgPaint = Paint()
-      ..shader = const LinearGradient(
+      ..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [
-          Color(0xFFFF9A56),
-          Color(0xFFFF6A2C),
-          Color(0xFFF4471B),
-          Color(0xFFD93212),
-        ],
-        stops: [0.0, 0.42, 0.75, 1.0],
+        colors: colors.length >= 2
+            ? colors
+            : const [Color(0xFFFF9A56), Color(0xFFF4471B)],
       ).createShader(Offset.zero & size);
     canvas.drawRect(Offset.zero & size, bgPaint);
 

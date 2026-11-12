@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'core/display_prefs.dart';
 import 'core/session.dart';
 import 'core/theme.dart';
+import 'core/theme_prefs.dart';
 import 'core/updater.dart';
 import 'pages/login_page.dart';
 import 'pages/shell_page.dart';
@@ -35,6 +37,8 @@ void main() async {
     );
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
       await Session.load();
+      await DisplayPrefs.load(); // 显示自定义设置（整体字体缩放等，v3.3.193）
+      await ThemePrefs.load();   // 主体风格配色方案（v3.3.194）
       runApp(WenxunPosApp(
           loggedIn: Session.token.isNotEmpty && Session.wenxunId > 0));
       await windowManager.show();
@@ -44,14 +48,20 @@ void main() async {
   }
 
   await Session.load();
+  await DisplayPrefs.load();
+  await ThemePrefs.load();
   runApp(
       WenxunPosApp(loggedIn: Session.token.isNotEmpty && Session.wenxunId > 0));
 }
 
-class WenxunPosApp extends StatelessWidget {
+class WenxunPosApp extends StatefulWidget {
   final bool loggedIn;
   const WenxunPosApp({super.key, required this.loggedIn});
+  @override
+  State<WenxunPosApp> createState() => _WenxunPosAppState();
+}
 
+class _WenxunPosAppState extends State<WenxunPosApp> {
   /// 桌面端按窗口宽度自适应整体缩放（v3.3.187）：
   /// 参考稳讯另一套收银系统的小屏适配——小屏收银机（1024/1280 宽）
   /// 自动缩小整体字号让内容显示更完整，大屏保持原样。
@@ -66,20 +76,36 @@ class WenxunPosApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '稳讯收银',
-      debugShowCheckedModeBanner: false,
-      theme: PosTheme.light(),
-      builder: (context, child) {
-        final scale = adaptiveScale(context);
-        if (scale == 1.0) return child ?? const SizedBox.shrink();
-        return MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(scale)),
-          child: child ?? const SizedBox.shrink(),
+    // 商户自定义显示（设置 → 显示设置）+ 主体风格（设置 → 主题风格）：
+    // 整体字体缩放、字体粗细、配色方案，改动后即时重建生效
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        DisplayPrefs.fontScale,
+        DisplayPrefs.fontWeight,
+        ThemePrefs.skinId,
+      ]),
+      builder: (context, _) {
+        final userScale = DisplayPrefs.fontScale.value;
+        return MaterialApp(
+          title: '稳讯收银',
+          debugShowCheckedModeBanner: false,
+          theme: PosTheme.light(weight: DisplayPrefs.weightOf, skin: ThemePrefs.active),
+          themeAnimationDuration: const Duration(milliseconds: 220),
+          builder: (context, child) {
+            final scale = adaptiveScale(context) * userScale;
+            // 加粗：boldText 会让 Text 在合并样式后强制加粗（连显式写死字重的文字也生效）；
+            // 主题字重同时置 w700，保证输入框等非 Text 组件同步变粗
+            final bold = DisplayPrefs.fontWeight.value == 'bold';
+            var data = MediaQuery.of(context);
+            if (scale != 1.0) {
+              data = data.copyWith(textScaler: TextScaler.linear(scale));
+            }
+            if (bold) data = data.copyWith(boldText: true);
+            return MediaQuery(data: data, child: child ?? const SizedBox.shrink());
+          },
+          home: widget.loggedIn ? const ShellPage() : const LoginPage(),
         );
       },
-      home: loggedIn ? const ShellPage() : const LoginPage(),
     );
   }
 }

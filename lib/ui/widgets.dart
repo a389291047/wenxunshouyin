@@ -23,17 +23,18 @@ class AppCard extends StatelessWidget {
 class StatTile extends StatelessWidget {
   final String label;
   final String value;
-  final Color color;
+  final Color? color;
   final IconData icon;
-  const StatTile({super.key, required this.label, required this.value, this.color = PosTheme.accent, this.icon = Icons.receipt_long});
+  const StatTile({super.key, required this.label, required this.value, this.color, this.icon = Icons.receipt_long});
   @override
   Widget build(BuildContext context) {
+    final c = color ?? PosTheme.accentLive;
     return AppCard(
       child: Row(children: [
         Container(
           width: 46, height: 46,
-          decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
-          child: Icon(icon, color: color, size: 24),
+          decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: c, size: 24),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -49,25 +50,51 @@ class StatTile extends StatelessWidget {
 class BigButton extends StatelessWidget {
   final String text;
   final VoidCallback? onTap;
-  final Color color;
+  final Color? color;
   final Color textColor;
   final double height;
   final double? width;
-  const BigButton(this.text, {super.key, this.onTap, this.color = PosTheme.accent, this.textColor = Colors.white, this.height = 52, this.width});
+
+  /// [color] 不传 = 主操作按钮：选了配色方案时用方案渐变，未选择配色时用旧版品牌橙纯色；
+  /// 传颜色 = 纯色按钮（挂单/清空等次要操作）。
+  const BigButton(this.text, {super.key, this.onTap, this.color, this.textColor = Colors.white, this.height = 52, this.width});
+
   @override
   Widget build(BuildContext context) {
+    final c = color;
+    final enabled = onTap != null;
+    final radius = BorderRadius.circular(height / 2);
+    // 只有商户主动选了配色方案才用渐变（v3.3.195：未选择保持旧版纯色外观）
+    final useGradient = c == null && PosTheme.hasSkin;
+    final cols = PosTheme.brandColors;
+    final solid = c ?? PosTheme.accent;
     return SizedBox(
       width: width,
       child: Material(
-        color: onTap == null ? color.withOpacity(0.4) : color,
-        borderRadius: BorderRadius.circular(height / 2),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(height / 2),
-          onTap: onTap,
-          child: Container(
-            height: height,
-            alignment: Alignment.center,
-            child: Text(text, style: TextStyle(color: textColor, fontSize: 17, fontWeight: FontWeight.w600)),
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            gradient: useGradient
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: enabled
+                        ? cols
+                        : cols.map((e) => e.withValues(alpha: 0.4)).toList(),
+                  )
+                : null,
+            color: useGradient ? null : (enabled ? solid : solid.withValues(alpha: 0.4)),
+          ),
+          child: InkWell(
+            borderRadius: radius,
+            onTap: onTap,
+            child: Container(
+              height: height,
+              alignment: Alignment.center,
+              child: Text(text, style: TextStyle(color: textColor, fontSize: 17, fontWeight: FontWeight.w600)),
+            ),
           ),
         ),
       ),
@@ -141,7 +168,7 @@ Future<bool> confirm(BuildContext context, String title, String content) async {
         TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          style: TextButton.styleFrom(foregroundColor: PosTheme.accent),
+          style: TextButton.styleFrom(foregroundColor: PosTheme.accentLive),
           child: const Text('确定', style: TextStyle(fontWeight: FontWeight.w600)),
         ),
       ],
@@ -159,7 +186,7 @@ void loadingDialog(BuildContext context, String text) {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 28),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(color: PosTheme.accent),
+          CircularProgressIndicator(color: PosTheme.accentLive),
           const SizedBox(height: 16),
           Text(text, style: const TextStyle(fontSize: 14, color: PosTheme.textSub)),
         ]),

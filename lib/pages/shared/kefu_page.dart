@@ -91,19 +91,23 @@ class KefuCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _step('1', '打开微信'),
-              const _Dot(),
-              _step('2', '扫一扫'),
-              const _Dot(),
-              _step('3', '咨询客服'),
-            ]),
+            // 三步骤：卡片宽度固定 400，字号放大后会超宽 → 用 FittedBox 按需等比缩小
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                _step('1', '打开微信'),
+                const _Dot(),
+                _step('2', '扫一扫'),
+                const _Dot(),
+                _step('3', '咨询客服'),
+              ]),
+            ),
           ]),
         ),
         // ===== 底部提示条 =====
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           decoration: BoxDecoration(
             color: const Color(0xFFF0FBF5),
             borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
@@ -111,8 +115,11 @@ class KefuCard extends StatelessWidget {
           child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             Icon(Icons.verified_user_outlined, size: 16, color: const Color(0xFF0E9F5B)),
             const SizedBox(width: 6),
-            Text('官方客服通道，问题、建议、故障报修均可反馈',
-                style: TextStyle(fontSize: 12.5, color: const Color(0xFF0E9F5B))),
+            Flexible(
+              child: Text('官方客服通道，问题、建议、故障报修均可反馈',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12.5, color: const Color(0xFF0E9F5B))),
+            ),
           ]),
         ),
       ]),

@@ -6,6 +6,7 @@ import '../core/preorder_badge.dart';
 import '../core/printer_route.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
+import '../core/theme_prefs.dart';
 import '../ui/widgets.dart';
 import 'retail/cashier_page.dart';
 import 'retail/member_page.dart';
@@ -37,6 +38,8 @@ class _ShellPageState extends State<ShellPage> {
   @override
   void initState() {
     super.initState();
+    // 主体风格切换后侧边栏要立刻换色（home 是 const，不随 MaterialApp 重建）
+    ThemePrefs.skinId.addListener(_onSkinChanged);
     // v3.3.125：登录后（含自动登录）后台拉取云端打印机绑定配置，
     // 换电脑/换收银员账号登录不必重设；失败静默，继续用本机缓存
     if (_isDining) {
@@ -51,8 +54,13 @@ class _ShellPageState extends State<ShellPage> {
 
   @override
   void dispose() {
+    ThemePrefs.skinId.removeListener(_onSkinChanged);
     _bookingTimer?.cancel();
     super.dispose();
+  }
+
+  void _onSkinChanged() {
+    if (mounted) setState(() {});
   }
 
   String get _versionLabel {
@@ -127,49 +135,89 @@ class _ShellPageState extends State<ShellPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 主体风格（设置 → 主体风格）：只有商户主动选了配色方案才换肤；
+    // 没选 = 旧版外观（纯色侧边栏 + 纯色选中项）
+    final sk = PosTheme.skin;
+    final skinned = PosTheme.hasSkin;
+
+    // 侧边栏底色：旧版生鲜版是墨绿，其余是 #1E2430；选了方案则跟随方案的深色
+    final sideColor = skinned
+        ? sk.sidebar
+        : (_isFresh ? const Color(0xFF123524) : PosTheme.sidebar);
+
+    // 选了方案才用同色系垂直渐变，未选择保持纯色
+    final sidebarBg = skinned
+        ? LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [sk.sidebar, Color.lerp(sk.sidebar, sk.accentDeep, 0.45) ?? sk.sidebar],
+          )
+        : null;
+
+    // 选中菜单项底色：旧版纯色，选了方案用渐变
+    final onBg = skinned
+        ? BoxDecoration(gradient: sk.linear, borderRadius: BorderRadius.circular(12))
+        : BoxDecoration(
+            color: _isFresh ? const Color(0xFF1F5C3A) : PosTheme.sidebarActive,
+            borderRadius: BorderRadius.circular(12),
+          );
+
     return Scaffold(
       body: Row(
         children: [
           // ===== 侧边栏 =====
           Container(
             width: 96,
-            color: _isFresh ? const Color(0xFF123524) : PosTheme.sidebar,
+            decoration: sidebarBg == null
+                ? BoxDecoration(color: sideColor)
+                : BoxDecoration(gradient: sidebarBg),
             child: Column(
               children: [
                 const SizedBox(height: 34),
-                // Logo
+                // 品牌字标：稳讯
+                // 样式与下方导航选中项（会员 / 订单 · 选中态）完全一致：纯白 w600 无阴影，
+                // 只是字号放大一档更醒目
+                const Text('稳讯',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                        height: 1.0)),
+                const SizedBox(height: 8),
+                // 对应版本（零售版 / 餐饮版 / 生鲜版）：胶囊底+描边保留，
+                // 字色与下方未选中导航（会员 / 订单）一致：white60
                 Container(
-                  width: 52, height: 52,
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3.5),
                   decoration: BoxDecoration(
-                    gradient: _isFresh
-                        ? const LinearGradient(colors: [Color(0xFF2BB673), Color(0xFF0E7A38)])
-                        : const LinearGradient(colors: [Color(0xFFFF7A45), Color(0xFFF4471B)]),
-                    borderRadius: BorderRadius.circular(14),
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
                   ),
-                  child: Icon(_isFresh ? Icons.eco : Icons.point_of_sale, color: Colors.white, size: 28),
+                  child: Text(_versionLabel,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.white60,
+                          letterSpacing: 1.2,
+                          fontWeight: FontWeight.w500)),
                 ),
-                const SizedBox(height: 6),
-                Text('稳讯收银',
-                    style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.85), fontWeight: FontWeight.w600)),
-                Text(_versionLabel,
-                    style: TextStyle(fontSize: 10, color: Colors.white.withOpacity(0.45))),
-                const SizedBox(height: 24),
+                const SizedBox(height: 26),
                 ..._nav.asMap().entries.map((e) {
                   final on = _index == e.key;
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 10),
                     child: Material(
-                      color: on
-                          ? (_isFresh ? const Color(0xFF1F5C3A) : PosTheme.sidebarActive)
-                          : Colors.transparent,
+                      color: Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => setState(() => _index = e.key),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          child: Column(children: [
+                      child: Ink(
+                        decoration: on ? onBg : null,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => setState(() => _index = e.key),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            child: Column(children: [
                             Stack(clipBehavior: Clip.none, children: [
                               Icon(e.value.icon, size: 24, color: on ? Colors.white : Colors.white60),
                               // 预约待安排红点（v3.3.104）
@@ -206,13 +254,14 @@ class _ShellPageState extends State<ShellPage> {
                         ),
                       ),
                     ),
+                  ),
                   );
                 }),
                 const Spacer(),
                 // 底部：店员信息 + 退出
                 PopupMenuButton<String>(
                   tooltip: '',
-                  color: _isFresh ? const Color(0xFF123524) : PosTheme.sidebar,
+                  color: sideColor,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   offset: const Offset(8, -8),
                   icon: Container(

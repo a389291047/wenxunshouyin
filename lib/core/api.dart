@@ -361,6 +361,20 @@ class Api {
     });
   }
 
+  /// 校验员工权限密码（v3.3.192）：与「订单退款 / 现金充值」同一套密码
+  /// 收银端二次确认场景（如清空购物车）使用；密码不落本机，全部由服务端判定
+  /// 返回 code=200 通过，否则 msg 为失败原因
+  static Future<Map<String, dynamic>> checkQuanxian({
+    required int staffId,
+    required String password,
+  }) {
+    return post('/api/shouyinyuan/checkpwd', {
+      'wenxun_id': Session.wenxunId,
+      'staff_id': staffId,
+      'password': password,
+    });
+  }
+
   // ==================== 会员 ====================
 
   static Future<List> vipList(int wenxunId) async {

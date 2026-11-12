@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
+import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/display_prefs.dart';
 import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
@@ -11,6 +13,7 @@ import '../../core/print_prefs.dart';
 import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../core/theme_prefs.dart';
 import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
 import '../../ui/no_code_goods.dart';
@@ -69,12 +72,25 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     CartSide.side().then((v) {
       if (mounted && v != cartSide) setState(() => cartSide = v);
     });
+    // 显示自定义设置（v3.3.193）：商品字体/每行个数改动即时刷新收银页
+    DisplayPrefs.goodsFont.addListener(_onDisplayChanged);
+    DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
+    DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
+    ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _loadHolds();
     _load();
   }
 
+  void _onDisplayChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    DisplayPrefs.goodsFont.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
+    ThemePrefs.skinId.removeListener(_onDisplayChanged);
     searchKeeper.dispose();
     searchCtrl.dispose();
     super.dispose();
@@ -240,8 +256,18 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     setState(() {});
   }
 
-  void _clearCart() {
+  /// 清空购物车：若设置里开启「清空需权限码」，先弹数字键盘校验（v3.3.192）
+  Future<void> _clearCart() async {
     if (cart.isEmpty) return;
+    if (await ClearPin.enabled()) {
+      if (!mounted) return;
+      final ok = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ClearPinDialog(count: count, total: total),
+      );
+      if (ok != true || !mounted) return;
+    }
     setState(() { cart.clear(); vip = null; });
   }
 
@@ -570,7 +596,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         _topBar(),
         Expanded(
           child: loading
-              ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
+              ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
               : error != null
                   ? _errorView()
                   : Row(
@@ -618,18 +644,18 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           height: 48,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF2ED),
+            color: PosTheme.tint,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: PosTheme.accent.withOpacity(0.35)),
+            border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.35)),
           ),
-          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.keyboard_alt_outlined, size: 21, color: PosTheme.accent),
-            SizedBox(width: 8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.keyboard_alt_outlined, size: 21, color: PosTheme.accentLive),
+            const SizedBox(width: 8),
             Text('无码商品',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: PosTheme.accent)),
+                    color: PosTheme.accentLive)),
           ]),
         ),
       ),
@@ -644,7 +670,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         controller: searchCtrl,
         focusNode: searchKeeper.node,
         textAlignVertical: TextAlignVertical.center,
-        cursorColor: PosTheme.accent,
+        cursorColor: PosTheme.accentLive,
         style: const TextStyle(
             fontSize: 17, fontWeight: FontWeight.w500, color: PosTheme.textMain),
         onChanged: (v) => setState(() => keyword = v.trim()),
@@ -675,7 +701,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: PosTheme.accent, width: 1.6),
+            borderSide: BorderSide(color: PosTheme.accentLive, width: 1.6),
           ),
         ),
       ),
@@ -726,21 +752,21 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         itemBuilder: (_, i) {
           final c = all[i];
           final on = selectedCat == c['id'];
-          final line = BorderSide(color: on ? PosTheme.accent : Colors.transparent, width: 4);
+          final line = BorderSide(color: on ? PosTheme.accentLive : Colors.transparent, width: 4);
           return InkWell(
             onTap: () => setState(() => selectedCat = c['id']),
             child: Container(
               height: 58,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
+                color: on ? PosTheme.tint : Colors.transparent,
                 border: indicatorRight ? Border(right: line) : Border(left: line),
               ),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Text('${c['title']}',
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15, color: on ? PosTheme.accent : PosTheme.textMain, fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
+                    style: TextStyle(fontSize: 15, color: on ? PosTheme.accentLive : PosTheme.textMain, fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
               ),
             ),
           );
@@ -750,20 +776,55 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   // 商品网格（卡片加大，触摸友好）
+  // 每行显示个数（v3.3.193 设置 → 显示设置）：0=自动按屏宽自适应；3~8=固定每行个数
+  // 卡片高度按「商品字体 × 整体字体缩放」动态计算，保证名称+价格永远放得下（不会撑破卡片）
+  // v3.3.196：支持「不显示商品图片」，纯文字卡片高度更矮、每行可以放更多
   Widget _goodsGrid() {
     final list = filtered;
     if (list.isEmpty) return const EmptyView('该分类暂无在售商品', icon: Icons.storefront);
-    return GridView.builder(
-      padding: const EdgeInsets.all(16),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180, mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: 0.8,
-      ),
-      itemCount: list.length,
-      itemBuilder: (_, i) => _goodsCard(list[i]),
-    );
+    final colsSetting = DisplayPrefs.goodsCols.value;
+    final f = DisplayPrefs.goodsFontFactor;
+    final withImg = DisplayPrefs.goodsImage.value;
+    return LayoutBuilder(builder: (ctx, cons) {
+      const pad = 16.0, gap = 14.0;
+      final avail = (cons.hasBoundedWidth ? cons.maxWidth : 720.0) - pad * 2;
+      // 纯文字卡不需要图片宽度，自动模式可以放得更密
+      final unitW = withImg ? 180.0 : 148.0;
+      final cols = colsSetting >= 3
+          ? colsSetting
+          : (avail / unitW).ceil().clamp(1, 12).toInt();
+      final rawW = (avail - gap * (cols - 1)) / cols;
+      final cardW = rawW < 40 ? 40.0 : rawW; // 窗口极窄时兜底，避免算出负宽
+      final tScale = MediaQuery.textScalerOf(ctx).scale(100) / 100;
+      double itemH;
+      if (withImg) {
+        // 文字区高度：名称 1 行 + 价格 1 行，行高按字号 1.35 倍；再留卡片内边距与图片最小高度
+        final textH = 14.5 * f * tScale * 1.35 + 3 + 17 * f * tScale * 1.35 + 8 + 20;
+        final baseH = cardW / 0.8;
+        itemH = baseH > textH + 56 ? baseH : textH + 56;
+      } else {
+        // 纯文字卡：名称最多 2 行 + 价格 1 行 + 上下内边距
+        final nameH = 15.5 * f * tScale * 1.28 * 2;
+        final priceH = 19 * f * tScale * 1.15;
+        final need = nameH + 8 + priceH + 26;
+        itemH = need < 96 ? 96 : need;
+      }
+      return GridView.builder(
+        padding: const EdgeInsets.all(pad),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: cols, mainAxisSpacing: gap, crossAxisSpacing: gap, mainAxisExtent: itemH,
+        ),
+        itemCount: list.length,
+        itemBuilder: (_, i) => _goodsCard(list[i]),
+      );
+    });
   }
 
+  // 商品卡片字体（v3.3.193 设置 → 显示设置）：小 0.85 / 标准 1.0 / 大 1.2 / 特大 1.4
+  // 图片开关（v3.3.196）：显示图片 = 上图下文；不显示 = 纯文字卡片（左侧主色竖条 + 大字名称 + 价格 + 规格角标）
   Widget _goodsCard(Map g) {
+    final f = DisplayPrefs.goodsFontFactor;
+    final withImg = DisplayPrefs.goodsImage.value;
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(14),
@@ -771,45 +832,130 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         borderRadius: BorderRadius.circular(14),
         onTap: () => _tapGoods(g),
         child: Container(
-          padding: const EdgeInsets.all(10),
+          padding: withImg ? const EdgeInsets.all(10) : EdgeInsets.zero,
           decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: PosTheme.line)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: RetailGoodsImage(urls: _imgUrls(g)),
-                  ),
-                  if (_hasSpecs(g))
-                    Positioned(
-                      top: 6, right: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                        decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(6)),
-                        child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  if (_isWeighted(g))
-                    Positioned(
-                      top: 6, left: 6,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                        decoration: BoxDecoration(color: const Color(0xFF1677FF), borderRadius: BorderRadius.circular(6)),
-                        child: const Text('称重', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w500)),
-            const SizedBox(height: 3),
-            Text(_isWeighted(g) ? '¥${Fmt.money(_price(g))}/${_unitOf(g)}' : '¥${Fmt.money(_price(g))}', style: const TextStyle(fontSize: 17, color: PosTheme.accent, fontWeight: FontWeight.w800)),
-          ]),
+          child: withImg ? _goodsCardImage(g, f) : _goodsCardText(g, f),
         ),
       ),
+    );
+  }
+
+  /// 上图下文卡（默认样式）
+  Widget _goodsCardImage(Map g, double f) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Expanded(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: RetailGoodsImage(urls: _imgUrls(g)),
+            ),
+            if (_hasSpecs(g))
+              Positioned(
+                top: 6, right: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(color: PosTheme.accentLive, borderRadius: BorderRadius.circular(6)),
+                  child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            if (_isWeighted(g))
+              Positioned(
+                top: 6, left: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(color: const Color(0xFF1677FF), borderRadius: BorderRadius.circular(6)),
+                  child: const Text('称重', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 8),
+      Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 14.5 * f, fontWeight: FontWeight.w500)),
+      const SizedBox(height: 3),
+      Text(_isWeighted(g) ? '¥${Fmt.money(_price(g))}/${_unitOf(g)}' : '¥${Fmt.money(_price(g))}',
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 17 * f, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
+    ]);
+  }
+
+  /// 纯文字卡（不显示图片）：左侧主色竖条 + 商品名最多 2 行 + 大号价格 + 称重/多规格角标
+  Widget _goodsCardText(Map g, double f) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(13),
+      child: Stack(children: [
+        // 左侧主色竖条（顶部实色到底部渐隐），让纯文字卡不显得空
+        Positioned(
+          left: 0, top: 0, bottom: 0,
+          child: Container(
+            width: 4,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [PosTheme.accentLive, PosTheme.accentLive.withValues(alpha: 0.18)],
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 11, 12, 11),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Text('${g['title']}',
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: 15.5 * f,
+                      height: 1.28,
+                      fontWeight: FontWeight.w600,
+                      color: PosTheme.textMain)),
+            ),
+            const SizedBox(height: 6),
+            // 价格 + 规格角标：卡片很窄时只留价格，角标按可用宽度等比缩小，避免溢出
+            LayoutBuilder(builder: (ctx, c) {
+              final showTags = c.maxWidth >= 110 && (_isWeighted(g) || _hasSpecs(g));
+              return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Expanded(
+                  child: Text(_isWeighted(g) ? '¥${Fmt.money(_price(g))}/${_unitOf(g)}' : '¥${Fmt.money(_price(g))}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 19 * f,
+                          height: 1.1,
+                          color: PosTheme.accentLive,
+                          fontWeight: FontWeight.w800)),
+                ),
+                if (showTags)
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        if (_isWeighted(g)) _goodsTag('称重', const Color(0xFF1677FF)),
+                        if (_isWeighted(g) && _hasSpecs(g)) const SizedBox(width: 5),
+                        if (_hasSpecs(g)) _goodsTag('多规格', PosTheme.accentLive),
+                      ]),
+                    ),
+                  ),
+              ]);
+            }),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  /// 纯文字卡上的小角标
+  Widget _goodsTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(text,
+          style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700, height: 1.2)),
     );
   }
 
@@ -829,8 +975,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               child: Row(children: [
                 Container(
                   width: 40, height: 40,
-                  decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-                  child: Icon(vip == null ? Icons.person_add_alt : Icons.person, size: 22, color: PosTheme.accent),
+                  decoration: BoxDecoration(color: PosTheme.tint, borderRadius: BorderRadius.circular(20)),
+                  child: Icon(vip == null ? Icons.person_add_alt : Icons.person, size: 22, color: PosTheme.accentLive),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -848,11 +994,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFF2ED),
+                        color: PosTheme.tint,
                         borderRadius: BorderRadius.circular(9),
-                        border: Border.all(color: PosTheme.accent.withOpacity(0.4)),
+                        border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.4)),
                       ),
-                      child: const Text('充值', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                      child: Text('充值', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accentLive)),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -905,7 +1051,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
                 const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-                Text('¥${Fmt.money(total)}', style: const TextStyle(fontSize: 30, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+                Text('¥${Fmt.money(total)}', style: TextStyle(fontSize: 30, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
               ]),
               const SizedBox(height: 14),
               Row(children: [
@@ -917,8 +1063,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                           ? '挂单'
                           : (cart.isEmpty ? '取单 ${holds.length}' : '挂单 ${holds.length}'),
                       onTap: (cart.isEmpty && holds.isEmpty) ? null : _holdTap,
-                      color: const Color(0xFFFFF2ED),
-                      textColor: PosTheme.accent,
+                      color: PosTheme.tint,
+                      textColor: PosTheme.accentLive,
                       height: 62),
                   ),
                 ),
@@ -955,15 +1101,15 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             padding: const EdgeInsets.symmetric(horizontal: 14),
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF7F4),
+              color: PosTheme.tintSoft,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: PosTheme.accent.withOpacity(0.5)),
+              border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.5)),
             ),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               Text('${_qtyText(l)} ${l.unit}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PosTheme.accentLive)),
               const SizedBox(width: 6),
-              const Icon(Icons.edit_outlined, size: 15, color: PosTheme.accent),
+              Icon(Icons.edit_outlined, size: 15, color: PosTheme.accentLive),
             ]),
           ),
         ),
@@ -991,7 +1137,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         InkWell(
           onTap: () => setState(() => l.num++),
           borderRadius: const BorderRadius.horizontal(right: Radius.circular(9)),
-          child: Container(width: 46, height: 46, alignment: Alignment.center, child: const Icon(Icons.add, size: 20, color: PosTheme.accent)),
+          child: Container(width: 46, height: 46, alignment: Alignment.center, child: Icon(Icons.add, size: 20, color: PosTheme.accentLive)),
         ),
       ]),
     );
@@ -1023,7 +1169,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     '扫码收款': PosTheme.blue,
     '微信支付': const Color(0xFF07C160),
     '支付宝': const Color(0xFF1677FF),
-    '会员支付': PosTheme.accent,
+    '会员支付': PosTheme.accentLive,
   };
 
   // 映射缺失时给个兜底，避免再有 null 断言把整个收款弹窗打崩
@@ -1079,7 +1225,7 @@ class _PayDialogState extends State<RetailPayDialog> {
             const Text('收款', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
             const Spacer(),
             const Text('应收 ', style: TextStyle(fontSize: 16, color: PosTheme.textSub)),
-            Text('¥${Fmt.money(widget.total)}', style: const TextStyle(fontSize: 34, color: PosTheme.accent, fontWeight: FontWeight.w800)),
+            Text('¥${Fmt.money(widget.total)}', style: TextStyle(fontSize: 34, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
           ]),
           const SizedBox(height: 20),
           // 支付方式（Wrap：5 种方式自动换行，触屏热区不变）
@@ -1348,7 +1494,7 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
           const SizedBox(height: 10),
           Expanded(
             child: loading
-                ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
+                ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
                 : list.isEmpty
                     ? const EmptyView('未找到会员')
                     : ListView.builder(
@@ -1680,6 +1826,154 @@ class _SuccessDialogState extends State<_SuccessDialog> {
             width: 280,
             child: BigButton('继续收银', onTap: () => Navigator.pop(context), height: 56),
           ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// 清空购物车权限密码弹窗（v3.3.192）：数字键盘 + 输满 6 位自动云端校验
+/// 密码 = 云端员工权限密码（与退款 / 现金充值同一套），本机不保存
+class _ClearPinDialog extends StatefulWidget {
+  final int count;
+  final double total;
+  const _ClearPinDialog({required this.count, required this.total});
+  @override
+  State<_ClearPinDialog> createState() => _ClearPinDialogState();
+}
+
+class _ClearPinDialogState extends State<_ClearPinDialog> {
+  static const int codeLen = 6; // 6 位数字，与退款弹窗一致
+  String input = '';
+  String? err;
+  bool verifying = false;
+
+  Future<void> _press(String d) async {
+    if (verifying || input.length >= codeLen) return;
+    setState(() {
+      input += d;
+      err = null;
+    });
+    if (input.length < codeLen) return;
+    setState(() => verifying = true);
+    final r = await ClearPin.verify(input);
+    if (!mounted) return;
+    if (r.ok) {
+      Navigator.pop(context, true);
+    } else {
+      setState(() {
+        err = r.msg.isEmpty ? '权限密码错误，请重试' : r.msg;
+        input = '';
+        verifying = false;
+      });
+    }
+  }
+
+  void _back() {
+    if (input.isEmpty) return;
+    setState(() => input = input.substring(0, input.length - 1));
+  }
+
+  Widget _dot(bool filled) => Container(
+        width: 15,
+        height: 15,
+        margin: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: filled ? PosTheme.accent : const Color(0xFFF0F1F5),
+          border: Border.all(color: filled ? PosTheme.accent : const Color(0xFFD8DBE2)),
+        ),
+      );
+
+  Widget _key({String label = '', VoidCallback? onTap, Widget? child, Color? fg}) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.all(5),
+        child: Material(
+          color: const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: onTap,
+            child: Container(
+              height: 54,
+              alignment: Alignment.center,
+              child: child ??
+                  Text(label,
+                      style: TextStyle(fontSize: 21, fontWeight: FontWeight.w600, color: fg ?? PosTheme.textMain)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        width: 360,
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Icon(Icons.lock_outline, size: 20, color: PosTheme.accent),
+            const SizedBox(width: 8),
+            const Text('输入权限密码', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            InkWell(
+              onTap: () => Navigator.pop(context, false),
+              borderRadius: BorderRadius.circular(16),
+              child: const SizedBox(width: 32, height: 32, child: Icon(Icons.close, size: 20, color: PosTheme.textHint)),
+            ),
+          ]),
+          const SizedBox(height: 2),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text('清空将移除 ${widget.count} 件商品（¥${Fmt.money(widget.total)}），请输入 6 位权限密码确认。',
+                style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+          ),
+          const SizedBox(height: 16),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (var i = 0; i < codeLen; i++) _dot(i < input.length),
+          ]),
+          SizedBox(
+            height: 34,
+            child: Center(
+              child: Text(err ?? (verifying ? '校验中…' : ''),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  style: TextStyle(fontSize: 12.5, color: verifying ? PosTheme.textHint : PosTheme.red)),
+            ),
+          ),
+          Row(children: [
+            _key(label: '1', onTap: () => _press('1')),
+            _key(label: '2', onTap: () => _press('2')),
+            _key(label: '3', onTap: () => _press('3')),
+          ]),
+          Row(children: [
+            _key(label: '4', onTap: () => _press('4')),
+            _key(label: '5', onTap: () => _press('5')),
+            _key(label: '6', onTap: () => _press('6')),
+          ]),
+          Row(children: [
+            _key(label: '7', onTap: () => _press('7')),
+            _key(label: '8', onTap: () => _press('8')),
+            _key(label: '9', onTap: () => _press('9')),
+          ]),
+          Row(children: [
+            _key(
+              label: '取消',
+              fg: PosTheme.textSub,
+              onTap: () => Navigator.pop(context, false),
+            ),
+            _key(label: '0', onTap: () => _press('0')),
+            _key(
+              child: const Icon(Icons.backspace_outlined, size: 21, color: PosTheme.textSub),
+              onTap: _back,
+            ),
+          ]),
         ]),
       ),
     );
