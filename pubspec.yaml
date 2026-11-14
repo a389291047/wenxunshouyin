@@ -1,5 +1,5 @@
 name: wenxun
-version: 3.3.205+3505
+version: 3.3.206+3506
 
 environment:
   sdk: '>=3.5.0 <4.0.0'

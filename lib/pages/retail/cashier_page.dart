@@ -320,6 +320,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     messenger?.showSnackBar(SnackBar(
       content: Text('已删除「${l.goods['title']}」'),
       duration: const Duration(seconds: 4),
+      // v3.3.206：Flutter 新版默认 persist = (action != null)，带按钮的 SnackBar 会永久停留，
+      // 必须显式关闭，否则撤销条一直挂在底部不消失
+      persist: false,
       behavior: SnackBarBehavior.floating,
       action: SnackBarAction(
         label: '撤销',

@@ -222,6 +222,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     messenger?.showSnackBar(SnackBar(
       content: Text('已删除「${l.goods['title']}」'),
       duration: const Duration(seconds: 4),
+      // v3.3.206：同零售页，带 action 的 SnackBar 新版默认永久驻留，显式关闭
+      persist: false,
       behavior: SnackBarBehavior.floating,
       action: SnackBarAction(
         label: '撤销',
