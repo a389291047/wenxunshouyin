@@ -802,10 +802,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       final tScale = MediaQuery.textScalerOf(ctx).scale(100) / 100;
       double itemH;
       if (withImg) {
-        // 文字区高度：名称 1 行 + 价格 1 行，行高按字号 1.35 倍；再留卡片内边距与图片最小高度
-        final textH = 14.5 * f * tScale * 1.35 + 3 + 17 * f * tScale * 1.35 + 8 + 20;
-        final baseH = cardW / 0.8;
-        itemH = baseH > textH + 56 ? baseH : textH + 56;
+        // 图片区高度：随卡片宽度温和增长但封顶 130（v3.3.204），
+        // 之前按 cardW/0.8 等比膨胀，宽屏上卡片被拉得又高又空
+        final imgH = (cardW * 0.62).clamp(90.0, 130.0);
+        final textH = 14.5 * f * tScale * 1.35 + 3 + 17 * f * tScale * 1.35;
+        itemH = imgH + 8 + textH + 34; // 34 = 卡片上下内边距20 + 间隙8 + 余量6
       } else {
         // 纯文字卡：名称最多 2 行 + 价格 1 行 + 上下内边距
         final nameH = 15.5 * f * tScale * 1.28 * 2;
@@ -1759,9 +1760,24 @@ class RetailGoodsImage extends StatefulWidget {
 class _GoodsImageState extends State<RetailGoodsImage> {
   int idx = 0;
 
-  Widget _placeholder() => Container(
-      color: const Color(0xFFF5F6F8),
-      child: Icon(Icons.fastfood, color: PosTheme.textHint, size: widget.iconSize));
+  /// 无图占位（v3.3.204）：不再整块灰底拉满，改为浅色底 + 居中圆角小块，
+  /// 商品大多无图时卡片不再显得空旷
+  Widget _placeholder() => LayoutBuilder(builder: (ctx, c) {
+        final side = c.maxHeight < c.maxWidth ? c.maxHeight : c.maxWidth;
+        final box = (side * 0.6).clamp(46.0, 96.0).toDouble();
+        return Container(
+          color: const Color(0xFFFAFBFC),
+          alignment: Alignment.center,
+          child: Container(
+            width: box, height: box,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF2F4F7),
+              borderRadius: BorderRadius.circular(box * 0.26),
+            ),
+            child: Icon(Icons.fastfood, color: PosTheme.textHint, size: box * 0.42),
+          ),
+        );
+      });
 
   @override
   Widget build(BuildContext context) {

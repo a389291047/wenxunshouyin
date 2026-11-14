@@ -71,7 +71,8 @@ class _WenxunPosAppState extends State<WenxunPosApp> {
     if (w >= 1600) return 1.0;
     if (w >= 1366) return 0.94;
     if (w >= 1200) return 0.88;
-    return 0.8;
+    if (w >= 1000) return 0.8;
+    return 0.76; // 小屏 / 高 DPI 缩放下的窗口（v3.3.204 再收一档）
   }
 
   @override
