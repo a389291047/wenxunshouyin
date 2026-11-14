@@ -153,16 +153,22 @@ class BtPrinter {
       {int paperWidth = 58, int? textW}) async {
     final bytes =
         EscPos.encode(content, paperWidth: paperWidth, mode: 'pos', textW: textW);
+    await sendRaw(device, bytes);
+  }
+
+  /// 原始字节直发（打印 / 钱箱弹箱共用底层通道，v3.3.202）
+  static Future<void> sendRaw(Map<String, dynamic> device, List<int> bytes) async {
+    final data = Uint8List.fromList(bytes);
     if (Platform.isAndroid) {
       await _channel.invokeMethod('print', {
         'address': '${device['id']}',
         'name': '${device['name']}',
-        'bytes': Uint8List.fromList(bytes),
+        'bytes': data,
       });
     } else if (Platform.isWindows) {
-      await BtWin.printTo('${device['port']}', bytes);
+      await BtWin.printTo('${device['port']}', data);
     } else if (Platform.isMacOS) {
-      await BtMac.printTo(device, bytes);
+      await BtMac.printTo(device, data);
     } else {
       throw ApiError('当前平台不支持蓝牙打印');
     }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/cash_drawer.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
@@ -295,6 +296,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   }
 
   Future<void> _afterPaid(String orderNo, String method, double t) async {
+    // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
+    CashDrawer.autoOpen(method);
     if (await PrintPrefs.on('retail')) {
       CloudPrinter.print(CloudPrinter.retailReceipt(
         orderNo: orderNo, payMethod: method, total: t,

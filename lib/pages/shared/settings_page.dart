@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/bt_printer.dart';
+import '../../core/cash_drawer.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/display_prefs.dart';
@@ -61,6 +62,11 @@ class _SettingsPageState extends State<SettingsPage> {
   List<Map<String, dynamic>> btScanResults = []; // Android 扫描结果（含未配对）
   bool btScanning = false;
 
+  // 钱箱（v3.3.202）：现金结算自动弹箱，走 USB/蓝牙小票打印机 RJ11 口
+  bool drawerEnabled = false;
+  String drawerChannel = 'usb'; // usb | bt
+  bool drawerTesting = false;
+
   // 功能设置（v3.3.187）
   bool searchFocusOn = false; // 搜索框始终聚焦
   String cartSide = 'right'; // 购物车显示位置（left/right）
@@ -98,6 +104,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _load();
     _loadUsb();
     _loadBt();
+    _loadDrawer();
     _loadFunc();
     _loadVoice();
     _loadPrintPrefs();
@@ -1848,6 +1855,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'cloud',    'icon': Icons.print_outlined,       'label': '云打印机'},
     {'key': 'usb',      'icon': Icons.usb_outlined,         'label': 'USB打印'},
     {'key': 'bt',       'icon': Icons.bluetooth_outlined,   'label': '蓝牙打印'},
+    {'key': 'drawer',   'icon': Icons.savings_outlined,     'label': '钱箱'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
     {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
     {'key': 'nocode',   'icon': Icons.bookmark_border,      'label': '无码商品常用'},
@@ -1865,6 +1873,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (it['key'] == 'password' && Session.isCashierOnly) continue; // 收银员不显示权限密码
       if (it['key'] == 'usb' && !UsbPrinter.supported) continue;      // 不支持 USB 的设备不显示
       if (it['key'] == 'bt' && !BtPrinter.supported) continue;        // 不支持蓝牙的设备不显示
+      if (it['key'] == 'drawer' && !CashDrawer.supported) continue;   // 钱箱仅 Windows / Android
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
       if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
       list.add(it);
@@ -1879,6 +1888,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'cloud':   return _cloudCard();
       case 'usb':     return _usbCard();
       case 'bt':      return _btCard();
+      case 'drawer':  return _drawerCard();
       case 'receipt': return _printPrefsCard();
       case 'zuofa':   return _zuofaCard();
       case 'nocode':  return _noCodeCard();
@@ -2267,6 +2277,128 @@ class _SettingsPageState extends State<SettingsPage> {
           style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
     ]));
   }
+
+  // ==================== 钱箱（v3.3.202） ====================
+
+  Future<void> _loadDrawer() async {
+    final sp = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      drawerEnabled = sp.getBool(CashDrawer.prefEnabled) ?? false;
+      drawerChannel = sp.getString(CashDrawer.prefChannel) ?? 'usb';
+    });
+  }
+
+  Future<void> _saveDrawer() async {
+    await CashDrawer.setEnabled(drawerEnabled);
+    await CashDrawer.setChannel(drawerChannel);
+  }
+
+  /// 测试弹箱：直接给当前通道打印机发开箱指令
+  Future<void> _drawerTest() async {
+    setState(() => drawerTesting = true);
+    try {
+      await CashDrawer.open();
+      if (mounted) toast(context, '已发送弹箱指令，请确认钱箱是否弹出');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => drawerTesting = false);
+    }
+  }
+
+  Widget _drawerCard() {
+    if (!CashDrawer.supported) return const SizedBox.shrink();
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle(Icons.savings_outlined, '钱箱'),
+      const SizedBox(height: 4),
+      // 自动弹箱开关
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 8),
+            Text('现金结算自动弹箱', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 2),
+            Text('开启后零售 / 生鲜 / 堂食用现金收银成功时，自动向打印机发送开箱指令弹出钱箱（扫码、会员等其他支付方式不弹）',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 8),
+          ])),
+          Switch(
+            value: drawerEnabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => drawerEnabled = v);
+              await _saveDrawer();
+            },
+          ),
+        ]),
+      ),
+      // 弹箱通道
+      if (drawerEnabled)
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('钱箱接线方式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Row(children: [
+              _drawerChip('usb', 'USB小票打印机'),
+              const SizedBox(width: 6),
+              _drawerChip('bt', '蓝牙打印机'),
+            ]),
+            const SizedBox(height: 6),
+            Text(
+              drawerChannel == 'bt'
+                  ? '钱箱 RJ11 线接在蓝牙小票打印机上，开箱指令通过已选择的蓝牙打印机发出'
+                  : '钱箱 RJ11 线接在 USB 小票打印机上，开箱指令通过已选择的 USB 打印机发出',
+              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
+            ),
+          ]),
+        ),
+      // 测试
+      if (drawerEnabled)
+        Row(children: [
+          OutlinedButton.icon(
+            onPressed: drawerTesting ? null : _drawerTest,
+            style: OutlinedButton.styleFrom(foregroundColor: PosTheme.blue, side: const BorderSide(color: PosTheme.blue)),
+            icon: drawerTesting
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.blue))
+                : const Icon(Icons.lock_open_outlined, size: 16),
+            label: const Text('测试弹出'),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('测试不弹箱时：确认钱箱 RJ11 线插紧、接在当前选择的打印机上，且打印机电源正常。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint))),
+        ]),
+    ]));
+  }
+
+  Widget _drawerChip(String key, String label) {
+    final sel = drawerChannel == key;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: () async {
+        setState(() => drawerChannel = key);
+        await _saveDrawer();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: sel ? const Color(0xFFEFF7F0) : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: sel ? PosTheme.accent : PosTheme.textHint.withOpacity(0.4)),
+        ),
+        child: Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600,
+            color: sel ? PosTheme.accent : PosTheme.textSub)),
+      ),
+    );
+  }
+
+  // ==================== USB 小票打印机 ====================
 
   Widget _usbCard() {
     if (!UsbPrinter.supported) {

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
+import '../../core/cash_drawer.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/display_prefs.dart';
@@ -521,6 +522,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
       _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
+
+      // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
+      CashDrawer.autoOpen(picked);
 
       // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
       if (await PrintPrefs.on('retail')) {

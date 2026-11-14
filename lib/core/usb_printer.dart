@@ -192,10 +192,15 @@ class UsbPrinter {
       {int paperWidth = 58, String mode = 'pos', int? textW, int offsetCols = 0}) async {
     final bytes = EscPos.encode(content,
         paperWidth: paperWidth, mode: mode, textW: textW, offsetCols: offsetCols);
+    await sendRaw(printer, bytes);
+  }
+
+  /// 原始字节直发（打印 / 钱箱弹箱共用底层通道，v3.3.202）
+  static Future<void> sendRaw(Map<String, dynamic> printer, List<int> bytes) async {
     if (Platform.isWindows) {
-      await _printWindows('${printer['id']}', bytes);
+      await _printWindows('${printer['id']}', Uint8List.fromList(bytes));
     } else if (Platform.isMacOS) {
-      await _printMacos(printer, bytes);
+      await _printMacos(printer, Uint8List.fromList(bytes));
     } else if (Platform.isAndroid) {
       await _channel.invokeMethod('print', {
         'kind': '${printer['kind'] ?? 'usb'}',

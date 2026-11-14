@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/cash_drawer.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
@@ -2179,6 +2180,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
             extraLines: extra,
           )).catchError((_) => <String, dynamic>{});
         }
+        // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
+        CashDrawer.autoOpen(picked);
         // 用 navigator.context 打开成功弹窗（本 State 已随账单弹窗销毁），
         // "完成"按钮用弹窗自己的 dctx 关闭自己
         showDialog(context: navigator.context, barrierDismissible: false, builder: (dctx) => Dialog(
