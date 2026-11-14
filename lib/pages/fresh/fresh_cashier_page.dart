@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/pay_methods.dart';
@@ -8,6 +9,7 @@ import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/vip_recharge.dart';
+import '../../ui/cart_line_dialog.dart';
 import '../../ui/widgets.dart';
 import '../../ui/xyf_scan_pay.dart';
 import '../retail/cashier_page.dart'
@@ -33,7 +35,13 @@ class FreshColors {
 class _CartLine {
   final Map goods;
   int num;
+  double? price; // 单行改价（null = 按商品原价）v3.3.205
+  String note = ''; // 单行备注（随小票打印）v3.3.205
   _CartLine(this.goods, this.num);
+  double get listPrice => double.tryParse('${goods['amount'] ?? goods['price'] ?? 0}') ?? 0;
+
+  /// 成交单价：有改价用改价，否则用资料价
+  double get unitPrice => price ?? listPrice;
 }
 
 class _FreshCashierPageState extends State<FreshCashierPage> {
@@ -90,7 +98,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     return g.toList();
   }
 
-  double get total => cart.fold(0, (s, l) => s + _price(l.goods) * l.num);
+  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.num);
   int get count => cart.fold(0, (s, l) => s + l.num);
 
   double _price(Map g) => double.tryParse('${g['amount'] ?? g['price'] ?? 0}') ?? 0;
@@ -159,8 +167,70 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
 
   void _dec(_CartLine l) {
     l.num--;
-    if (l.num <= 0) cart.remove(l);
+    if (l.num <= 0) {
+      _removeLine(l);
+      return;
+    }
     setState(() {});
+  }
+
+  // ==================== 单个商品操作（v3.3.205） ====================
+
+  /// 改价前校验权限（设置里开启「改价需权限密码」才弹）
+  Future<bool> _authPrice() async {
+    if (!await CartPrefs.priceNeedPin()) return true;
+    if (!mounted) return false;
+    return showPinVerifyDialog(context,
+        title: '改价需要权限密码', sub: '输入当前收银员的权限密码（与退款密码相同）');
+  }
+
+  /// 点购物车某行 → 改数量 / 改价 / 备注 / 删除
+  Future<void> _lineEdit(_CartLine l) async {
+    final guige = '${l.goods['guige'] ?? ''}'.trim();
+    final r = await showCartLineDialog(
+      context,
+      title: '${l.goods['title']}',
+      subtitle: guige.isEmpty ? '' : '规格 $guige',
+      listPrice: l.listPrice,
+      num: l.num.toDouble(),
+      note: l.note,
+      price: l.price,
+      unit: _unit(l.goods),
+      accent: FreshColors.accent,
+      onNeedPriceAuth: _authPrice,
+    );
+    if (r == null || !mounted) return;
+    if (r.deleted) {
+      _removeLine(l);
+      return;
+    }
+    setState(() {
+      l.num = r.num.round() < 1 ? 1 : r.num.round();
+      l.price = r.price;
+      l.note = r.note;
+    });
+  }
+
+  /// 删除单行商品（带 4 秒撤销）
+  void _removeLine(_CartLine l) {
+    final i = cart.indexOf(l);
+    if (i < 0) return;
+    setState(() => cart.removeAt(i));
+    if (cart.isEmpty && vip != null) setState(() => vip = null);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(SnackBar(
+      content: Text('已删除「${l.goods['title']}」'),
+      duration: const Duration(seconds: 4),
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+        label: '撤销',
+        onPressed: () {
+          if (!mounted) return;
+          setState(() => cart.insert(i.clamp(0, cart.length), l));
+        },
+      ),
+    ));
   }
 
   void _clearCart() {
@@ -235,10 +305,11 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
       'name': l.goods['title'],
-      'price': _price(l.goods),
+      'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
       'quantity': l.num,
       'guige': '${l.goods['guige'] ?? ''}',
       'image': _img(l.goods),
+      'note': l.note, // 单行备注（小票打印用）
     }).toList();
 
     if (picked == '会员支付') {
@@ -301,7 +372,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     if (await PrintPrefs.on('retail')) {
       CloudPrinter.print(CloudPrinter.retailReceipt(
         orderNo: orderNo, payMethod: method, total: t,
-        cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num}).toList(),
+        cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'note': l.note}).toList(),
       )).catchError((_) => <String, dynamic>{});
     }
     _clearCart();
@@ -597,6 +668,15 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
               ]),
             ),
           ),
+          // 操作提示（v3.3.205：购物车支持单行改数量/改价/备注/删除）
+          if (cart.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+              color: const Color(0xFFFBFCFD),
+              child: const Text('点商品行可改数量 / 改价 / 备注，点 × 删除单个商品',
+                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            ),
           // 明细
           Expanded(
             child: cart.isEmpty
@@ -608,19 +688,50 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
                     itemBuilder: (_, i) {
                       final l = cart[i];
                       final guige = '${l.goods['guige'] ?? ''}'.trim();
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        child: Row(children: [
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${l.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 3),
-                            Text(guige.isNotEmpty
-                                ? '规格：$guige · ¥${Fmt.money(_price(l.goods))}'
-                                : '¥${Fmt.money(_price(l.goods))}/${_unit(l.goods)}', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-                          ])),
-                          _stepper(l),
-                          SizedBox(width: 72, child: Text('¥${Fmt.money(_price(l.goods) * l.num)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                        ]),
+                      return InkWell(
+                        onTap: () => _lineEdit(l), // 点行 = 改数量/改价/备注/删除（v3.3.205）
+                        onLongPress: () => _lineEdit(l),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              Expanded(
+                                child: Text('${l.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                              ),
+                              if (l.price != null) ...[
+                                const SizedBox(width: 5),
+                                _lineTag('改价', FreshColors.accent),
+                              ],
+                              const SizedBox(width: 6),
+                              Text('¥${Fmt.money(l.unitPrice * l.num)}', textAlign: TextAlign.right,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => _removeLine(l),
+                                borderRadius: BorderRadius.circular(18),
+                                child: const SizedBox(width: 30, height: 30, child: Icon(Icons.close, size: 17, color: PosTheme.textHint)),
+                              ),
+                            ]),
+                            const SizedBox(height: 2),
+                            Row(children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(
+                                      guige.isNotEmpty
+                                          ? '规格：$guige · ¥${Fmt.money(l.unitPrice)}'
+                                          : '¥${Fmt.money(l.unitPrice)}/${_unit(l.goods)}${l.price != null ? '（原 ¥${Fmt.money(l.listPrice)}）' : ''}',
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                                  if (l.note.isNotEmpty)
+                                    Text('备注：${l.note}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, color: PosTheme.amber, fontWeight: FontWeight.w600)),
+                                ]),
+                              ),
+                              _stepper(l),
+                            ]),
+                          ]),
+                        ),
                       );
                     },
                   ),
@@ -658,6 +769,15 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           ),
         ],
       ),
+    );
+  }
+
+  // 行内小标签（改价等）
+  Widget _lineTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
+      child: Text(text, style: TextStyle(fontSize: 10.5, color: color, fontWeight: FontWeight.w700)),
     );
   }
 

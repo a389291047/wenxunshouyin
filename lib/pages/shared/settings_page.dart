@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/bt_printer.dart';
+import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
@@ -1433,6 +1434,9 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 8),
       // 清空购物车需权限码（v3.3.192）
       const _ClearPinRow(),
+      const SizedBox(height: 8),
+      // 单个商品改价需权限码（v3.3.205）
+      const _PricePinRow(),
       const SizedBox(height: 8),
       const Text('提示：适配扫码枪扫码搜商品场景。开启后如果同时使用键盘快捷操作，输入会优先进入搜索框。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
@@ -3312,6 +3316,74 @@ class _ClearPinRowState extends State<_ClearPinRow> {
                 ),
               ]),
             ),
+          ),
+      ]),
+    );
+  }
+}
+
+/// 单个商品改价需权限密码（v3.3.205）
+/// 开关按设备保存；与「清空购物车 / 退款」共用云端员工权限密码
+class _PricePinRow extends StatefulWidget {
+  const _PricePinRow();
+  @override
+  State<_PricePinRow> createState() => _PricePinRowState();
+}
+
+class _PricePinRowState extends State<_PricePinRow> {
+  bool enabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final e = await CartPrefs.priceNeedPin();
+    if (!mounted) return;
+    setState(() => enabled = e);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+      decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 10),
+              Text('单个商品改价需权限密码', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              SizedBox(height: 3),
+              Text('开启后，在购物车点商品改价（折扣价 / 自定义单价）需先输入员工权限密码，防止收银员随意打折。改数量、备注、删除不受影响。',
+                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              SizedBox(height: 10),
+            ]),
+          ),
+          Switch(
+            value: enabled,
+            activeColor: PosTheme.accent,
+            onChanged: (v) async {
+              setState(() => enabled = v);
+              await CartPrefs.setPriceNeedPin(v);
+            },
+          ),
+        ]),
+        if (enabled)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.info_outline, size: 16, color: PosTheme.accent),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '密码与「订单退款 / 清空购物车」共用同一套，由商户在「设置 → 权限密码」为收银员分配；未分配密码的收银员将无法改价。',
+                  style: TextStyle(fontSize: 11.5, height: 1.5, color: PosTheme.textSub),
+                ),
+              ),
+            ]),
           ),
       ]),
     );

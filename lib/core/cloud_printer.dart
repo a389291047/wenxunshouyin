@@ -325,6 +325,9 @@ class CloudPrinter {
       final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
       sb.writeln('$name');
       sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(sub)}');
+      // 单行备注（v3.3.205，如「不要袋子/切开」）
+      final note = '${g['note'] ?? ''}'.trim();
+      if (note.isNotEmpty) sb.writeln('  * $note');
     }
     sb.writeln('--------------------------------');
     sb.writeln('合计: ¥${Fmt.money(total)}');

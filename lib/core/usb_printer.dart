@@ -312,7 +312,7 @@ class UsbPrinter {
       calloc.free(doc);
       calloc.free(handle);
       calloc.free(written);
-      if (pBytes != null) calloc.free(pBytes!);
+      if (pBytes != null) calloc.free(pBytes);
     }
   }
 

@@ -2978,6 +2978,13 @@ class _PreorderDialogState extends State<_PreorderDialog> {
                                     SizedBox(width: 72,
                                         child: Text('¥${Fmt.money((double.tryParse('${b['unit_price']}') ?? 0) * (int.tryParse('${b['quantity']}') ?? 0))}',
                                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700), textAlign: TextAlign.right)),
+                                    const SizedBox(width: 6),
+                                    // 单个菜品删除（v3.3.205）：预点餐还没下厨，直接移出清单
+                                    InkWell(
+                                      onTap: () => setState(() => bill.removeAt(i)),
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: const SizedBox(width: 32, height: 32, child: Icon(Icons.close, size: 17, color: PosTheme.textHint)),
+                                    ),
                                   ]),
                                 );
                               },

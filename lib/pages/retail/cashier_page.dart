@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
+import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
@@ -17,6 +18,7 @@ import '../../core/theme.dart';
 import '../../core/theme_prefs.dart';
 import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
+import '../../ui/cart_line_dialog.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/weigh_dialog.dart';
@@ -35,9 +37,18 @@ class RetailCashierPage extends StatefulWidget {
 class _CartLine {
   final Map goods;
   double num; // 按件为整数；称重商品为重量（3 位小数，单位见商品 danwei）
-  _CartLine(this.goods, this.num);
+  double? price; // 单行改价（null = 按商品原价）v3.3.205
+  String note; // 单行备注（随小票打印）v3.3.205
+  _CartLine(this.goods, this.num, {this.price, this.note = ''});
   bool get byWeight => '${goods['sell_type'] ?? 0}' == '1';
   String get unit => byWeight ? _unitOf(goods) : '';
+
+  /// 商品原价（资料价，未改价时即成交价）
+  double get listPrice => double.tryParse('${goods['amount'] ?? goods['price'] ?? 0}') ?? 0;
+
+  /// 成交单价：有改价用改价，否则用资料价
+  double get unitPrice => price ?? listPrice;
+
   static String _unitOf(Map g) {
     final u = '${g['danwei'] ?? ''}'.trim();
     return u.isEmpty ? 'kg' : u;
@@ -128,7 +139,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     return g.toList();
   }
 
-  double get total => cart.fold(0, (s, l) => s + _price(l.goods) * l.num);
+  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.num);
   // 件数：按件商品累加数量，称重行按 1 笔计
   int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
 
@@ -248,13 +259,76 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   void _dec(_CartLine l) {
     if (l.byWeight) {
       // 称重行：减号=删除该行（改重量请点重量数字）
-      cart.remove(l);
-      setState(() {});
+      _removeLine(l);
       return;
     }
     l.num--;
-    if (l.num <= 0) cart.remove(l);
+    if (l.num <= 0) {
+      _removeLine(l);
+      return;
+    }
     setState(() {});
+  }
+
+  // ==================== 单个商品操作（v3.3.205） ====================
+
+  /// 改价前校验权限（设置里开启「改价需权限密码」才弹）
+  Future<bool> _authPrice() async {
+    if (!await CartPrefs.priceNeedPin()) return true;
+    if (!mounted) return false;
+    return showPinVerifyDialog(context,
+        title: '改价需要权限密码', sub: '输入当前收银员的权限密码（与退款密码相同）');
+  }
+
+  /// 点购物车某行 → 改数量 / 改价 / 备注 / 删除
+  Future<void> _lineEdit(_CartLine l) async {
+    final guige = '${l.goods['guige'] ?? ''}'.trim();
+    final r = await showCartLineDialog(
+      context,
+      title: '${l.goods['title']}',
+      subtitle: guige.isEmpty ? '' : '规格 $guige',
+      listPrice: l.listPrice,
+      num: l.num,
+      note: l.note,
+      price: l.price,
+      byWeight: l.byWeight,
+      unit: l.unit,
+      accent: PosTheme.accentLive,
+      onNeedPriceAuth: _authPrice,
+    );
+    if (r == null || !mounted) return;
+    if (r.deleted) {
+      _removeLine(l);
+      return;
+    }
+    setState(() {
+      l.num = r.num;
+      l.price = r.price;
+      l.note = r.note;
+    });
+  }
+
+  /// 删除单行商品（带 4 秒撤销）
+  void _removeLine(_CartLine l) {
+    final i = cart.indexOf(l);
+    if (i < 0) return;
+    setState(() => cart.removeAt(i));
+    // 该行删掉后若购物车空了，会员也一并清掉
+    if (cart.isEmpty && vip != null) setState(() => vip = null);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    messenger?.hideCurrentSnackBar();
+    messenger?.showSnackBar(SnackBar(
+      content: Text('已删除「${l.goods['title']}」'),
+      duration: const Duration(seconds: 4),
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+        label: '撤销',
+        onPressed: () {
+          if (!mounted) return;
+          setState(() => cart.insert(i.clamp(0, cart.length), l));
+        },
+      ),
+    ));
   }
 
   /// 清空购物车：若设置里开启「清空需权限码」，先弹数字键盘校验（v3.3.192）
@@ -306,7 +380,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       holds.insert(0, {
         'time': t,
         'vip': vip,
-        'items': cart.map((l) => {'goods': l.goods, 'num': l.num}).toList(),
+        'items': cart.map((l) => {'goods': l.goods, 'num': l.num, 'price': l.price, 'note': l.note}).toList(),
       });
       if (holds.length > 20) holds.removeLast(); // 最多 20 单，超出丢最旧
       cart.clear();
@@ -357,7 +431,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     final items = ((h['items'] as List?) ?? [])
         .map((e) {
           final m = e as Map;
-          return _CartLine(Map<String, dynamic>.from(m['goods'] as Map), (m['num'] as num?)?.toDouble() ?? 1);
+          return _CartLine(
+            Map<String, dynamic>.from(m['goods'] as Map),
+            (m['num'] as num?)?.toDouble() ?? 1,
+            price: (m['price'] as num?)?.toDouble(),
+            note: '${m['note'] ?? ''}',
+          );
         })
         .toList();
     final v = h['vip'] == null ? null : Map<String, dynamic>.from(h['vip'] as Map);
@@ -458,11 +537,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
       'name': l.goods['title'],
-      'price': _price(l.goods),
+      'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
       'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
       'unit': l.byWeight ? l.unit : '',
       'guige': '${l.goods['guige'] ?? ''}',
       'image': _img(l.goods),
+      'note': l.note, // 单行备注（小票打印用）
     }).toList();
 
     // 会员余额支付：校验余额 → 后端扣款（联拓富会员走联拓富真实扣款）+ 落单
@@ -494,7 +574,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.print(CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t,
-            cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num, 'unit': l.byWeight ? l.unit : ''}).toList(),
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
           )).catchError((_) => <String, dynamic>{});
         }
         _clearCart();
@@ -530,7 +610,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (await PrintPrefs.on('retail')) {
         CloudPrinter.print(CloudPrinter.retailReceipt(
           orderNo: orderNo, payMethod: picked, total: t,
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': _price(l.goods), 'quantity': l.num, 'unit': l.byWeight ? l.unit : ''}).toList(),
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
         )).catchError((_) => <String, dynamic>{});
       }
 
@@ -1017,6 +1097,15 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               ]),
             ),
           ),
+          // 操作提示（v3.3.205：购物车支持单行改数量/改价/备注/删除）
+          if (cart.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+              color: const Color(0xFFFBFCFD),
+              child: const Text('点商品行可改数量 / 改价 / 备注，点 × 删除单个商品',
+                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            ),
           // 明细（行高加大）
           Expanded(
             child: cart.isEmpty
@@ -1028,21 +1117,52 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                     itemBuilder: (_, i) {
                       final l = cart[i];
                       final guige = '${l.goods['guige'] ?? ''}'.trim();
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        child: Row(children: [
-                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${l.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                            const SizedBox(height: 3),
-                            Text(guige.isNotEmpty
-                                ? '规格：$guige · ¥${Fmt.money(_price(l.goods))}'
-                                : (l.byWeight
-                                    ? '¥${Fmt.money(_price(l.goods))}/${l.unit}'
-                                    : '¥${Fmt.money(_price(l.goods))}'), style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-                          ])),
-                          _stepper(l),
-                          SizedBox(width: 72, child: Text('¥${Fmt.money(_price(l.goods) * l.num)}', textAlign: TextAlign.right, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                        ]),
+                      return InkWell(
+                        onTap: () => _lineEdit(l), // 点行 = 改数量/改价/备注/删除（v3.3.205）
+                        onLongPress: () => _lineEdit(l),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 10, 10, 10),
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              Expanded(
+                                child: Text('${l.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                              ),
+                              if (l.price != null) ...[
+                                const SizedBox(width: 5),
+                                _lineTag('改价', PosTheme.accentLive),
+                              ],
+                              const SizedBox(width: 6),
+                              Text('¥${Fmt.money(l.unitPrice * l.num)}', textAlign: TextAlign.right,
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => _removeLine(l),
+                                borderRadius: BorderRadius.circular(18),
+                                child: const SizedBox(width: 30, height: 30, child: Icon(Icons.close, size: 17, color: PosTheme.textHint)),
+                              ),
+                            ]),
+                            const SizedBox(height: 2),
+                            Row(children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text(
+                                      guige.isNotEmpty
+                                          ? '规格：$guige · ¥${Fmt.money(l.unitPrice)}'
+                                          : (l.byWeight
+                                              ? '¥${Fmt.money(l.unitPrice)}/${l.unit}'
+                                              : '¥${Fmt.money(l.unitPrice)}${l.price != null ? '（原 ¥${Fmt.money(l.listPrice)}）' : ''}'),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                                  if (l.note.isNotEmpty)
+                                    Text('备注：${l.note}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, color: PosTheme.amber, fontWeight: FontWeight.w600)),
+                                ]),
+                              ),
+                              _stepper(l),
+                            ]),
+                          ]),
+                        ),
                       );
                     },
                   ),
@@ -1090,6 +1210,15 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           ),
         ],
       ),
+    );
+  }
+
+  // 行内小标签（改价/备注等）
+  Widget _lineTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
+      child: Text(text, style: TextStyle(fontSize: 10.5, color: color, fontWeight: FontWeight.w700)),
     );
   }
 
