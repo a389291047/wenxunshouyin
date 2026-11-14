@@ -25,6 +25,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   bool get _isMac => Platform.isMacOS;
 
+  /// macOS 更新走 App Store（v3.3.203）：直接跳商店，不下载 DMG
+  Future<void> _openStore() async {
+    try {
+      await AppStore.open();
+    } catch (_) {}
+    if (mounted) Navigator.pop(context);
+  }
+
   Future<void> _startDownload() async {
     setState(() { _phase = 1; _error = null; _progress = 0; });
     try {
@@ -97,7 +105,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
               Row(children: [
                 const Icon(Icons.shield_outlined, size: 14, color: PosTheme.textHint),
                 const SizedBox(width: 4),
-                Expanded(child: Text('更新仅替换程序文件，不影响本地配置与业务数据（数据在服务器）',
+                Expanded(child: Text(_isMac
+                    ? 'macOS 版已上架 App Store，点击下方按钮在应用商店完成更新'
+                    : '更新仅替换程序文件，不影响本地配置与业务数据（数据在服务器）',
                     style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint))),
               ]),
               const SizedBox(height: 18),
@@ -109,9 +119,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
                 )),
                 const SizedBox(width: 12),
                 Expanded(child: FilledButton(
-                  onPressed: _startDownload,
+                  onPressed: _isMac ? _openStore : _startDownload,
                   style: FilledButton.styleFrom(backgroundColor: PosTheme.accent, padding: const EdgeInsets.symmetric(vertical: 12)),
-                  child: const Text('立即更新', style: TextStyle(fontWeight: FontWeight.w600)),
+                  child: Text(_isMac ? '前往 App Store' : '立即更新', style: const TextStyle(fontWeight: FontWeight.w600)),
                 )),
               ]),
             ] else if (_phase == 1) ...[

@@ -66,6 +66,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool drawerEnabled = false;
   String drawerChannel = 'usb'; // usb | bt
   bool drawerTesting = false;
+  String drawerPrinterName = ''; // 当前通道已选打印机名称（测试排障提示用）
 
   // 功能设置（v3.3.187）
   bool searchFocusOn = false; // 搜索框始终聚焦
@@ -1782,8 +1783,10 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ]),
       const SizedBox(height: 4),
-      const Text('检查到新版本后由您确认下载安装。更新仅替换程序文件，不影响本地配置（云打印/USB打印/打印开关等）与业务数据（数据在服务器）。',
-          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+      Text(Platform.isMacOS
+          ? '检查到新版本后将引导前往 App Store 更新（macOS 版通过应用商店分发）。更新不影响本地配置与业务数据。'
+          : '检查到新版本后由您确认下载安装。更新仅替换程序文件，不影响本地配置（云打印/USB打印/打印开关等）与业务数据（数据在服务器）。',
+          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 12),
       if (Updater.supported)
         SizedBox(width: double.infinity, child: FilledButton.icon(
@@ -2282,11 +2285,28 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadDrawer() async {
     final sp = await SharedPreferences.getInstance();
+    final ch = sp.getString(CashDrawer.prefChannel) ?? 'usb';
+    final name = await _drawerPrinterNameOf(ch);
     if (!mounted) return;
     setState(() {
       drawerEnabled = sp.getBool(CashDrawer.prefEnabled) ?? false;
-      drawerChannel = sp.getString(CashDrawer.prefChannel) ?? 'usb';
+      drawerChannel = ch;
+      drawerPrinterName = name;
     });
+  }
+
+  /// 当前弹箱通道已选打印机名称（未选返回空）
+  Future<String> _drawerPrinterNameOf(String ch) async {
+    try {
+      if (ch == 'bt') {
+        final d = await BtPrinter.selectedDevice();
+        return '${d?['name'] ?? ''}';
+      }
+      final p = await UsbPrinter.selectedPrinter();
+      return '${p?['name'] ?? ''}';
+    } catch (_) {
+      return '';
+    }
   }
 
   Future<void> _saveDrawer() async {
@@ -2294,14 +2314,17 @@ class _SettingsPageState extends State<SettingsPage> {
     await CashDrawer.setChannel(drawerChannel);
   }
 
-  /// 测试弹箱：直接给当前通道打印机发开箱指令
+  /// 测试打开钱箱：直接给当前通道打印机发开箱指令（与自动弹箱自动开关无关，随时可测）
   Future<void> _drawerTest() async {
     setState(() => drawerTesting = true);
     try {
       await CashDrawer.open();
-      if (mounted) toast(context, '已发送弹箱指令，请确认钱箱是否弹出');
+      if (!mounted) return;
+      toast(context, '已向「${drawerPrinterName.isEmpty ? '打印机' : drawerPrinterName}」发送开箱指令，请确认钱箱是否弹出');
     } on ApiError catch (e) {
       if (mounted) toast(context, e.message, error: true);
+    } catch (e) {
+      if (mounted) toast(context, '弹箱失败：$e', error: true);
     } finally {
       if (mounted) setState(() => drawerTesting = false);
     }
@@ -2310,7 +2333,19 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _drawerCard() {
     if (!CashDrawer.supported) return const SizedBox.shrink();
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _sectionTitle(Icons.savings_outlined, '钱箱'),
+      Row(children: [
+        _sectionTitle(Icons.savings_outlined, '钱箱'),
+        const Spacer(),
+        // 测试打开钱箱：常驻标题栏，不依赖自动弹箱开关
+        OutlinedButton.icon(
+          onPressed: drawerTesting ? null : _drawerTest,
+          style: OutlinedButton.styleFrom(foregroundColor: PosTheme.blue, side: const BorderSide(color: PosTheme.blue)),
+          icon: drawerTesting
+              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.blue))
+              : const Icon(Icons.lock_open_outlined, size: 16),
+          label: const Text('测试打开钱箱'),
+        ),
+      ]),
       const SizedBox(height: 4),
       // 自动弹箱开关
       Container(
@@ -2337,43 +2372,42 @@ class _SettingsPageState extends State<SettingsPage> {
         ]),
       ),
       // 弹箱通道
-      if (drawerEnabled)
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('钱箱接线方式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Row(children: [
-              _drawerChip('usb', 'USB小票打印机'),
-              const SizedBox(width: 6),
-              _drawerChip('bt', '蓝牙打印机'),
-            ]),
-            const SizedBox(height: 6),
-            Text(
-              drawerChannel == 'bt'
-                  ? '钱箱 RJ11 线接在蓝牙小票打印机上，开箱指令通过已选择的蓝牙打印机发出'
-                  : '钱箱 RJ11 线接在 USB 小票打印机上，开箱指令通过已选择的 USB 打印机发出',
-              style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
-            ),
+      Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('钱箱接线方式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(children: [
+            _drawerChip('usb', 'USB小票打印机'),
+            const SizedBox(width: 6),
+            _drawerChip('bt', '蓝牙打印机'),
           ]),
-        ),
-      // 测试
-      if (drawerEnabled)
-        Row(children: [
-          OutlinedButton.icon(
-            onPressed: drawerTesting ? null : _drawerTest,
-            style: OutlinedButton.styleFrom(foregroundColor: PosTheme.blue, side: const BorderSide(color: PosTheme.blue)),
-            icon: drawerTesting
-                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.blue))
-                : const Icon(Icons.lock_open_outlined, size: 16),
-            label: const Text('测试弹出'),
+          const SizedBox(height: 6),
+          Text(
+            drawerChannel == 'bt'
+                ? '钱箱 RJ11 线接在蓝牙小票打印机上，开箱指令通过已选择的蓝牙打印机发出'
+                : '钱箱 RJ11 线接在 USB 小票打印机上，开箱指令通过已选择的 USB 打印机发出',
+            style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint),
           ),
-          const SizedBox(width: 12),
-          const Expanded(child: Text('测试不弹箱时：确认钱箱 RJ11 线插紧、接在当前选择的打印机上，且打印机电源正常。',
-              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint))),
         ]),
+      ),
+      // 当前打印机 + 排障提示
+      Row(children: [
+        Icon(drawerPrinterName.isEmpty ? Icons.error_outline : Icons.print_outlined,
+            size: 14, color: drawerPrinterName.isEmpty ? PosTheme.amber : PosTheme.textHint),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            drawerPrinterName.isEmpty
+                ? '未选择${drawerChannel == 'bt' ? '蓝牙' : ' USB '}打印机，请先在上方对应设置里选择，否则测试和自动弹箱都会失败'
+                : '弹箱打印机：$drawerPrinterName　｜　测试不弹箱时：确认钱箱 RJ11 线插紧在打印机上、打印机电源正常',
+            style: TextStyle(fontSize: 11.5,
+                color: drawerPrinterName.isEmpty ? PosTheme.amber : PosTheme.textHint),
+          ),
+        ),
+      ]),
     ]));
   }
 
@@ -2384,6 +2418,8 @@ class _SettingsPageState extends State<SettingsPage> {
       onTap: () async {
         setState(() => drawerChannel = key);
         await _saveDrawer();
+        final name = await _drawerPrinterNameOf(key);
+        if (mounted) setState(() => drawerPrinterName = name);
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

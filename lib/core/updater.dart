@@ -4,8 +4,27 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'api.dart';
+
+/// macOS 更新走 App Store（v3.3.203）：检查到新版本直接跳商店，不再下载 DMG
+class AppStore {
+  AppStore._();
+
+  static const url = 'https://apps.apple.com/cn/app/%E7%A8%B3%E8%AE%AF%E6%94%B6%E9%93%B6/id6746535178';
+
+  /// 用 itms-apps 协议直接拉起 App Store 应用；失败回落浏览器打开网页
+  static Future<void> open() async {
+    final itms = Uri.parse('itms-apps://apps.apple.com/cn/app/id6746535178');
+    try {
+      if (await launchUrl(itms, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {}
+    try {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+}
 
 /// 在线更新服务（v3.3.79）
 /// 原则：只在设置页商户手动点击时检查/下载/安装；没有新版本或商户不点，什么都不发生。
