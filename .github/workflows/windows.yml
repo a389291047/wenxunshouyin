@@ -122,6 +122,8 @@ jobs:
           }
           gh release upload $tag $exe "WenXun-portable.zip" --clobber
           if ($LASTEXITCODE -ne 0) { Write-Error "release upload failed"; exit 1 }
+          # 删 tag 重建会让旧 Release 变草稿（匿名下载看不到），这里强制转正式
+          gh release edit $tag --draft=false
 
       # Artifacts 作为备用下载通道（保留 7 天）；存储配额满时上传失败不影响 Release
       - name: Upload portable zip
