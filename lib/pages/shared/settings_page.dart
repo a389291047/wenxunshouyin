@@ -3699,14 +3699,15 @@ class _ScaleCardState extends State<_ScaleCard> {
     setState(() {
       probing = true;
       testKg = null;
-      testMsg = '正在自动检测串口和波特率，请把商品放在秤上…';
+      testMsg = '正在自动检测串口和波特率，秤盘上放不放东西都行，最长约半分钟…';
     });
     final r = await SerialScale.autoDetect();
     if (!mounted) return;
     if (r == null) {
       setState(() {
         probing = false;
-        testMsg = '没找到秤：确认秤已插好并开机，或改用键盘口秤';
+        testMsg = '没找到秤：确认秤已开机、线插好（设备管理器里能看到 COM 口）；'
+          '一体机内置秤请联系厂家确认串口是否已接出。也可改用键盘口秤';
       });
       ScaleService.I.resume(); // 没找到也要恢复全局连接
       return;

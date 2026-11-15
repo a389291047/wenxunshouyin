@@ -105,6 +105,13 @@ class ScaleParser {
     final line = raw.trim();
     if (line.isEmpty) return null;
 
+    // 排除仪表原始帧（如耀华 A9 的 "U11T11 2345 03"）和乱码：
+    // 没有小数点、没有单位字样、却夹着字母 → 不是人类可读的重量行
+    final hasUnit = RegExp(r'kg|g\b|斤', caseSensitive: false).hasMatch(line);
+    if (!line.contains('.') && !hasUnit && RegExp(r'[A-Za-z]').hasMatch(line)) {
+      return null;
+    }
+
     // 报文形如 "ST,GS,+ 0.525kg"：状态位（ST/GS/US）不含数字，取最后一个十进制数即重量
     final matches = RegExp(r'\d+(?:\.\d+)?').allMatches(line).toList();
     if (matches.isEmpty) return null;
@@ -216,8 +223,11 @@ class BuiltinScale {
 /// 其它系统：不支持（安卓走内置秤/键盘口）。
 class SerialScale {
   WinSerial? _port;
+  String _portName = '';
+  int _baud = 0;
   Timer? _timer;
   String _buf = '';
+  DateTime? _lastRx;
   double? _last;
   DateTime? _lastAt;
   bool _gotData = false;
@@ -234,6 +244,9 @@ class SerialScale {
   bool get stable => _stable;
 
   double? get last => _last;
+
+  String get portName => _portName;
+  int get baud => _baud;
 
   /// 真正「连上」= 端口打开且读到过重量（只打开端口不算，避免误报绿灯）
   bool get connected => _port != null && _gotData;
@@ -252,7 +265,10 @@ class SerialScale {
       return false;
     }
     _port = port;
+    _portName = portName;
+    _baud = baud;
     _buf = '';
+    _lastRx = null;
     _gotData = false;
     _timer = Timer.periodic(const Duration(milliseconds: 120), (_) => _poll(unitPref));
     return true;
@@ -263,22 +279,39 @@ class SerialScale {
     if (port == null || !port.isOpen) return;
     try {
       final data = port.read();
-      if (data.isEmpty) return;
-      _buf += latin1.decode(data, allowInvalid: true);
-      // 按换行/回车切帧，剩余半帧留到下次
-      final lines = _buf.split(RegExp(r'[\r\n]+'));
+      if (data.isNotEmpty) {
+        _lastRx = DateTime.now();
+        _buf += latin1.decode(data, allowInvalid: true);
+      }
+      // 按换行/回车/STX(0x02)/ETX(0x03) 切帧，剩余半帧留到下次。
+      // 不少秤的连续帧用 STX/ETX 包夹（如 02 ... 03），不带 \r\n
+      final lines = _buf.split(RegExp(r'[\x02\x03\r\n]+'));
       _buf = lines.removeLast();
       if (_buf.length > 200) _buf = '';
       for (final line in lines) {
-        final kg = ScaleParser.parseKg(line, unitPref: unitPref);
-        if (kg == null || kg < 0) continue;
-        final st = ScaleParser.stableOf(line);
-        if (st != null) _stable = st;
-        _emit(kg);
+        _handleLine(line, unitPref);
+      }
+      // 无结束符协议兜底：缓冲里已有内容但 350ms 没新数据 → 整块当一帧解析
+      // （定长帧、纯数字帧等不发结束符的秤靠这条通道出数）
+      final rx = _lastRx;
+      if (_buf.isNotEmpty &&
+          rx != null &&
+          DateTime.now().difference(rx).inMilliseconds >= 350) {
+        final line = _buf;
+        _buf = '';
+        _handleLine(line, unitPref);
       }
     } catch (_) {
       stop(); // 串口被拔掉等异常
     }
+  }
+
+  void _handleLine(String line, String unitPref) {
+    final kg = ScaleParser.parseKg(line, unitPref: unitPref);
+    if (kg == null || kg < 0) return;
+    final st = ScaleParser.stableOf(line);
+    if (st != null) _stable = st;
+    _emit(kg);
   }
 
   void _emit(double kg) {
@@ -313,29 +346,75 @@ class SerialScale {
     }
   }
 
-  /// 自动探测：遍历 COM1..COM20 × 常见波特率，谁先读到重量就用谁
+  /// 探测窗口：收集若干帧，够数且读数稳定（乱码噪声帧彼此跳变，稳定读数一致）即认成功。
+  ///
+  /// - minFrames：至少 3 帧；若其中出现 >0.05kg 的实重，2 帧一致也可提前认（秤每秒 1 帧时太慢）
+  /// - maxSpread：帧间最大差 0.5kg；乱码/波特率不对时数字乱跳，会被过滤
+  /// - maxKg：单帧上限 500kg（收银秤物理不可能，防乱码误判）
+  Future<ScaleProbe?> probeFor({
+    required Duration window,
+    List<String> queryCmds = const [],
+    int minFrames = 3,
+    double maxSpread = 0.5,
+    double maxKg = 500,
+  }) async {
+    final frames = <double>[];
+    final sub = stream.listen(frames.add);
+    final sw = Stopwatch()..start();
+    var cmdIdx = 0;
+    var lastCmdAt = DateTime.now();
+    try {
+      while (sw.elapsed < window) {
+        await Future.delayed(const Duration(milliseconds: 60));
+        // 静默口（指令问答式秤）：没收到连续流时，每隔 450ms 发一条查询指令试探
+        if (frames.isEmpty &&
+            cmdIdx < queryCmds.length &&
+            DateTime.now().difference(lastCmdAt).inMilliseconds >= 450) {
+          sendCommand(queryCmds[cmdIdx++]);
+          lastCmdAt = DateTime.now();
+        }
+        if (frames.length < 2) continue;
+        final mx = frames.reduce(_maxD);
+        final mn = frames.reduce(_minD);
+        if (mx > maxKg || (mx - mn) > maxSpread) {
+          frames.clear(); // 乱码：清空重新统计
+          continue;
+        }
+        final real = frames.any((v) => v > 0.05);
+        if (frames.length >= minFrames || (real && frames.length >= 2)) {
+          return ScaleProbe(port: _portName, baud: _baud, kg: frames.last);
+        }
+      }
+      return null;
+    } finally {
+      await sub.cancel();
+    }
+  }
+
+  static double _maxD(double a, double b) => a > b ? a : b;
+  static double _minD(double a, double b) => a < b ? a : b;
+
+  /// 自动探测：遍历所有 COM 口 × 常见波特率，谁先稳定出数就用谁
   ///
   /// 收银员不用懂 COM 号和波特率，插上秤点「自动检测」即可。
-  /// 打不开的口会瞬间跳过，正常只有 1~2 个串口存在，耗时很短。
+  /// - 空秤（0.000）也能检测成功：连续多帧一致即认，不要求必须有重量
+  /// - 波特率含 1200/2400：大量计价秤默认低速档
+  /// - 静默时会发 ENQ / W 指令试探「问答式」秤（只发查询，不触发打印）
   static Future<ScaleProbe?> autoDetect({
-    List<int> bauds = const [9600, 4800, 19200, 38400, 115200],
-    Duration window = const Duration(milliseconds: 900),
+    List<int> bauds = const [9600, 2400, 4800, 1200, 19200, 38400, 57600, 115200],
+    Duration window = const Duration(milliseconds: 2000),
   }) async {
     if (!WinSerial.supported) return null;
-    for (var i = 1; i <= 20; i++) {
-      final name = 'COM$i';
-      // 先试探这个口是否存在，不存在直接跳过（不浪费时间试波特率）
-      final probe = WinSerial();
-      final opened = probe.open(name, 9600);
-      probe.close();
-      if (!opened) continue;
-
+    for (final name in WinSerial.availablePorts()) {
       for (final b in bauds) {
         final s = SerialScale();
         if (!s.start(portName: name, baud: b, unitPref: 'auto')) continue;
-        final kg = await s.firstReading(window);
+        final r = await s.probeFor(
+          window: window,
+          queryCmds: const ['\x05', 'W\r\n'],
+        );
         s.dispose();
-        if (kg != null && kg > 0) return ScaleProbe(port: name, baud: b, kg: kg);
+        if (r != null) return r;
       }
     }
     return null;
@@ -349,6 +428,7 @@ class SerialScale {
     } catch (_) {}
     _port = null;
     _buf = '';
+    _lastRx = null;
     _gotData = false;
     _stable = true;
   }
