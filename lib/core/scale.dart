@@ -85,6 +85,21 @@ class ScalePrefs {
 /// - `12.5斤`
 /// - 裸数字 `0.525`（按配置单位解释）
 class ScaleParser {
+  /// 解析稳定位：ST=稳定(true)、US=动态/不稳定(false)、识别不出=null
+  ///
+  /// 报文形如 "ST,GS,+  0.525kg" / "US,GS,+ 0.530kg"（托利多/大华/顶尖通用约定）。
+  /// 连续称重流程依赖此位判断「数字稳定闪烁停止」。
+  static bool? stableOf(String raw) {
+    final line = raw.trim().toUpperCase();
+    if (line.isEmpty) return null;
+    if (line.startsWith('ST')) return true;
+    if (line.startsWith('US')) return false;
+    // 部分秤把稳定位放在别处：含 " ST " / " US "
+    if (RegExp(r'[,; ]ST[,; ]').hasMatch(line)) return true;
+    if (RegExp(r'[,; ]US[,; ]').hasMatch(line)) return false;
+    return null;
+  }
+
   /// 返回千克值；无法识别返回 null
   static double? parseKg(String raw, {String unitPref = 'auto'}) {
     final line = raw.trim();
@@ -206,9 +221,18 @@ class SerialScale {
   double? _last;
   DateTime? _lastAt;
   bool _gotData = false;
+  bool _stable = true; // 最近一帧稳定位（识别不出按稳定处理）
   final _out = StreamController<double>.broadcast();
+  final _frames = StreamController<ScaleFrame>.broadcast();
 
   Stream<double> get stream => _out.stream;
+
+  /// 帧流（重量 + 稳定位）：连续称重/收银页常驻称重条用
+  Stream<ScaleFrame> get frameStream => _frames.stream;
+
+  /// 最近一帧是否稳定（数字闪烁停止）
+  bool get stable => _stable;
+
   double? get last => _last;
 
   /// 真正「连上」= 端口打开且读到过重量（只打开端口不算，避免误报绿灯）
@@ -247,7 +271,10 @@ class SerialScale {
       if (_buf.length > 200) _buf = '';
       for (final line in lines) {
         final kg = ScaleParser.parseKg(line, unitPref: unitPref);
-        if (kg != null && kg >= 0) _emit(kg);
+        if (kg == null || kg < 0) continue;
+        final st = ScaleParser.stableOf(line);
+        if (st != null) _stable = st;
+        _emit(kg);
       }
     } catch (_) {
       stop(); // 串口被拔掉等异常
@@ -261,7 +288,20 @@ class SerialScale {
     _lastAt = now;
     _last = kg;
     _gotData = true;
+    final f = ScaleFrame(kg: kg, stable: _stable);
     if (!_out.isClosed) _out.add(kg);
+    if (!_frames.isClosed) _frames.add(f);
+  }
+
+  /// 下发指令（置零/去皮等）。注意：连续输出协议的秤不接受指令，发了也没反应
+  bool sendCommand(String cmd) {
+    final port = _port;
+    if (port == null || !port.isOpen) return false;
+    try {
+      return port.write(latin1.encode(cmd));
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 等第一帧读数（用于现场检测/自动探测端口）
@@ -310,12 +350,139 @@ class SerialScale {
     _port = null;
     _buf = '';
     _gotData = false;
+    _stable = true;
   }
 
   void dispose() {
     stop();
     _out.close();
+    _frames.close();
   }
+}
+
+/// 一帧秤读数：千克 + 稳定位（连续称重流程依赖稳定位判断「数字停止闪烁」）
+class ScaleFrame {
+  final double kg;
+  final bool stable;
+  const ScaleFrame({required this.kg, this.stable = true});
+}
+
+/// 条码秤标签条码解析（v3.3.207）
+///
+/// 常见 13 位格式：2 + 5位商品编码(PLU) + 5位克重 + 1位校验位
+/// 例：25324100525 7 → 编码 53241，重量 00525g = 0.525kg
+/// 扫码枪扫标签 → 按编码匹配商品 → 重量直接入购物车（不用再点商品称重）
+class ScaleBarcode {
+  final String plu; // 商品编码（5位，保留前导零）
+  final double kg; // 标签重量（千克）
+  const ScaleBarcode({required this.plu, required this.kg});
+
+  static ScaleBarcode? tryParse(String code) {
+    final s = code.trim();
+    if (s.length != 13) return null;
+    if (!RegExp(r'^2\d{12}$').hasMatch(s)) return null;
+    final grams = int.tryParse(s.substring(6, 11));
+    if (grams == null || grams < 0) return null;
+    return ScaleBarcode(plu: s.substring(1, 6), kg: grams / 1000.0);
+  }
+}
+
+/// 全局电子秤连接服务（v3.3.207）
+///
+/// 串口（Windows）与内置秤（安卓）是独占资源，全局只开一个连接，
+/// 收银页常驻称重条与称重弹窗共用同一个流，避免两处抢串口。
+/// - 键盘口秤不走此服务：它以键盘事件方式工作，仅在称重弹窗内监听
+/// - 苹果 macOS：不启动（canUseScale=false），保持原样
+class ScaleService {
+  ScaleService._();
+  static final ScaleService I = ScaleService._();
+
+  ScalePrefs? _prefs;
+  SerialScale? _serial;
+  BuiltinScale? _builtin;
+  StreamSubscription<ScaleFrame>? _subS;
+  StreamSubscription<double>? _subB;
+  bool _paused = false;
+
+  final _out = StreamController<ScaleFrame>.broadcast();
+  Stream<ScaleFrame> get stream => _out.stream;
+  ScaleFrame? last;
+
+  String get mode => _prefs?.mode ?? '';
+  String get unitPref => _prefs?.unit ?? 'auto';
+
+  bool get connected => _serial?.connected == true || _builtin?.connected == true;
+
+  /// 是否支持远程置零/去皮（仅串口秤；连续输出协议的秤秤端会忽略指令）
+  bool get canRemoteCommand => _serial != null;
+
+  /// 按配置启动连接（重复调用安全，已在跑就不动）
+  Future<void> ensure() async {
+    if (!ScaleSupport.canUseScale || _paused) return;
+    final p = await ScalePrefs.load();
+    _prefs = p;
+    if (!p.enabled) {
+      stop();
+      return;
+    }
+    if (p.mode == 'serial' && ScaleSupport.hasSerial) {
+      if (_serial != null) return;
+      final s = SerialScale();
+      if (!s.start(portName: p.port, baud: p.baud, unitPref: p.unit)) {
+        s.dispose();
+        return; // 打不开就静默，收银员照常手输
+      }
+      _serial = s;
+      _subS = s.frameStream.listen(_emit);
+    } else if (p.mode == 'builtin' && ScaleSupport.hasBuiltin) {
+      if (_builtin != null) return;
+      final b = BuiltinScale();
+      _subB = b.stream.listen((kg) => _emit(ScaleFrame(kg: kg, stable: true)));
+      await b.start(unitPref: p.unit);
+      _builtin = b;
+    }
+  }
+
+  void _emit(ScaleFrame f) {
+    last = f;
+    if (!_out.isClosed) _out.add(f);
+  }
+
+  /// 配置变更后重启连接
+  Future<void> restart() async {
+    stop();
+    await ensure();
+  }
+
+  void stop() {
+    _subS?.cancel();
+    _subS = null;
+    _subB?.cancel();
+    _subB = null;
+    _serial?.dispose();
+    _serial = null;
+    _builtin?.dispose();
+    _builtin = null;
+    last = null;
+  }
+
+  /// 暂停（设置页测试/自动检测要独占串口前调用）
+  Future<void> suspend() async {
+    _paused = true;
+    stop();
+  }
+
+  /// 恢复（测试结束后调用，按最新配置重连）
+  Future<void> resume() async {
+    _paused = false;
+    await restart();
+  }
+
+  /// 远程置零（空秤归 0）。返回 false = 未连上或不支持，请按秤面【置零】键
+  bool zero() => _serial?.sendCommand('Z\r\n') ?? false;
+
+  /// 远程去皮（扣掉碗碟盒子皮重）。返回 false = 未连上或不支持，请按秤面【去皮】键
+  bool tare() => _serial?.sendCommand('T\r\n') ?? false;
 }
 
 /// 自动探测结果

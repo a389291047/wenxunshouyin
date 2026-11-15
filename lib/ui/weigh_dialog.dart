@@ -35,13 +35,13 @@ class _WeighDialogState extends State<WeighDialog> {
   bool amountMode = false; // false=输重量 true=输金额
 
   // 电子秤（仅 Windows / 安卓；苹果端只用键盘手输）
+  // 串口/内置秤走全局 ScaleService（与收银页称重条共用连接，不抢串口）；键盘口秤在弹窗内监听
   ScalePrefs? prefs;
-  SerialScale? _serial;   // Windows 串口
-  BuiltinScale? _builtin; // 安卓一体机内置秤
-  StreamSubscription<double>? _sub;
+  StreamSubscription<ScaleFrame>? _sub;
   KeyboardScale? _kbd;
   Timer? _poll;
   double? scaleKg;        // 最近一次秤读数（千克）
+  bool scaleStable = true; // 最近一帧稳定位
   bool connected = false; // 真正读到重量才算连上 → 显示绿色图标
 
   @override
@@ -77,49 +77,41 @@ class _WeighDialogState extends State<WeighDialog> {
     setState(() => prefs = p);
     if (!p.enabled) return;
 
-    if (p.mode == 'serial' && ScaleSupport.hasSerial) {
-      final s = SerialScale();
-      final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
-      if (!mounted) {
-        s.dispose();
-        return;
-      }
-      // 打不开就静默（不提示、不显示图标），收银员照常手输
-      if (!ok) return;
-      _serial = s;
-      _sub = s.stream.listen(_onScaleKg);
-    } else if (p.mode == 'builtin' && ScaleSupport.hasBuiltin) {
-      final b = BuiltinScale();
-      _builtin = b;
-      _sub = b.stream.listen(_onScaleKg);
-      await b.start(unitPref: p.unit);
-    } else {
+    if (p.mode == 'keyboard') {
+      // 键盘口秤：秤以键盘事件打重量，只在弹窗内监听（全局服务不接管，避免干扰搜索框输入）
       final k = KeyboardScale();
       _kbd = k;
       HardwareKeyboard.instance.addHandler(_onKey);
       // 无回车协议的秤：定时取静默帧
       _poll = Timer.periodic(const Duration(milliseconds: 250), (_) {
         final kg = k.takePending();
-        if (kg != null) _onScaleKg(kg);
+        if (kg != null) _onScaleKg(ScaleFrame(kg: kg, stable: true));
       });
+      return;
     }
+    // 串口（Windows）/ 内置秤（安卓）：用全局 ScaleService，避免与收银页称重条抢串口
+    await ScaleService.I.ensure();
+    if (!mounted) return;
+    _sub = ScaleService.I.stream.listen(_onScaleKg);
   }
 
   bool _onKey(KeyEvent e) {
     final k = _kbd;
     if (k == null) return false;
     final kg = k.feed(e, unitPref: prefs?.unit ?? 'auto');
-    if (kg != null) _onScaleKg(kg);
+    if (kg != null) _onScaleKg(ScaleFrame(kg: kg, stable: true));
     // 数字/回车/字母键交给秤解析，不冒泡（弹窗内没有输入框，不影响手输）
     return false;
   }
 
-  void _onScaleKg(double kg) {
-    if (!mounted || kg <= 0) return;
+  void _onScaleKg(ScaleFrame f) {
+    if (!mounted || f.kg <= 0) return;
+    final kg = f.kg;
     final w = _kgToUnit(kg);
     setState(() {
       connected = true;
       scaleKg = kg;
+      scaleStable = f.stable;
       // 秤读数直接填进「重量」框，收银员核对后点确认；已手动输金额时不动金额
       if (!amountMode) {
         input = w.toStringAsFixed(3);
@@ -132,8 +124,6 @@ class _WeighDialogState extends State<WeighDialog> {
     if (_kbd != null) HardwareKeyboard.instance.removeHandler(_onKey);
     _poll?.cancel();
     _sub?.cancel();
-    _serial?.dispose();
-    _builtin?.dispose();
     super.dispose();
   }
 
@@ -233,21 +223,60 @@ class _WeighDialogState extends State<WeighDialog> {
                 border: Border.all(color: const Color(0xFF2FBF71).withOpacity(0.45)),
               ),
               child: Row(children: [
-                const Icon(Icons.check_circle, size: 18, color: Color(0xFF2FBF71)),
+                Icon(
+                  scaleStable ? Icons.check_circle : Icons.sync,
+                  size: 18,
+                  color: scaleStable ? const Color(0xFF2FBF71) : const Color(0xFFF5A623),
+                ),
                 const SizedBox(width: 8),
                 Text(
-                  '电子秤已连接',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF1E9C58)),
+                  scaleStable ? '电子秤已连接' : '电子秤读数中…',
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: scaleStable ? const Color(0xFF1E9C58) : const Color(0xFFC57F00)),
                 ),
                 const SizedBox(width: 6),
-                const Expanded(
-                  child: Text('放上商品自动读数', style: TextStyle(fontSize: 12, color: PosTheme.textSub)),
+                Expanded(
+                  child: Text(scaleStable ? '读数已稳定，核对后点确认' : '等数字停止闪烁再确认',
+                      style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
                 ),
                 if (scaleKg != null)
                   Text('${_kgToUnit(scaleKg!).toStringAsFixed(3)} $unit',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.accent)),
               ]),
             ),
+            // 串口秤支持远程置零/去皮（连续输出协议的秤会忽略指令，无反应请按秤面按键）
+            if (prefs?.mode == 'serial' && ScaleService.I.canRemoteCommand) ...[
+              const SizedBox(height: 8),
+              Row(children: [
+                Expanded(child: OutlinedButton.icon(
+                  onPressed: () {
+                    final ok = ScaleService.I.zero();
+                    toast(context, ok ? '已发送置零指令，无反应请按秤面【置零】键' : '指令未送达：秤未连接', error: !ok);
+                  },
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: PosTheme.textSub,
+                      side: const BorderSide(color: PosTheme.line),
+                      padding: const EdgeInsets.symmetric(vertical: 10)),
+                  icon: const Icon(Icons.exposure_zero, size: 16),
+                  label: const Text('置零（空秤归0）', style: TextStyle(fontSize: 13)),
+                )),
+                const SizedBox(width: 10),
+                Expanded(child: OutlinedButton.icon(
+                  onPressed: () {
+                    final ok = ScaleService.I.tare();
+                    toast(context, ok ? '已发送去皮指令，无反应请按秤面【去皮】键' : '指令未送达：秤未连接', error: !ok);
+                  },
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: PosTheme.textSub,
+                      side: const BorderSide(color: PosTheme.line),
+                      padding: const EdgeInsets.symmetric(vertical: 10)),
+                  icon: const Icon(Icons.remove_circle_outline, size: 16),
+                  label: const Text('去皮（扣皮重）', style: TextStyle(fontSize: 13)),
+                )),
+              ]),
+            ],
           ],
           const SizedBox(height: 14),
           // 当前录入值

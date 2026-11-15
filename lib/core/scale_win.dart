@@ -48,6 +48,12 @@ class WinSerial {
       int Function(int, ffi.Pointer<ffi.Uint8>, int, ffi.Pointer<ffi.Uint32>,
           ffi.Pointer<ffi.Void>)>('ReadFile');
 
+  static final _writeFile = _k32.lookupFunction<
+      ffi.Int32 Function(ffi.IntPtr, ffi.Pointer<ffi.Uint8>, ffi.Uint32,
+          ffi.Pointer<ffi.Uint32>, ffi.Pointer<ffi.Void>),
+      int Function(int, ffi.Pointer<ffi.Uint8>, int, ffi.Pointer<ffi.Uint32>,
+          ffi.Pointer<ffi.Void>)>('WriteFile');
+
   /// 打开串口：portName 形如 COM3 / \\.\COM10
   bool open(String portName, int baud) {
     if (!supported) return false;
@@ -109,6 +115,22 @@ class WinSerial {
     } finally {
       calloc.free(buf);
       calloc.free(got);
+    }
+  }
+
+  /// 写入原始字节（置零/去皮指令下发）；成功返回 true
+  bool write(Uint8List data) {
+    if (!isOpen || data.isEmpty) return false;
+    final buf = calloc<ffi.Uint8>(data.length);
+    final sent = calloc<ffi.Uint32>();
+    try {
+      buf.asTypedList(data.length).setAll(0, data);
+      return _writeFile(_handle!.address, buf, data.length, sent, ffi.nullptr) != 0;
+    } catch (_) {
+      return false;
+    } finally {
+      calloc.free(buf);
+      calloc.free(sent);
     }
   }
 

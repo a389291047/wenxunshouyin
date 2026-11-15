@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
+import '../../core/scale.dart';
 import '../../core/search_focus.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
@@ -89,6 +91,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
+    _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
     _loadHolds();
     _load();
   }
@@ -103,9 +106,155 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
+    scaleSub?.cancel();
+    scanDebounce?.cancel();
     searchKeeper.dispose();
     searchCtrl.dispose();
     super.dispose();
+  }
+
+  // ==================== 常驻称重条（v3.3.207） ====================
+  // 搜索框右侧实时显示秤上重量 + 连接状态；串口秤支持远程置零/去皮。
+  // 连续称重流程：置零/去皮 → 放稳 → 等稳定 → 点称重商品自动拉秤上重量（称重弹窗）
+  ScalePrefs? scalePrefs;
+  ScaleFrame? scaleFrame;
+  StreamSubscription<ScaleFrame>? scaleSub;
+  Timer? scanDebounce; // 条码秤标签识别防抖
+
+  Future<void> _initScaleBar() async {
+    if (!ScaleSupport.canUseScale) return; // mac 保持原样，不接秤
+    final p = await ScalePrefs.load();
+    if (!mounted) return;
+    setState(() => scalePrefs = p);
+    if (!p.enabled || (p.mode != 'serial' && p.mode != 'builtin')) return;
+    await ScaleService.I.ensure();
+    scaleSub = ScaleService.I.stream.listen((f) {
+      if (!mounted) return;
+      setState(() => scaleFrame = f);
+    });
+  }
+
+  /// 称重条可见性：启用且为串口/内置秤模式（键盘口秤以键盘事件工作，常驻条无意义）
+  bool get _showScaleBar =>
+      ScaleSupport.canUseScale && scalePrefs != null && scalePrefs!.enabled &&
+      (scalePrefs!.mode == 'serial' || scalePrefs!.mode == 'builtin');
+
+  /// 秤读数换算成显示单位（按配置：auto 时 kg 显示）
+  String _scaleWeightText() {
+    final f = scaleFrame;
+    if (f == null) return '--';
+    double v = f.kg;
+    String u = 'kg';
+    final pref = scalePrefs?.unit ?? 'auto';
+    if (pref == 'g') {
+      v = f.kg * 1000;
+      u = 'g';
+    } else if (pref == 'jin') {
+      v = f.kg * 2;
+      u = '斤';
+    }
+    var s = v.toStringAsFixed(u == 'g' ? 0 : 3);
+    if (u != 'g') s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '$s $u';
+  }
+
+  /// 点称重条 → 置零 / 去皮 / 连接状态
+  Future<void> _scaleSheet() async {
+    final canRemote = ScaleService.I.canRemoteCommand;
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) => SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Row(children: [
+              Icon(Icons.scale_outlined, size: 20, color: PosTheme.accentLive),
+              const SizedBox(width: 8),
+              Text(ScaleService.I.connected ? '电子秤已连接' : '电子秤未连接',
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w800,
+                      color: ScaleService.I.connected ? const Color(0xFF1E9C58) : PosTheme.textSub)),
+              const Spacer(),
+              Text(_scaleWeightText(), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.accentLive)),
+            ]),
+            const SizedBox(height: 14),
+            if (canRemote) ...[
+              Row(children: [
+                Expanded(child: BigButton('置零（空秤归0）', onTap: () {
+                  Navigator.pop(ctx);
+                  toast(context, ScaleService.I.zero() ? '已发送置零指令，无反应请按秤面【置零】键' : '指令未送达：秤未连接', error: true);
+                }, height: 52)),
+                const SizedBox(width: 12),
+                Expanded(child: BigButton('去皮（扣皮重）', onTap: () {
+                  Navigator.pop(ctx);
+                  toast(context, ScaleService.I.tare() ? '已发送去皮指令，无反应请按秤面【去皮】键' : '指令未送达：秤未连接', error: true);
+                }, height: 52, color: PosTheme.blue)),
+              ]),
+            ] else ...[
+              const Text('当前秤类型不支持远程置零/去皮，请在秤面按键操作：\n置零=空秤归0 ｜ 去皮=扣掉碗碟盒子皮重',
+                  style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              '连续称重：放稳 → 等数字停止闪烁 → 点称重商品自动带入重量；换碗/换品类建议重新去皮，称下一份前等秤回零',
+              style: TextStyle(fontSize: 12, color: PosTheme.textHint),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  /// 称重条 UI（搜索框右侧 48 高胶囊）
+  Widget _scaleBar() {
+    final f = scaleFrame;
+    final on = ScaleService.I.connected;
+    final stable = f?.stable ?? false;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _scaleSheet,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: on ? const Color(0xFFEAF8F0) : const Color(0xFFF1F2F5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: on
+                    ? const Color(0xFF2FBF71).withValues(alpha: 0.5)
+                    : PosTheme.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(
+              Icons.scale_outlined,
+              size: 20,
+              color: on ? const Color(0xFF1E9C58) : PosTheme.textHint,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              on ? _scaleWeightText() : '未连接',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: on ? (stable ? const Color(0xFF1E9C58) : const Color(0xFFC57F00)) : PosTheme.textHint,
+              ),
+            ),
+            if (on && !stable) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0xFFFFF3D6), borderRadius: BorderRadius.circular(6)),
+                child: const Text('不稳', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFFC57F00))),
+              ),
+            ],
+          ]),
+        ),
+      ),
+    );
   }
 
   Future<void> _load() async {
@@ -715,6 +864,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           _noCodeBtn(),
           const SizedBox(width: 14),
           Expanded(child: _searchBox()),
+          if (_showScaleBar) ...[
+            const SizedBox(width: 10),
+            _scaleBar(),
+          ],
         ],
       ),
     );
@@ -760,7 +913,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         cursorColor: PosTheme.accentLive,
         style: const TextStyle(
             fontSize: 17, fontWeight: FontWeight.w500, color: PosTheme.textMain),
-        onChanged: (v) => setState(() => keyword = v.trim()),
+        onChanged: _onSearchChanged,
         decoration: InputDecoration(
           isDense: true,
           filled: true,
@@ -793,6 +946,66 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ),
       ),
     );
+  }
+
+  /// 搜索/扫码输入：普通关键词直接过滤；扫到条码秤标签（2 前缀 13 位）自动解析入购物车
+  void _onSearchChanged(String v) {
+    setState(() => keyword = v.trim());
+    scanDebounce?.cancel();
+    final t = v.trim();
+    if (!RegExp(r'^2\d{12}$').hasMatch(t)) return; // 不是条码秤标签格式，走普通搜索
+    scanDebounce = Timer(const Duration(milliseconds: 180), () => _tryScaleBarcode(t));
+  }
+
+  /// 条码秤标签：扫标签 → 按编码匹配商品 → 标签重量直接入购物车
+  ///
+  /// 匹配规则：商品资料「条码」字段 = 条码秤里配置的商品编码（PLU，忽略前导零）
+  Future<void> _tryScaleBarcode(String code) async {
+    final tag = ScaleBarcode.tryParse(code);
+    if (tag == null) return;
+    final pluNum = int.tryParse(tag.plu);
+    Map? hit;
+    for (final g in goods) {
+      final c = '${g['code'] ?? g['bianma'] ?? g['barcode'] ?? ''}'.trim();
+      if (c.isEmpty) continue;
+      if (c == tag.plu || c == tag.plu.replaceFirst(RegExp(r'^0+'), '') || (pluNum != null && int.tryParse(c) == pluNum)) {
+        hit = g;
+        break;
+      }
+    }
+    if (hit == null) {
+      toast(context, '秤标签编码 ${tag.plu} 未匹配到商品（商品资料条码需与秤内编码一致）', error: true);
+      return;
+    }
+    if (_hasSpecs(hit)) {
+      toast(context, '「${hit['title']}」是多规格商品，请在列表里手动点选', error: true);
+      return;
+    }
+    searchCtrl.clear();
+    setState(() => keyword = '');
+    searchKeeper.node.requestFocus();
+    final h = hit; // setState 闭包内类型提升失效，先取局部
+    if (_isWeighted(h)) {
+      final key = _cartKey(h);
+      final i = cart.indexWhere((l) => _cartKey(l.goods) == key);
+      setState(() {
+        if (i > -1) {
+          cart[i].num = double.parse((cart[i].num + tag.kg).toStringAsFixed(3)); // 同商品连续扫：累加
+        } else {
+          cart.add(_CartLine(h, tag.kg));
+        }
+      });
+      toast(context, '已按秤标签加入：${h['title']} ${_qtyTextOf(tag.kg)}${_unitOf(h)}');
+    } else {
+      _add(h);
+      toast(context, '已加入：${h['title']}');
+    }
+  }
+
+  /// 重量展示（3 位小数去尾零）
+  String _qtyTextOf(double n) {
+    var s = n.toStringAsFixed(3);
+    return s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
   }
 
   /// 清空按钮：真正清空输入框内容 + 过滤条件，并把焦点还给搜索框（扫码枪继续可用）

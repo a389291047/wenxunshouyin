@@ -3578,11 +3578,16 @@ class _ScaleCardState extends State<_ScaleCard> {
   Future<void> _save() async {
     p.port = portCtrl.text.trim();
     await p.save();
+    // 配置变更后重启全局秤连接（收银页称重条/称重弹窗共用）；
+    // 测试/自动检测期间不重启（服务已暂停，避免抢串口）
+    if (!testing && !probing) await ScaleService.I.restart();
   }
 
   @override
   void dispose() {
     _stopTest();
+    // 测试中离开设置页：恢复全局秤连接（按最新配置重连）
+    ScaleService.I.resume();
     portCtrl.dispose();
     super.dispose();
   }
@@ -3622,6 +3627,9 @@ class _ScaleCardState extends State<_ScaleCard> {
   }
 
   Future<void> _startTest() async {
+    // 测试要独占串口/内置秤：先暂停全局秤连接（收银页称重条在用）
+    await ScaleService.I.suspend();
+    setState(() => testing = true); // 先置位，_save 期间不重启全局连接
     await _save();
     _stopTest();
     setState(() {
@@ -3635,6 +3643,7 @@ class _ScaleCardState extends State<_ScaleCard> {
       final ok = s.start(portName: p.port, baud: p.baud, unitPref: p.unit);
       if (!mounted) {
         s.dispose();
+        ScaleService.I.resume();
         return;
       }
       if (!ok) {
@@ -3642,6 +3651,7 @@ class _ScaleCardState extends State<_ScaleCard> {
           testing = false;
           testMsg = '串口打不开：确认秤已插好、驱动已装，或点「自动检测」让系统自己找';
         });
+        ScaleService.I.resume(); // 测试失败也要恢复全局连接
         return;
       }
       _serial = s;
@@ -3651,6 +3661,7 @@ class _ScaleCardState extends State<_ScaleCard> {
       final ok = await b.start(unitPref: p.unit);
       if (!mounted) {
         b.dispose();
+        ScaleService.I.resume();
         return;
       }
       _builtin = b;
@@ -3660,6 +3671,7 @@ class _ScaleCardState extends State<_ScaleCard> {
           testing = false;
           testMsg = '这台机器没有开放内置秤接口，建议改用键盘口秤';
         });
+        ScaleService.I.resume();
         return;
       }
     } else {
@@ -3673,11 +3685,16 @@ class _ScaleCardState extends State<_ScaleCard> {
         if (kg != null) _onRead(kg);
       });
     }
-    _timer = Timer(const Duration(seconds: 20), _stopTest);
+    // 20 秒监听结束：停止测试并恢复全局秤连接
+    _timer = Timer(const Duration(seconds: 20), () async {
+      _stopTest();
+      await ScaleService.I.resume();
+    });
   }
 
   /// Windows：自动找串口 + 波特率（收银员不用懂 COM 号）
   Future<void> _autoDetect() async {
+    await ScaleService.I.suspend(); // 探测要遍历 COM 口，先暂停全局连接
     _stopTest();
     setState(() {
       probing = true;
@@ -3691,6 +3708,7 @@ class _ScaleCardState extends State<_ScaleCard> {
         probing = false;
         testMsg = '没找到秤：确认秤已插好并开机，或改用键盘口秤';
       });
+      ScaleService.I.resume(); // 没找到也要恢复全局连接
       return;
     }
     setState(() {
@@ -3703,6 +3721,7 @@ class _ScaleCardState extends State<_ScaleCard> {
       testMsg = '已自动连接 ${r.port}（${r.baud}）';
     });
     await _save();
+    await ScaleService.I.resume(); // 探测结束恢复全局连接
   }
 
   void _pickPort() {
