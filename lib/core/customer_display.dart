@@ -119,6 +119,8 @@ class CustomerDisplay {
         ['--customer-display', '--pos=$position'],
         mode: ProcessStartMode.detached,
       );
+      // 用户自己关掉副屏窗口后，下次「立即打开副屏」还能再开
+      _proc!.exitCode.then((_) => _proc = null).catchError((_) {});
       return true;
     } catch (_) {
       _proc = null;
