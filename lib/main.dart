@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -74,6 +75,7 @@ Future<void> main(List<String> args) async {
       if (Platform.isWindows && CustomerDisplay.enabled) {
         await CustomerDisplay.startServer();
         await CustomerDisplay.openWindow();
+        _startCdHeartbeat();
       }
     });
     return;
@@ -86,6 +88,23 @@ Future<void> main(List<String> args) async {
   await CustomerDisplay.load();
   runApp(
       WenxunPosApp(loggedIn: Session.token.isNotEmpty && Session.wenxunId > 0));
+}
+
+/// 副屏心跳（v3.3.210）：购物车没变化时每 3 秒补发一次店名快照，
+/// 保证副屏一直知道主程序在线（显示店名而不是「欢迎光临」占位）。
+/// 只在快照超过 5 秒没更新时才发，不影响收银页的 600ms 实时推送。
+Timer? _cdHeartbeat;
+void _startCdHeartbeat() {
+  _cdHeartbeat?.cancel();
+  _cdHeartbeat = Timer.periodic(const Duration(seconds: 3), (_) async {
+    if (!CustomerDisplay.enabled && !CustomerDisplay.running) return;
+    await CustomerDisplay.ensureServer();
+    if (!CustomerDisplay.running) return;
+    // 快照超过 5 秒没更新（用户不在收银页）才发店名心跳，不干扰收银页实时推送
+    if (DateTime.now().millisecondsSinceEpoch - CustomerDisplay.latestTs > 5000) {
+      CustomerDisplay.publish(shop: Session.shopName, total: 0, items: const []);
+    }
+  });
 }
 
 /// 初始窗口尺寸：不超过当前屏幕可用区域（小屏收银机不能被切掉一截）

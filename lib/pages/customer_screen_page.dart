@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -41,7 +40,9 @@ class CustomerScreenPage extends StatefulWidget {
 
 class _CustomerScreenPageState extends State<CustomerScreenPage> with WindowListener {
   Map<String, dynamic> state = CustomerDisplay.empty();
-  bool online = false;
+  bool online = false; // HTTP 通道正常（主程序快照服务可达）
+  bool offlineCopy = false; // HTTP 不通，正在用本地快照兜底显示
+  int? _okPort; // 记住可用的端口，优先复用
   Timer? _timer;
   final HttpClient _client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
 
@@ -62,20 +63,39 @@ class _CustomerScreenPageState extends State<CustomerScreenPage> with WindowList
   }
 
   Future<void> _tick() async {
-    try {
-      final req = await _client
-          .getUrl(Uri.parse('http://127.0.0.1:${CustomerDisplay.port}/state'))
-          .timeout(const Duration(seconds: 2));
-      final resp = await req.close().timeout(const Duration(seconds: 2));
-      final body = await resp.transform(utf8.decoder).join();
-      final m = jsonDecode(body) as Map<String, dynamic>;
+    // 通道 1：HTTP（主程序快照服务，端口自动探测）
+    final m = await CustomerDisplay.fetch(_client, preferPort: _okPort);
+    if (m != null) {
+      _okPort = CustomerDisplay.lastOkPort;
       if (!mounted) return;
       setState(() {
         state = m;
         online = true;
+        offlineCopy = false;
       });
-    } catch (_) {
-      if (mounted && online) setState(() => online = false);
+      return;
+    }
+    // 通道 2：本地快照兜底（主程序发布时同步落地的 JSON，跨进程共享）
+    final local = await CustomerDisplay.readLocal();
+    if (local != null) {
+      final ts = (local['ts'] as num?)?.toInt() ?? 0;
+      final fresh = DateTime.now().millisecondsSinceEpoch - ts < 120000; // 2 分钟内视为有效
+      final changed = ts != ((state['ts'] as num?)?.toInt() ?? 0);
+      if (fresh && changed) {
+        if (!mounted) return;
+        setState(() {
+          state = local;
+          online = false;
+          offlineCopy = true;
+        });
+        return;
+      }
+    }
+    if (mounted && (online || offlineCopy)) {
+      setState(() {
+        online = false;
+        offlineCopy = false;
+      });
     }
   }
 
@@ -120,7 +140,11 @@ class _CustomerScreenPageState extends State<CustomerScreenPage> with WindowList
                         style: const TextStyle(
                             fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
                     const SizedBox(height: 3),
-                    Text(online ? '消费明细 · 实时同步' : '等待收银端连接…',
+                    Text(online
+                            ? '消费明细 · 实时同步'
+                            : offlineCopy
+                                ? '快照同步中（直连被拦截，已走本地通道）'
+                                : '等待收银端连接…',
                         style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.62))),
                   ]),
                 ),
@@ -128,12 +152,20 @@ class _CustomerScreenPageState extends State<CustomerScreenPage> with WindowList
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF5A623).withValues(alpha: 0.18),
+                      color: offlineCopy
+                          ? const Color(0xFF2FBF71).withValues(alpha: 0.16)
+                          : const Color(0xFFF5A623).withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFFF5A623).withValues(alpha: 0.5)),
+                      border: Border.all(
+                          color: offlineCopy
+                              ? const Color(0xFF2FBF71).withValues(alpha: 0.5)
+                              : const Color(0xFFF5A623).withValues(alpha: 0.5)),
                     ),
-                    child: const Text('未连接',
-                        style: TextStyle(fontSize: 12, color: Color(0xFFFFD08A), fontWeight: FontWeight.w700)),
+                    child: Text(offlineCopy ? '快照同步' : '未连接',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: offlineCopy ? const Color(0xFF9FE7C0) : const Color(0xFFFFD08A),
+                            fontWeight: FontWeight.w700)),
                   )
                 else
                   Text('$count 件',

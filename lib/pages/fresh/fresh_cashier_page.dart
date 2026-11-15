@@ -73,7 +73,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
 
   /// 副屏快照：名称 / 数量 / 单位 / 单价 / 金额 + 合计
   void _publishCd() {
-    if (!mounted || !CustomerDisplay.running) return;
+    if (!mounted || !CustomerDisplay.active) return;
+    CustomerDisplay.ensureServer(); // 懒启动：端口被占/服务没跑时自动补（v3.3.210）
     CustomerDisplay.publish(
       shop: Session.shopName,
       total: double.parse(total.toStringAsFixed(2)),
