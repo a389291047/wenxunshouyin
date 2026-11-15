@@ -1,19 +1,39 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
+import 'core/customer_display.dart';
 import 'core/display_prefs.dart';
 import 'core/session.dart';
 import 'core/theme.dart';
 import 'core/theme_prefs.dart';
 import 'core/updater.dart';
+import 'core/win_osk.dart';
+import 'core/window_prefs.dart';
+import 'pages/customer_screen_page.dart';
 import 'pages/login_page.dart';
 import 'pages/shell_page.dart';
+import 'ui/window_bar.dart';
 
-void main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 副屏（客显）：同一个 exe 的第二个实例，只跑客显界面，不做登录/更新检查
+  if (args.contains('--customer-display')) {
+    final pos = args
+        .firstWhere((a) => a.startsWith('--pos='), orElse: () => '--pos=screen2')
+        .substring('--pos='.length);
+    await _runCustomerScreen(pos);
+    return;
+  }
+
   await Updater.init(); // 在线更新：读取当前版本号（设置页显示/比较用）
+  // v3.3.209：收银一体机是触摸屏，点输入框系统就弹虚拟键盘挡住半屏，
+  // 启动时关掉「触摸键盘自动弹出」（HKCU，免管理员），扫码枪/实体键盘不受影响
+  await WinOsk.suppressAutoInvoke();
 
   // Android（商米等收银机）：全屏沉浸 + 跟随设备横竖屏
   if (Platform.isAndroid) {
@@ -27,22 +47,34 @@ void main() async {
   // 否则窗口先于 Flutter 首帧显示，Metal 渲染层无内容 → 黑屏
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await windowManager.ensureInitialized();
-    final WindowOptions windowOptions = WindowOptions(
+    final windowOptions = WindowOptions(
       center: true,
-      minimumSize: Size(1180, 760),
-      size: Size(1366, 860),
+      // 小屏收银机（1024×768）也要能正常显示，不再强制 1180 宽
+      minimumSize: const Size(960, 600),
+      size: await _initialWindowSize(),
       title: '稳讯收银',
-      // macOS 隐藏标题栏（视觉更干净）；Windows 保留原生标题栏，确保有最小化/关闭按钮
-      titleBarStyle: Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
+      // v3.3.209：Windows 也隐藏原生标题栏，改用自绘标题栏（ui/window_bar.dart），
+      // 顶部不再有那条白色系统栏；最小化/最大化/关闭/全屏都在自绘栏里
+      titleBarStyle: TitleBarStyle.hidden,
     );
     await windowManager.waitUntilReadyToShow(windowOptions, () async {
       await Session.load();
       await DisplayPrefs.load(); // 显示自定义设置（整体字体缩放等，v3.3.193）
       await ThemePrefs.load();   // 主体风格配色方案（v3.3.194）
+      await WindowPrefs.load();  // 全屏偏好（v3.3.209）
+      await CustomerDisplay.load(); // 副屏偏好（v3.3.209）
       runApp(WenxunPosApp(
           loggedIn: Session.token.isNotEmpty && Session.wenxunId > 0));
       await windowManager.show();
       await windowManager.focus();
+      if (WindowPrefs.fullscreen.value) {
+        await windowManager.setFullScreen(true);
+      }
+      // 上次开着副屏就自动再开（收银机每天开机即用）
+      if (Platform.isWindows && CustomerDisplay.enabled) {
+        await CustomerDisplay.startServer();
+        await CustomerDisplay.openWindow();
+      }
     });
     return;
   }
@@ -50,8 +82,62 @@ void main() async {
   await Session.load();
   await DisplayPrefs.load();
   await ThemePrefs.load();
+  await WindowPrefs.load();
+  await CustomerDisplay.load();
   runApp(
       WenxunPosApp(loggedIn: Session.token.isNotEmpty && Session.wenxunId > 0));
+}
+
+/// 初始窗口尺寸：不超过当前屏幕可用区域（小屏收银机不能被切掉一截）
+Future<Size> _initialWindowSize() async {
+  const prefer = Size(1366, 860);
+  try {
+    final d = await screenRetriever.getPrimaryDisplay();
+    final avail = d.visibleSize ?? d.size;
+    var w = prefer.width;
+    var h = prefer.height;
+    if (w > avail.width - 20) w = avail.width - 20;
+    if (h > avail.height - 20) h = avail.height - 20;
+    if (w < 960) w = 960;
+    if (h < 600) h = 600;
+    return Size(w, h);
+  } catch (_) {
+    return prefer;
+  }
+}
+
+/// 副屏窗口：默认铺在第二块屏幕（有的话），没有就居中一个窗口
+Future<void> _runCustomerScreen(String pos) async {
+  await windowManager.ensureInitialized();
+  var size = const Size(1024, 768);
+  Offset? at;
+  if (pos == 'screen2') {
+    try {
+      final ds = await screenRetriever.getAllDisplays();
+      if (ds.length > 1) {
+        final d = ds[1];
+        size = d.size;
+        at = d.visiblePosition;
+      }
+    } catch (_) {}
+  }
+  final opts = WindowOptions(
+    size: size,
+    center: at == null,
+    minimumSize: const Size(640, 480),
+    title: '稳讯收银 · 客显屏',
+    titleBarStyle: TitleBarStyle.hidden,
+    skipTaskbar: true,
+    backgroundColor: Colors.black,
+  );
+  await windowManager.waitUntilReadyToShow(opts, () async {
+    if (at != null) {
+      await windowManager.setPosition(at);
+      await windowManager.setSize(size);
+    }
+    runApp(CustomerScreenApp(windowMode: pos != 'screen2'));
+    await windowManager.show();
+  });
 }
 
 class WenxunPosApp extends StatefulWidget {
@@ -102,7 +188,23 @@ class _WenxunPosAppState extends State<WenxunPosApp> {
               data = data.copyWith(textScaler: TextScaler.linear(scale));
             }
             if (bold) data = data.copyWith(boldText: true);
-            return MediaQuery(data: data, child: child ?? const SizedBox.shrink());
+            final content = MediaQuery(data: data, child: child ?? const SizedBox.shrink());
+            if (!needWindowBar) return content;
+            // 自绘标题栏：全屏时自动隐藏（F11 或设置里可切回窗口模式）
+            // 注意不要在这里放 autofocus 的 Focus：会抢走收银页搜索框的焦点
+            return CallbackShortcuts(
+              bindings: {
+                const SingleActivator(LogicalKeyboardKey.f11): () =>
+                    WindowPrefs.toggleFullScreen(),
+              },
+              child: ListenableBuilder(
+                listenable: WindowPrefs.fullscreen,
+                builder: (context, __) => Column(children: [
+                  if (!WindowPrefs.fullscreen.value) const WindowBar(),
+                  Expanded(child: content),
+                ]),
+              ),
+            );
           },
           home: widget.loggedIn ? const ShellPage() : const LoginPage(),
         );

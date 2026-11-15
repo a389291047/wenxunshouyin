@@ -73,8 +73,17 @@ class Session {
     roleName = '';
     hangye = 1;
     vipadd = false;
+    // 只删登录相关的键：绝不能 p.clear()——那会把本机配置（称重设备、
+    // USB/蓝牙打印机、钱箱、主题、显示设置…）一起抹掉，收银员换班退出后
+    // 又要重新设置一遍。见 v3.3.209 修复。
     final p = await SharedPreferences.getInstance();
-    await p.clear();
+    for (final k in const [
+      'token', 'wenxun_id', 'shop_name', 'shop_phone',
+      'staff_id', 'staff_name', 'role_id', 'role_name',
+      'hangye', 'vipadd',
+    ]) {
+      await p.remove(k);
+    }
   }
 
   /// 上班时间（当天首次登录，交班单用；取自登录时间兜底）

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
 import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
+import '../../core/customer_display.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/display_prefs.dart';
@@ -92,8 +93,26 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
+    // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
+    _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
     _loadHolds();
     _load();
+  }
+
+  /// 副屏快照（v3.3.209）：名称 / 数量 / 单位 / 单价 / 金额 + 件数合计
+  void _publishCd() {
+    if (!mounted || !CustomerDisplay.running) return;
+    CustomerDisplay.publish(
+      shop: Session.shopName,
+      total: double.parse(total.toStringAsFixed(2)),
+      items: cart.map((l) => <String, dynamic>{
+            'n': '${l.goods['title'] ?? ''}',
+            'q': l.byWeight ? l.num.toStringAsFixed(3) : '${l.num.round()}',
+            'u': l.unit,
+            'p': double.parse(l.unitPrice.toStringAsFixed(2)),
+            'a': double.parse((l.unitPrice * l.num).toStringAsFixed(2)),
+          }).toList(),
+    );
   }
 
   void _onDisplayChanged() {
@@ -108,6 +127,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     scaleSub?.cancel();
     scanDebounce?.cancel();
+    _cdTimer?.cancel();
     searchKeeper.dispose();
     searchCtrl.dispose();
     super.dispose();
@@ -119,7 +139,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   ScalePrefs? scalePrefs;
   ScaleFrame? scaleFrame;
   StreamSubscription<ScaleFrame>? scaleSub;
-  Timer? scanDebounce; // 条码秤标签识别防抖
+  Timer? scanDebounce;
+  Timer? _cdTimer; // 副屏（客显）推送（v3.3.209） // 条码秤标签识别防抖
 
   Future<void> _initScaleBar() async {
     if (!ScaleSupport.canUseScale) return; // mac 保持原样，不接秤

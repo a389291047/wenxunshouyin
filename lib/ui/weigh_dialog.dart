@@ -177,167 +177,187 @@ class _WeighDialogState extends State<WeighDialog> {
   @override
   Widget build(BuildContext context) {
     final total = amount;
+    // 自适应收银机尺寸（v3.3.209）：1366×768 / 1280×800 / 1024×768 等小屏上
+    // 原布局高度超过一屏，底部数字键与「确认」被切掉。小屏压缩间距与按键高度，
+    // 极端情况再允许整块滚动兜底，任何尺寸都能看到并点到确认键。
+    final size = MediaQuery.of(context).size;
+    final compact = size.height < 900 || size.width < 1280;
+    final pad = compact ? 16.0 : 26.0;
+    final gap = compact ? 8.0 : 12.0;
+    final keyH = compact ? 46.0 : 58.0;
+    final maxH = size.height - 20;
     return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      child: Container(
-        width: 520,
-        padding: const EdgeInsets.all(26),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          // 标题
-          Row(children: [
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 520, maxHeight: maxH),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(pad),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // 标题
+            Row(children: [
+              Container(
+                width: compact ? 38 : 44,
+                height: compact ? 38 : 44,
+                decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                child: Icon(Icons.scale_outlined, size: compact ? 20 : 24, color: PosTheme.accent),
+              ),
+              SizedBox(width: compact ? 10 : 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: compact ? 18 : 21, fontWeight: FontWeight.w800)),
+                  Text('单价 ¥${Fmt.money(widget.price)} / $unit', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+                ]),
+              ),
+              InkWell(
+                onTap: () => Navigator.pop(context),
+                borderRadius: BorderRadius.circular(20),
+                child: const SizedBox(width: 36, height: 36, child: Icon(Icons.close, size: 24, color: PosTheme.textHint)),
+              ),
+            ]),
+            SizedBox(height: compact ? 10 : 18),
+            // 录入方式切换
+            Row(children: [
+              Expanded(child: _modeChip('输重量（$unit）', !amountMode, () => setState(() => amountMode = false), compact)),
+              SizedBox(width: gap),
+              Expanded(child: _modeChip('输金额（元）', amountMode, () => setState(() => amountMode = true), compact)),
+            ]),
+            // 电子秤连接成功才显示绿色标识（未连上不占位、不提示）
+            if (connected) ...[
+              SizedBox(height: gap),
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 11, vertical: compact ? 6 : 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF8F0),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: const Color(0xFF2FBF71).withOpacity(0.45)),
+                ),
+                child: Row(children: [
+                  Icon(
+                    scaleStable ? Icons.check_circle : Icons.sync,
+                    size: 16,
+                    color: scaleStable ? const Color(0xFF2FBF71) : const Color(0xFFF5A623),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    scaleStable ? '电子秤已连接' : '电子秤读数中…',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: scaleStable ? const Color(0xFF1E9C58) : const Color(0xFFC57F00)),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(scaleStable ? '读数已稳定，核对后点确认' : '等数字停止闪烁再确认',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11.5, color: PosTheme.textSub)),
+                  ),
+                  if (scaleKg != null)
+                    Text('${_kgToUnit(scaleKg!).toStringAsFixed(3)} $unit',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                ]),
+              ),
+              // 串口秤支持远程置零/去皮（连续输出协议的秤会忽略指令，无反应请按秤面按键）
+              if (prefs?.mode == 'serial' && ScaleService.I.canRemoteCommand) ...[
+                SizedBox(height: compact ? 6 : 8),
+                Row(children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        final ok = ScaleService.I.zero();
+                        toast(context, ok ? '已发送置零指令，无反应请按秤面【置零】键' : '指令未送达：秤未连接', error: !ok);
+                      },
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: PosTheme.textSub,
+                          side: const BorderSide(color: PosTheme.line),
+                          padding: EdgeInsets.symmetric(vertical: compact ? 6 : 10)),
+                      icon: const Icon(Icons.exposure_zero, size: 16),
+                      label: const Text('置零（空秤归0）', style: TextStyle(fontSize: 12.5)),
+                    ),
+                  ),
+                  SizedBox(width: gap),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        final ok = ScaleService.I.tare();
+                        toast(context, ok ? '已发送去皮指令，无反应请按秤面【去皮】键' : '指令未送达：秤未连接', error: !ok);
+                      },
+                      style: OutlinedButton.styleFrom(
+                          foregroundColor: PosTheme.textSub,
+                          side: const BorderSide(color: PosTheme.line),
+                          padding: EdgeInsets.symmetric(vertical: compact ? 6 : 10)),
+                      icon: const Icon(Icons.remove_circle_outline, size: 16),
+                      label: const Text('去皮（扣皮重）', style: TextStyle(fontSize: 12.5)),
+                    ),
+                  ),
+                ]),
+              ],
+            ],
+            SizedBox(height: compact ? 10 : 14),
+            // 当前录入值
             Container(
-              width: 44, height: 44,
-              decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-              child: const Icon(Icons.scale_outlined, size: 24, color: PosTheme.accent),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
-                Text('单价 ¥${Fmt.money(widget.price)} / $unit', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
-              ]),
-            ),
-            InkWell(
-              onTap: () => Navigator.pop(context),
-              borderRadius: BorderRadius.circular(20),
-              child: const SizedBox(width: 40, height: 40, child: Icon(Icons.close, size: 26, color: PosTheme.textHint)),
-            ),
-          ]),
-          const SizedBox(height: 18),
-          // 录入方式切换
-          Row(children: [
-            Expanded(child: _modeChip('输重量（$unit）', !amountMode, () => setState(() => amountMode = false))),
-            const SizedBox(width: 12),
-            Expanded(child: _modeChip('输金额（元）', amountMode, () => setState(() => amountMode = true))),
-          ]),
-          // 电子秤连接成功才显示绿色标识（未连上不占位、不提示）
-          if (connected) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+              padding: EdgeInsets.symmetric(horizontal: compact ? 14 : 18, vertical: compact ? 8 : 14),
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF8F0),
-                borderRadius: BorderRadius.circular(9),
-                border: Border.all(color: const Color(0xFF2FBF71).withOpacity(0.45)),
+                color: const Color(0xFFFFF7F4),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: PosTheme.accent.withOpacity(0.5), width: 1.5),
               ),
               child: Row(children: [
-                Icon(
-                  scaleStable ? Icons.check_circle : Icons.sync,
-                  size: 18,
-                  color: scaleStable ? const Color(0xFF2FBF71) : const Color(0xFFF5A623),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  scaleStable ? '电子秤已连接' : '电子秤读数中…',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: scaleStable ? const Color(0xFF1E9C58) : const Color(0xFFC57F00)),
+                Text(amountMode ? '¥' : '', style: TextStyle(fontSize: compact ? 19 : 22, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    input.isEmpty ? '0' : input,
+                    textAlign: TextAlign.right,
+                    maxLines: 1,
+                    style: TextStyle(fontSize: compact ? 30 : 34, fontWeight: FontWeight.w800),
+                  ),
                 ),
                 const SizedBox(width: 6),
-                Expanded(
-                  child: Text(scaleStable ? '读数已稳定，核对后点确认' : '等数字停止闪烁再确认',
-                      style: const TextStyle(fontSize: 12, color: PosTheme.textSub)),
-                ),
-                if (scaleKg != null)
-                  Text('${_kgToUnit(scaleKg!).toStringAsFixed(3)} $unit',
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                Text(amountMode ? '' : unit, style: TextStyle(fontSize: compact ? 15 : 17, color: PosTheme.textSub)),
               ]),
             ),
-            // 串口秤支持远程置零/去皮（连续输出协议的秤会忽略指令，无反应请按秤面按键）
-            if (prefs?.mode == 'serial' && ScaleService.I.canRemoteCommand) ...[
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: OutlinedButton.icon(
-                  onPressed: () {
-                    final ok = ScaleService.I.zero();
-                    toast(context, ok ? '已发送置零指令，无反应请按秤面【置零】键' : '指令未送达：秤未连接', error: !ok);
-                  },
-                  style: OutlinedButton.styleFrom(
-                      foregroundColor: PosTheme.textSub,
-                      side: const BorderSide(color: PosTheme.line),
-                      padding: const EdgeInsets.symmetric(vertical: 10)),
-                  icon: const Icon(Icons.exposure_zero, size: 16),
-                  label: const Text('置零（空秤归0）', style: TextStyle(fontSize: 13)),
-                )),
-                const SizedBox(width: 10),
-                Expanded(child: OutlinedButton.icon(
-                  onPressed: () {
-                    final ok = ScaleService.I.tare();
-                    toast(context, ok ? '已发送去皮指令，无反应请按秤面【去皮】键' : '指令未送达：秤未连接', error: !ok);
-                  },
-                  style: OutlinedButton.styleFrom(
-                      foregroundColor: PosTheme.textSub,
-                      side: const BorderSide(color: PosTheme.line),
-                      padding: const EdgeInsets.symmetric(vertical: 10)),
-                  icon: const Icon(Icons.remove_circle_outline, size: 16),
-                  label: const Text('去皮（扣皮重）', style: TextStyle(fontSize: 13)),
-                )),
-              ]),
-            ],
-          ],
-          const SizedBox(height: 14),
-          // 当前录入值
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF7F4),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: PosTheme.accent.withOpacity(0.5), width: 1.5),
-            ),
-            child: Row(children: [
-              Text(amountMode ? '¥' : '', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  input.isEmpty ? '0' : input,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800),
+            SizedBox(height: compact ? 8 : 12),
+            // 换算结果
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: compact ? 7 : 10),
+              decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                Text('重量 ${weight.toStringAsFixed(3)} $unit', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 6),
+                  child: Icon(Icons.close, size: 12, color: PosTheme.textHint),
                 ),
-              ),
-              const SizedBox(width: 6),
-              Text(amountMode ? '' : unit, style: const TextStyle(fontSize: 17, color: PosTheme.textSub)),
-            ]),
-          ),
-          const SizedBox(height: 12),
-          // 换算结果
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-            child: Row(children: [
-              Text('重量 ${weight.toStringAsFixed(3)} $unit', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8),
-                child: Icon(Icons.close, size: 13, color: PosTheme.textHint),
-              ),
-              Text('单价 ¥${Fmt.money(widget.price)}', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-              const Spacer(),
-              const Text('小计', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-              const SizedBox(width: 8),
-              Text('¥${Fmt.money(total)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-            ]),
-          ),
-          const SizedBox(height: 14),
-          _keypad(),
-          const SizedBox(height: 16),
-          BigButton(
-            weight > 0 ? '确认 ${weight.toStringAsFixed(3)} $unit · ¥${Fmt.money(total)}' : '请输入${amountMode ? '金额' : '重量'}',
-            onTap: weight > 0 ? _confirm : null,
-            height: 58,
-          ),
-        ]),
+                Text('单价 ¥${Fmt.money(widget.price)}', style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                const Spacer(),
+                const Text('小计', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                const SizedBox(width: 6),
+                Text('¥${Fmt.money(total)}', style: TextStyle(fontSize: compact ? 18 : 20, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+              ]),
+            ),
+            SizedBox(height: compact ? 10 : 14),
+            _keypad(compact: compact, keyH: keyH, gap: compact ? 6.0 : 10.0),
+            SizedBox(height: compact ? 10 : 16),
+            BigButton(
+              weight > 0 ? '确认 ${weight.toStringAsFixed(3)} $unit · ¥${Fmt.money(total)}' : '请输入${amountMode ? '金额' : '重量'}',
+              onTap: weight > 0 ? _confirm : null,
+              height: compact ? 50 : 58,
+            ),
+          ]),
+        ),
       ),
     );
   }
 
-  Widget _modeChip(String text, bool active, VoidCallback onTap) {
+  Widget _modeChip(String text, bool active, VoidCallback onTap, [bool compact = false]) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: 46,
+        height: compact ? 40 : 46,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: active ? PosTheme.accent.withOpacity(0.1) : const Color(0xFFF7F8FA),
@@ -345,8 +365,10 @@ class _WeighDialogState extends State<WeighDialog> {
           border: Border.all(color: active ? PosTheme.accent : PosTheme.line, width: active ? 2 : 1),
         ),
         child: Text(text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: compact ? 14 : 15,
               fontWeight: active ? FontWeight.w800 : FontWeight.w500,
               color: active ? PosTheme.accent : PosTheme.textSub,
             )),
@@ -354,34 +376,34 @@ class _WeighDialogState extends State<WeighDialog> {
     );
   }
 
-  Widget _keypad() {
+  Widget _keypad({bool compact = false, double keyH = 58, double gap = 10}) {
     const keys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', '.', '0', 'B'];
     return Column(children: [
       for (var r = 0; r < 4; r++)
         Padding(
-          padding: EdgeInsets.only(bottom: r == 3 ? 0 : 10),
+          padding: EdgeInsets.only(bottom: r == 3 ? 0 : gap),
           child: Row(children: [
             for (var c = 0; c < 3; c++) ...[
-              if (c > 0) const SizedBox(width: 10),
-              Expanded(child: _keyBtn(keys[r * 3 + c])),
+              if (c > 0) SizedBox(width: gap),
+              Expanded(child: _keyBtn(keys[r * 3 + c], keyH, compact)),
             ],
           ]),
         ),
     ]);
   }
 
-  Widget _keyBtn(String k) {
+  Widget _keyBtn(String k, [double keyH = 58, bool compact = false]) {
     final isBack = k == 'B';
     return InkWell(
       onTap: () => _key(k),
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: 58,
+        height: keyH,
         alignment: Alignment.center,
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
         child: isBack
-            ? const Icon(Icons.backspace_outlined, size: 22, color: PosTheme.textSub)
-            : Text(k, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600)),
+            ? Icon(Icons.backspace_outlined, size: compact ? 20 : 22, color: PosTheme.textSub)
+            : Text(k, style: TextStyle(fontSize: compact ? 21 : 24, fontWeight: FontWeight.w600)),
       ),
     );
   }

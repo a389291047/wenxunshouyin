@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../../core/customer_display.dart';
 import '../../core/api.dart';
 import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
@@ -58,15 +61,39 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   final List<_CartLine> cart = [];
   Map? vip;
 
+  Timer? _cdTimer; // 副屏（客显）推送（v3.3.209）
+
   @override
   void initState() {
     super.initState();
     searchKeeper.init();
+    _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
     _load();
+  }
+
+  /// 副屏快照：名称 / 数量 / 单位 / 单价 / 金额 + 合计
+  void _publishCd() {
+    if (!mounted || !CustomerDisplay.running) return;
+    CustomerDisplay.publish(
+      shop: Session.shopName,
+      total: double.parse(total.toStringAsFixed(2)),
+      items: cart.map((l) {
+        final byWeight = '${l.goods['sell_type'] ?? 0}' == '1';
+        final u = '${l.goods['danwei'] ?? ''}'.trim();
+        return <String, dynamic>{
+          'n': '${l.goods['title'] ?? ''}',
+          'q': byWeight ? l.num.toStringAsFixed(3) : '${l.num}',
+          'u': byWeight ? (u.isEmpty ? 'kg' : u) : '',
+          'p': double.parse(l.unitPrice.toStringAsFixed(2)),
+          'a': double.parse((l.unitPrice * l.num).toStringAsFixed(2)),
+        };
+      }).toList(),
+    );
   }
 
   @override
   void dispose() {
+    _cdTimer?.cancel();
     searchKeeper.dispose();
     super.dispose();
   }

@@ -12,6 +12,7 @@ import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/customer_display.dart';
 import '../../core/display_prefs.dart';
 import '../../core/layout_prefs.dart';
 import '../../core/no_code_common.dart';
@@ -26,6 +27,7 @@ import '../../core/theme_prefs.dart';
 import '../../core/usb_printer.dart';
 import '../../core/updater.dart';
 import '../../core/voice.dart';
+import '../../core/window_prefs.dart';
 import '../../ui/receipt_preview.dart';
 import '../../ui/update_dialog.dart';
 import '../../ui/widgets.dart';
@@ -1469,6 +1471,37 @@ class _SettingsPageState extends State<SettingsPage> {
       const Text('按商户需求自定义界面显示：整体字体大小与粗细影响全软件文字；商品字体、商品图片开关、每行个数只影响零售收银页商品区。改动即时生效，保存在本机。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
       const SizedBox(height: 10),
+      // 0. 窗口模式 / 全屏（v3.3.209）：收银机铺满整屏，隐藏 Windows 标题栏与任务栏
+      if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) ...[
+        ValueListenableBuilder<bool>(
+          valueListenable: WindowPrefs.fullscreen,
+          builder: (context, full, __) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+            decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              const Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(height: 8),
+                  Text('全屏模式（收银机）', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  SizedBox(height: 2),
+                  Text('隐藏 Windows 标题栏与任务栏，界面铺满整块屏幕；小屏收银机建议开启，快捷键 F11 切换',
+                      style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                  SizedBox(height: 8),
+                ]),
+              ),
+              Switch(
+                value: full,
+                activeColor: PosTheme.accent,
+                onChanged: (v) async {
+                  await WindowPrefs.setFullScreen(v);
+                  if (mounted) toast(context, v ? '已进入全屏（F11 可退出）' : '已退出全屏');
+                },
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
       // 1. 整体字体大小（0.8~1.4，5% 一档）
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
@@ -1856,6 +1889,7 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'store',    'icon': Icons.storefront,           'label': '店铺信息'},
     {'key': 'func',     'icon': Icons.tune_outlined,        'label': '功能设置'},
     {'key': 'display',  'icon': Icons.format_size,          'label': '显示设置'},
+    {'key': 'cd',       'icon': Icons.desktop_windows_outlined, 'label': '副屏客显'},
     {'key': 'theme',    'icon': Icons.palette_outlined,     'label': '主体风格'},
     {'key': 'payorder', 'icon': Icons.low_priority,         'label': '支付方式排序'},
     {'key': 'update',   'icon': Icons.system_update_alt,    'label': '在线更新'},
@@ -1883,6 +1917,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (it['key'] == 'drawer' && !CashDrawer.supported) continue;   // 钱箱仅 Windows / Android
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
       if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
+      if (it['key'] == 'cd' && !Platform.isWindows) continue;          // 副屏客显仅 Windows（v3.3.209）
       list.add(it);
     }
     return list;
@@ -1907,6 +1942,7 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'about':   return _aboutCard();
       case 'func':    return _funcCard();
       case 'display': return _displayCard();
+      case 'cd':      return const _CdCard();
       case 'theme':   return _themeCard();
       case 'store':
       default:        return _storeCard();
@@ -3981,6 +4017,173 @@ class _ScaleCardState extends State<_ScaleCard> {
           ]),
         ),
       ],
+    ]));
+  }
+}
+
+/// 副屏（客显）设置卡 v3.3.209
+///
+/// 双屏收银机：主屏收银，第二块屏给顾客看商品明细和应收金额。
+/// 副屏是同程序的第二个窗口（--customer-display），只读展示购物车快照。
+class _CdCard extends StatefulWidget {
+  const _CdCard();
+  @override
+  State<_CdCard> createState() => _CdCardState();
+}
+
+class _CdCardState extends State<_CdCard> {
+  bool loading = true;
+  bool on = false;
+  String pos = 'screen2';
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    await CustomerDisplay.load();
+    if (!mounted) return;
+    setState(() {
+      on = CustomerDisplay.enabled;
+      pos = CustomerDisplay.position;
+      loading = false;
+    });
+  }
+
+  Future<void> _apply() async {
+    setState(() => busy = true);
+    await CustomerDisplay.apply();
+    if (!mounted) return;
+    setState(() => busy = false);
+    toast(context, CustomerDisplay.enabled ? '副屏已启动' : '副屏已关闭');
+  }
+
+  Future<void> _openNow() async {
+    final ok = await CustomerDisplay.startServer();
+    if (!ok) {
+      if (mounted) toast(context, '副屏服务启动失败：端口 19877 被占用', error: true);
+      return;
+    }
+    final w = await CustomerDisplay.openWindow();
+    if (!mounted) return;
+    toast(context, w ? '副屏窗口已打开' : '副屏打开失败（仅 Windows 支持）', error: !w);
+  }
+
+  Widget _chip(String text, bool active, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        margin: const EdgeInsets.only(right: 8, bottom: 8),
+        decoration: BoxDecoration(
+          color: active ? PosTheme.accent.withOpacity(0.1) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: active ? PosTheme.accent : PosTheme.line, width: active ? 1.6 : 1),
+        ),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                color: active ? PosTheme.accent : PosTheme.textSub)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const AppCard(child: SizedBox(height: 120, child: Center(child: CircularProgressIndicator())));
+    }
+    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+          child: const Icon(Icons.desktop_windows_outlined, size: 20, color: PosTheme.accent),
+        ),
+        const SizedBox(width: 10),
+        const Text('副屏（客显屏）', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+      ]),
+      const SizedBox(height: 6),
+      const Text(
+          '收银时把商品明细和应收金额同步显示到第二块屏幕给顾客看，收银员这边照常操作。'
+          '适合双屏收银机（主屏收银 + 副屏客显），或用 HDMI 再接一台显示器。',
+          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+      const SizedBox(height: 14),
+      // 总开关
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 8),
+              Text('启用副屏', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              SizedBox(height: 2),
+              Text('开启后每次启动收银软件自动打开副屏窗口；关闭则只保留主屏', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              SizedBox(height: 8),
+            ]),
+          ),
+          Switch(
+            value: on,
+            activeColor: PosTheme.accent,
+            onChanged: busy ? null : (v) async {
+              setState(() => on = v);
+              CustomerDisplay.enabled = v;
+              await _apply();
+            },
+          ),
+        ]),
+      ),
+      if (on) ...[
+        const SizedBox(height: 14),
+        const Text('副屏位置', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 8),
+        Wrap(children: [
+          _chip('第二块屏幕铺满', pos == 'screen2', () async {
+            setState(() => pos = 'screen2');
+            CustomerDisplay.position = 'screen2';
+            await _apply();
+          }),
+          _chip('独立窗口（可拖动）', pos == 'window', () async {
+            setState(() => pos = 'window');
+            CustomerDisplay.position = 'window';
+            await _apply();
+          }),
+        ]),
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Text('「第二块屏幕铺满」会按系统里的第 2 台显示器自动定位；只有一台显示器时打开的是可拖动的窗口，把它拖到副屏即可。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        ),
+      ],
+      const SizedBox(height: 12),
+      Wrap(spacing: 10, runSpacing: 8, children: [
+        OutlinedButton.icon(
+          onPressed: busy ? null : _openNow,
+          style: OutlinedButton.styleFrom(
+              foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+          icon: const Icon(Icons.open_in_new, size: 16),
+          label: const Text('立即打开副屏'),
+        ),
+        OutlinedButton.icon(
+          onPressed: busy ? null : () async {
+            await CustomerDisplay.closeWindow();
+            if (mounted) toast(context, '副屏已关闭');
+          },
+          style: OutlinedButton.styleFrom(
+              foregroundColor: PosTheme.textSub, side: const BorderSide(color: PosTheme.line)),
+          icon: const Icon(Icons.close, size: 16),
+          label: const Text('关闭副屏'),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      const Text('副屏只读显示，顾客无法操作收银数据；主屏退出登录或重启后按上面的开关自动恢复。',
+          style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
     ]));
   }
 }
