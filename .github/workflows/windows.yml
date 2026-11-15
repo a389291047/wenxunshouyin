@@ -60,6 +60,23 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
+      - name: Bundle VC++ runtime DLLs
+        shell: pwsh
+        run: |
+          # Flutter Windows 产物依赖 VC++ 运行库（vcruntime140_1.dll 等），
+          # 未装过 VC++ Redist 的全新系统会报"找不到 VCRUNTIME140_1.dll"。
+          # 从 Runner 自带 VS2022 的官方 Redist 目录拷贝，随安装包分发。
+          $dirs = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending
+          if (-not $dirs) { Write-Error "VC Redist CRT directory not found"; exit 1 }
+          $src = $dirs[0].FullName
+          Write-Host "CRT source: $src"
+          foreach ($dll in "msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll","vcruntime140_threads.dll") {
+            $f = Join-Path $src $dll
+            if (Test-Path $f) { Copy-Item $f "build/windows/x64/runner/Release/" -Force; Write-Host "bundled $dll" }
+          }
+          Get-ChildItem "build/windows/x64/runner/Release/*.dll" | Select-Object Name, Length
+
       - name: Package portable (zip)
         shell: pwsh
         run: |
