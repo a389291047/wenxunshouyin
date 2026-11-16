@@ -38,11 +38,24 @@ void main() {
     await CustomerDisplay.stopServer();
   });
 
+  test('件数口径：称重行按 1 件计，不把公斤数当件数', () {
+    CustomerDisplay.publish(shop: '烘焙熟食店', total: 5053.4, items: [
+      {'n': '面包', 'q': '5.000', 'u': 'kg', 'p': 8.8, 'a': 44.0},
+      {'n': '桃酥', 'q': '253.000', 'u': 'kg', 'p': 19.8, 'a': 5009.4},
+      {'n': '矿泉水', 'q': '3', 'u': '', 'p': 2.0, 'a': 6.0},
+    ]);
+    expect(CustomerDisplay.latestTs, greaterThan(0));
+    // v3.3.211 回归：称重 2 行各算 1 件 + 按件 3 = 5，而不是 5+253+3=261
+    final raw = CustomerDisplay.latestSnapshot;
+    expect(raw['count'], 5);
+  });
+
   test('发布快照落地本地 JSON，可离线兜底读取', () async {
     CustomerDisplay.publish(shop: '兜底店', total: 3.0, items: const []);
     // 发布有 800ms 节流，等一拍再发布一次确保落地
     await Future<void>.delayed(const Duration(milliseconds: 900));
     CustomerDisplay.publish(shop: '兜底店', total: 3.0, items: const []);
+    await Future<void>.delayed(const Duration(milliseconds: 100)); // 等异步落地
     final local = await CustomerDisplay.readLocal();
     expect(local, isNotNull);
     expect(local!['shop'], '兜底店');

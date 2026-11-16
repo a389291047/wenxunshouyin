@@ -47,6 +47,7 @@ class CustomerDisplay {
 
   static bool get running => _server != null;
   static int get latestTs => (_latest['ts'] as num?)?.toInt() ?? 0;
+  static Map<String, dynamic> get latestSnapshot => Map<String, dynamic>.from(_latest);
   static bool get windowOpen => _proc != null;
   static int get port => _port;
   static int lastOkPort = portBase; // 显示端记住的可连通端口（跨 tick 复用）
@@ -127,10 +128,13 @@ class CustomerDisplay {
     _latest = {
       'shop': shop,
       'items': items,
-      // q 可能是字符串（'0.534'/'1'）也可能是数字，安全解析；
-      // v3.3.209 这里用 (e['q'] as num?) 强转，收银页传字符串时每次发布都抛
-      // TypeError，_latest 永远停在空快照 —— 副屏一直显示「欢迎光临」的根因
-      'count': items.fold<int>(0, (s, e) => s + (num.tryParse('${e['q']}')?.round() ?? 0)),
+      // 件数口径与主屏一致（retail count）：带单位的称重行按 1 笔计，
+      // 按件商品累加数量。v3.3.210 及之前把称重公斤数也四舍五入累加，
+      // 出现「5kg + 253kg = 258 件」的错误件数
+      'count': items.fold<int>(0, (s, e) {
+        if ('${e['u'] ?? ''}'.trim().isNotEmpty) return s + 1; // 称重行 = 1 件
+        return s + (num.tryParse('${e['q']}')?.round() ?? 0);
+      }),
       'total': total,
       'discount': discount,
       'payable': payable == 0 ? total : payable,
