@@ -17,24 +17,29 @@ void main() {
 
   test('端口被占自动顺延 + HTTP 拉取', () async {
     // 占住 19877（模拟其他软件/残留进程）
-    final blocker = await HttpServer.bind(InternetAddress.loopbackIPv4, 19877);
+    final blocker = await HttpServer.bind(InternetAddress.anyIPv4, 19877);
     addTearDown(blocker.close);
 
     CustomerDisplay.enabled = true;
     final ok = await CustomerDisplay.startServer();
-    expect(ok, isTrue, reason: '19877 被占也应能顺延到 19878~19886 启动');
-    expect(CustomerDisplay.port, greaterThan(19877));
+    expect(ok, isTrue, reason: '19877 被占也应能启动（顺延或回落 loopback）');
     expect(CustomerDisplay.running, isTrue);
 
-    CustomerDisplay.publish(shop: '测试店', total: 12.5, items: [
+    CustomerDisplay.publish(shop: '测试店', vipId: 42, total: 12.5, items: [
       {'n': '面包', 'q': '1', 'u': '', 'p': 8.8, 'a': 8.8},
     ]);
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
     addTearDown(client.close);
+    // 本机通道（Windows 第二实例用）
     final m = await CustomerDisplay.fetch(client);
     expect(m, isNotNull);
     expect(m!['shop'], '测试店');
+    expect(m['vip_id'], 42);
     expect((m['items'] as List).length, 1);
+    // 远程通道（安卓平板客显用）
+    final r = await CustomerDisplay.fetchRemote(client, '127.0.0.1', CustomerDisplay.port);
+    expect(r, isNotNull);
+    expect(r!['shop'], '测试店');
     await CustomerDisplay.stopServer();
   });
 

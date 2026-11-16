@@ -31,6 +31,7 @@ import '../../core/window_prefs.dart';
 import '../../ui/receipt_preview.dart';
 import '../../ui/update_dialog.dart';
 import '../../ui/widgets.dart';
+import '../customer_screen_page.dart';
 import '../login_page.dart';
 import 'kefu_page.dart';
 
@@ -1917,7 +1918,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (it['key'] == 'drawer' && !CashDrawer.supported) continue;   // 钱箱仅 Windows / Android
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
       if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
-      if (it['key'] == 'cd' && !Platform.isWindows) continue;          // 副屏客显仅 Windows（v3.3.209）
+      if (it['key'] == 'cd' && !(Platform.isWindows || Platform.isAndroid)) continue; // 副屏客显：Windows / 安卓（v3.3.212）
       list.add(it);
     }
     return list;
@@ -4021,10 +4022,11 @@ class _ScaleCardState extends State<_ScaleCard> {
   }
 }
 
-/// 副屏（客显）设置卡 v3.3.209
+/// 副屏（客显）设置卡 v3.3.212
 ///
-/// 双屏收银机：主屏收银，第二块屏给顾客看商品明细和应收金额。
-/// 副屏是同程序的第二个窗口（--customer-display），只读展示购物车快照。
+/// Windows 双屏收银机：主屏收银，第二块屏给顾客看明细/应收/会员码；
+/// 副屏是同程序第二个窗口（--customer-display），只读展示购物车快照。
+/// 安卓：本机可作为客显屏——自动搜索局域网内的主收银机并全屏显示客显。
 class _CdCard extends StatefulWidget {
   const _CdCard();
   @override
@@ -4036,6 +4038,8 @@ class _CdCardState extends State<_CdCard> {
   bool on = false;
   String pos = 'screen2';
   bool busy = false;
+  String lanAddr = '';
+  bool connecting = false;
 
   @override
   void initState() {
@@ -4045,10 +4049,13 @@ class _CdCardState extends State<_CdCard> {
 
   Future<void> _load() async {
     await CustomerDisplay.load();
+    String addr = '';
+    if (CustomerDisplay.running) addr = await CustomerDisplay.lanAddress();
     if (!mounted) return;
     setState(() {
       on = CustomerDisplay.enabled;
       pos = CustomerDisplay.position;
+      lanAddr = addr;
       loading = false;
     });
   }
@@ -4056,8 +4063,12 @@ class _CdCardState extends State<_CdCard> {
   Future<void> _apply() async {
     setState(() => busy = true);
     await CustomerDisplay.apply();
+    final addr = on ? await CustomerDisplay.lanAddress() : '';
     if (!mounted) return;
-    setState(() => busy = false);
+    setState(() {
+      busy = false;
+      lanAddr = addr;
+    });
     toast(context, CustomerDisplay.enabled ? '副屏已启动' : '副屏已关闭');
   }
 
@@ -4068,8 +4079,57 @@ class _CdCardState extends State<_CdCard> {
       return;
     }
     final w = await CustomerDisplay.openWindow();
+    final addr = await CustomerDisplay.lanAddress();
     if (!mounted) return;
+    setState(() => lanAddr = addr);
     toast(context, w ? '副屏窗口已打开' : '副屏打开失败（仅 Windows 支持）', error: !w);
+  }
+
+  /// 安卓：本机作为客显屏，自动搜索主收银机
+  Future<void> _joinAsDisplay() async {
+    setState(() => connecting = true);
+    await CustomerDisplay.ensureServer(); // 本机若也是收银主机则确保服务在跑
+    final found = await CustomerDisplay.discover();
+    if (!mounted) return;
+    setState(() => connecting = false);
+    if (found == null) {
+      final typed = await _askHost();
+      if (typed == null || typed.isEmpty) return;
+      final parts = typed.replaceAll('http://', '').split(':');
+      _pushDisplay(parts.first, parts.length > 1 ? int.tryParse(parts[1]) ?? CustomerDisplay.portBase : CustomerDisplay.portBase);
+      return;
+    }
+    _pushDisplay('${found['host']}', (found['port'] as num?)?.toInt() ?? CustomerDisplay.portBase);
+  }
+
+  Future<String?> _askHost() async {
+    final ctl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('连接主收银机'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('自动搜索没找到主收银机，请手动输入它显示在「副屏客显」里的地址，例如 192.168.1.23:19877',
+              style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctl,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: '192.168.1.23:19877'),
+          ),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, ctl.text.trim()), child: const Text('连接')),
+        ],
+      ),
+    );
+  }
+
+  void _pushDisplay(String host, int port) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => CustomerScreenPage(remoteHost: host, remotePort: port),
+    ));
   }
 
   Widget _chip(String text, bool active, VoidCallback onTap) {
@@ -4098,6 +4158,7 @@ class _CdCardState extends State<_CdCard> {
     if (loading) {
       return const AppCard(child: SizedBox(height: 120, child: Center(child: CircularProgressIndicator())));
     }
+    final isWin = Platform.isWindows;
     return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         Container(
@@ -4109,23 +4170,51 @@ class _CdCardState extends State<_CdCard> {
         const Text('副屏（客显屏）', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
       ]),
       const SizedBox(height: 6),
-      const Text(
-          '收银时把商品明细和应收金额同步显示到第二块屏幕给顾客看，收银员这边照常操作。'
-          '适合双屏收银机（主屏收银 + 副屏客显），或用 HDMI 再接一台显示器。',
-          style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+      Text(
+          isWin
+              ? '收银时第二块屏实时显示商品明细、应收金额和会员激活码。适合双屏收银机，或再用 HDMI 接一台显示器。'
+              : '另一台安卓平板 / 手机可以当客显屏：自动搜索同一 Wi-Fi 下的主收银机，全屏显示明细、应收和会员码。',
+          style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
       const SizedBox(height: 14),
-      // 总开关
+
+      // 安卓：本机作为客显屏
+      if (!isWin) ...[
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: connecting ? null : _joinAsDisplay,
+            style: FilledButton.styleFrom(
+                backgroundColor: PosTheme.accent, padding: const EdgeInsets.symmetric(vertical: 14)),
+            icon: connecting
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.cast_connected, size: 18),
+            label: Text(connecting ? '正在搜索主收银机…' : '本机作为客显屏（自动搜索）',
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text('搜索不到时会让手动输入主收银机的地址；连上后本机全屏显示客显，按返回键退出。',
+            style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        const SizedBox(height: 16),
+      ],
+
+      // 总开关：Windows=开副屏窗口；安卓=开放客显服务给平板
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
         child: Row(children: [
-          const Expanded(
+          Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(height: 8),
-              Text('启用副屏', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              SizedBox(height: 2),
-              Text('开启后每次启动收银软件自动打开副屏窗口；关闭则只保留主屏', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
+              Text(isWin ? '启用副屏' : '让其他设备连本机客显',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(
+                  isWin
+                      ? '开启后每次启动自动打开副屏窗口；关闭则只保留主屏'
+                      : '开启后本机把购物车同步到局域网，平板/手机客显可自动发现并连接',
+                  style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              const SizedBox(height: 8),
             ]),
           ),
           Switch(
@@ -4139,7 +4228,8 @@ class _CdCardState extends State<_CdCard> {
           ),
         ]),
       ),
-      if (on) ...[
+
+      if (isWin && on) ...[
         const SizedBox(height: 14),
         const Text('副屏位置', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
         const SizedBox(height: 8),
@@ -4161,28 +4251,70 @@ class _CdCardState extends State<_CdCard> {
               style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
         ),
       ],
-      const SizedBox(height: 12),
-      Wrap(spacing: 10, runSpacing: 8, children: [
-        OutlinedButton.icon(
-          onPressed: busy ? null : _openNow,
-          style: OutlinedButton.styleFrom(
-              foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
-          icon: const Icon(Icons.open_in_new, size: 16),
-          label: const Text('立即打开副屏'),
+
+      // 配对地址（给安卓平板/手机客显用）
+      if (lanAddr.isNotEmpty) ...[
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF7FA),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFBEE0EA)),
+          ),
+          child: Row(children: [
+            const Icon(Icons.lan_outlined, size: 18, color: Color(0xFF14708A)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('客显配对地址', style: TextStyle(fontSize: 12, color: Color(0xFF14708A))),
+                const SizedBox(height: 2),
+                SelectableText(lanAddr,
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0E566B))),
+              ]),
+            ),
+            IconButton(
+              tooltip: '复制',
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: lanAddr));
+                toast(context, '地址已复制');
+              },
+              icon: const Icon(Icons.copy, size: 17, color: Color(0xFF14708A)),
+            ),
+          ]),
         ),
-        OutlinedButton.icon(
-          onPressed: busy ? null : () async {
-            await CustomerDisplay.closeWindow();
-            if (mounted) toast(context, '副屏已关闭');
-          },
-          style: OutlinedButton.styleFrom(
-              foregroundColor: PosTheme.textSub, side: const BorderSide(color: PosTheme.line)),
-          icon: const Icon(Icons.close, size: 16),
-          label: const Text('关闭副屏'),
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text('同一 Wi-Fi 下的安卓平板/手机打开收银软件 → 设置 → 副屏客显，会自动搜到这个地址。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
         ),
-      ]),
+      ],
+
+      if (isWin) ...[
+        const SizedBox(height: 12),
+        Wrap(spacing: 10, runSpacing: 8, children: [
+          OutlinedButton.icon(
+            onPressed: busy ? null : _openNow,
+            style: OutlinedButton.styleFrom(
+                foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent)),
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('立即打开副屏'),
+          ),
+          OutlinedButton.icon(
+            onPressed: busy ? null : () async {
+              await CustomerDisplay.closeWindow();
+              if (mounted) toast(context, '副屏已关闭');
+            },
+            style: OutlinedButton.styleFrom(
+                foregroundColor: PosTheme.textSub, side: const BorderSide(color: PosTheme.line)),
+            icon: const Icon(Icons.close, size: 16),
+            label: const Text('关闭副屏'),
+          ),
+        ]),
+      ],
+
       const SizedBox(height: 10),
-      const Text('副屏只读显示，顾客无法操作收银数据；主屏退出登录或重启后按上面的开关自动恢复。',
+      const Text('副屏只读显示，顾客无法操作收银数据；退出登录或重启后按上面的开关自动恢复。',
           style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
     ]));
   }

@@ -105,6 +105,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     CustomerDisplay.ensureServer(); // 懒启动：端口被占/服务没跑时自动补（v3.3.210）
     CustomerDisplay.publish(
       shop: Session.shopName,
+      vipId: Session.wenxunId,
       total: double.parse(total.toStringAsFixed(2)),
       items: cart.map((l) => <String, dynamic>{
             'n': '${l.goods['title'] ?? ''}',

@@ -77,6 +77,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     CustomerDisplay.ensureServer(); // 懒启动：端口被占/服务没跑时自动补（v3.3.210）
     CustomerDisplay.publish(
       shop: Session.shopName,
+      vipId: Session.wenxunId,
       total: double.parse(total.toStringAsFixed(2)),
       items: cart.map((l) {
         final byWeight = '${l.goods['sell_type'] ?? 0}' == '1';

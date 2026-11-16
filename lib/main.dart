@@ -102,7 +102,11 @@ void _startCdHeartbeat() {
     if (!CustomerDisplay.running) return;
     // 快照超过 5 秒没更新（用户不在收银页）才发店名心跳，不干扰收银页实时推送
     if (DateTime.now().millisecondsSinceEpoch - CustomerDisplay.latestTs > 5000) {
-      CustomerDisplay.publish(shop: Session.shopName, total: 0, items: const []);
+      CustomerDisplay.publish(
+          shop: Session.shopName,
+          vipId: Session.wenxunId,
+          total: 0,
+          items: const []);
     }
   });
 }

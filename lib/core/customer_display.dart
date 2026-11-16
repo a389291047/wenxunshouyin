@@ -24,9 +24,11 @@ class CustomerDisplay {
   static const kState = 'cd_state_json'; // 购物车快照本地兜底（跨进程共享）
   static const portBase = 19877;
   static const portCount = 10; // 19877 ~ 19886
+  static const discoveryPort = 19890; // UDP 自动发现（安卓客显找主屏）
 
   static HttpServer? _server;
   static Process? _proc;
+  static RawDatagramSocket? _udp;
   static bool enabled = false;
   static String position = 'screen2';
   static bool showTotal = true;
@@ -37,6 +39,7 @@ class CustomerDisplay {
 
   static Map<String, dynamic> empty() => {
         'shop': '',
+        'vip_id': 0,
         'items': <Map<String, dynamic>>[],
         'count': 0,
         'total': 0,
@@ -72,36 +75,44 @@ class CustomerDisplay {
   /// 启动本地快照服务（幂等）。19877 被占自动顺延到 19886。
   static Future<bool> startServer() async {
     if (_server != null) return true;
-    for (var p = portBase; p < portBase + portCount; p++) {
-      try {
-        final s =
-            await HttpServer.bind(InternetAddress.loopbackIPv4, p, shared: true);
-        _server = s;
-        _port = p;
-        s.listen((req) async {
-          final r = req.response;
-          r.headers.set('content-type', 'application/json; charset=utf-8');
-          r.headers.set('cache-control', 'no-store');
-          try {
-            switch (req.uri.path) {
-              case '/state':
-                r.write(jsonEncode(_latest));
-                break;
-              case '/ping':
-                r.write('ok');
-                break;
-              default:
-                r.statusCode = 404;
-            }
-          } catch (_) {}
-          await r.close();
-        });
-        return true;
-      } catch (_) {
-        continue; // 端口被占，试下一个
+    // v3.3.212：优先通配绑定（局域网客显可连），19877 被占就逐个顺延；
+    // 全部失败再退回 loopback（个别环境禁通配绑定）。
+    HttpServer? bound;
+    for (final addr in [InternetAddress.anyIPv4, InternetAddress.loopbackIPv4]) {
+      for (var p = portBase; p < portBase + portCount; p++) {
+        try {
+          bound = await HttpServer.bind(addr, p, shared: true);
+          _port = p;
+          break;
+        } catch (_) {
+          continue;
+        }
       }
+      if (bound != null) break;
     }
-    return false;
+    if (bound == null) return false;
+    _server = bound;
+    bound.listen((req) async {
+      final r = req.response;
+      r.headers.set('content-type', 'application/json; charset=utf-8');
+      r.headers.set('cache-control', 'no-store');
+      r.headers.set('access-control-allow-origin', '*');
+      try {
+        switch (req.uri.path) {
+          case '/state':
+            r.write(jsonEncode(_latest));
+            break;
+          case '/ping':
+            r.write('ok');
+            break;
+          default:
+            r.statusCode = 404;
+        }
+      } catch (_) {}
+      await r.close();
+    });
+    _startDiscovery(); // UDP 广播应答：安卓客显自动发现主屏
+    return true;
   }
 
   /// 懒启动：收银页发布数据前调用，服务没跑且开关是开的就补启动
@@ -114,6 +125,125 @@ class CustomerDisplay {
       await _server?.close(force: true);
     } catch (_) {}
     _server = null;
+    try {
+      _udp?.close();
+    } catch (_) {}
+    _udp = null;
+  }
+
+  /// UDP 自动发现应答（v3.3.212）：安卓客显屏广播「WXCD?」，主屏回自己的
+  /// IP:端口和店名，用户不用手输地址。
+  static Future<void> _startDiscovery() async {
+    if (_udp != null) return;
+    try {
+      final s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, discoveryPort);
+      s.broadcastEnabled = true;
+      _udp = s;
+      s.listen((e) {
+        if (e != RawSocketEvent.read) return;
+        final dg = s.receive();
+        if (dg == null) return;
+        try {
+          final text = utf8.decode(dg.data, allowMalformed: true).trim();
+          if (text != 'WXCD?') return;
+          final reply = jsonEncode({
+            'svc': 'wenxun-cd',
+            'port': _port,
+            'shop': '${_latest['shop'] ?? ''}',
+            'vip_id': _latest['vip_id'] ?? 0,
+          });
+          s.send(utf8.encode(reply), dg.address, dg.port);
+        } catch (_) {}
+      });
+    } catch (_) {
+      _udp = null;
+    }
+  }
+
+  /// 本机局域网 IPv4 地址（设置页显示配对地址用）
+  static Future<List<String>> lanIps() async {
+    final out = <String>[];
+    try {
+      for (final ni in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
+        for (final a in ni.addresses) {
+          if (!a.isLoopback) out.add(a.address);
+        }
+      }
+    } catch (_) {}
+    return out;
+  }
+
+  static Future<String> lanAddress() async {
+    final ips = await lanIps();
+    if (ips.isEmpty) return '';
+    return 'http://${ips.first}:$_port';
+  }
+
+  /// 安卓/平板客显：广播搜索主收银机（1.8 秒内无应答返回 null）
+  static Future<Map<String, dynamic>?> discover(
+      {Duration timeout = const Duration(milliseconds: 1800)}) async {
+    RawDatagramSocket? s;
+    try {
+      s = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      s.broadcastEnabled = true;
+      final targets = <String>{'255.255.255.255'};
+      try {
+        for (final ni in await NetworkInterface.list(type: InternetAddressType.IPv4)) {
+          for (final a in ni.addresses) {
+            final parts = a.address.split('.');
+            if (parts.length == 4) targets.add('${parts[0]}.${parts[1]}.${parts[2]}.255');
+          }
+        }
+      } catch (_) {}
+      for (final t in targets) {
+        try {
+          s.send(utf8.encode('WXCD?'), InternetAddress(t), discoveryPort);
+        } catch (_) {}
+      }
+      final done = Completer<Map<String, dynamic>?>();
+      late StreamSubscription<RawSocketEvent> sub;
+      sub = s.listen((e) {
+        if (e != RawSocketEvent.read) return;
+        final dg = s!.receive();
+        if (dg == null) return;
+        try {
+          final m = jsonDecode(utf8.decode(dg.data, allowMalformed: true));
+          if (m is Map && '${m['svc']}' == 'wenxun-cd' && !done.isCompleted) {
+            done.complete({
+              'host': dg.address.address,
+              'port': (m['port'] as num?)?.toInt() ?? portBase,
+              'shop': '${m['shop'] ?? ''}',
+              'vip_id': (m['vip_id'] as num?)?.toInt() ?? 0,
+            });
+          }
+        } catch (_) {}
+      });
+      final r = await done.future.timeout(timeout, onTimeout: () => null);
+      await sub.cancel();
+      s.close();
+      return r;
+    } catch (_) {
+      try {
+        s?.close();
+      } catch (_) {}
+      return null;
+    }
+  }
+
+  /// 远程客显拉取（安卓平板连主收银机）
+  static Future<Map<String, dynamic>?> fetchRemote(
+      HttpClient client, String host, int port) async {
+    try {
+      final req = await client
+          .getUrl(Uri.parse('http://$host:$port/state'))
+          .timeout(const Duration(seconds: 2));
+      final resp = await req.close().timeout(const Duration(seconds: 2));
+      if (resp.statusCode != 200) return null;
+      final body = await resp.transform(utf8.decoder).join();
+      return jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 主程序每次购物车变化时调用（名称/数量/单位/单价/金额 + 合计）。
@@ -124,9 +254,11 @@ class CustomerDisplay {
     num discount = 0,
     num payable = 0,
     String shop = '',
+    int vipId = 0, // 商户 ID：副屏右侧会员激活码用（v3.3.212）
   }) {
     _latest = {
       'shop': shop,
+      'vip_id': vipId > 0 ? vipId : _latest['vip_id'] ?? 0,
       'items': items,
       // 件数口径与主屏一致（retail count）：带单位的称重行按 1 笔计，
       // 按件商品累加数量。v3.3.210 及之前把称重公斤数也四舍五入累加，
