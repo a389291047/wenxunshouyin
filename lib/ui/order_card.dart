@@ -24,7 +24,8 @@ class OrderDetailPanel extends StatefulWidget {
 }
 
 class _OrderDetailPanelState extends State<OrderDetailPanel> {
-  static const int _collapseCount = 5;
+  /// 折叠阈值（v3.3.215：超过 10 项折叠，按钮加大适配触屏）
+  static const int _collapseCount = 10;
   bool showAll = false;
   bool busy = false;
 
@@ -363,44 +364,48 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         // ---- 购物清单 ----
         Row(children: [
           const Text('购物清单',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
           const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
               color: PosTheme.accent.withOpacity(0.08),
               borderRadius: BorderRadius.circular(9),
             ),
             child: Text('${goods.length} 项',
-                style: const TextStyle(fontSize: 11, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+                style: const TextStyle(fontSize: 12, color: PosTheme.accent, fontWeight: FontWeight.w600)),
           ),
         ]),
         const SizedBox(height: 6),
         Expanded(
           child: goods.isEmpty
-              ? const Center(child: Text('（无商品明细）', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)))
+              ? const Center(child: Text('（无商品明细）', style: TextStyle(fontSize: 13, color: PosTheme.textHint)))
               : ListView(
                   padding: EdgeInsets.zero,
                   children: [
+                    // 清单表头（v3.3.215 触屏优化）
+                    _goodsHeader(),
                     ...shown.asMap().entries.map((e) => _goodsRow(e.key + 1, e.value)),
                     if (goods.length > _collapseCount) ...[
                       const SizedBox(height: 4),
                       Center(
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(16),
+                          splashColor: PosTheme.accent.withOpacity(0.10),
+                          highlightColor: PosTheme.accent.withOpacity(0.06),
                           onTap: () => setState(() => showAll = !showAll),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                             decoration: BoxDecoration(
                               color: PosTheme.bg,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(16),
                               border: Border.all(color: PosTheme.line),
                             ),
                             child: Row(mainAxisSize: MainAxisSize.min, children: [
                               Text(showAll ? '收起' : '展开其余 ${goods.length - _collapseCount} 项',
-                                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
+                                  style: const TextStyle(fontSize: 14, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
                               Icon(showAll ? Icons.expand_less : Icons.expand_more,
-                                  size: 16, color: PosTheme.textSub),
+                                  size: 20, color: PosTheme.textSub),
                             ]),
                           ),
                         ),
@@ -437,33 +442,62 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     ]);
   }
 
+  /// 购物清单表头（v3.3.215）：序号 · 商品 · 单价×数量 · 小计
+  Widget _goodsHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
+      ),
+      child: const Row(children: [
+        SizedBox(width: 26, child: Text('#',
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textHint))),
+        SizedBox(width: 8),
+        Expanded(child: Text('商品',
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+        SizedBox(width: 8),
+        SizedBox(width: 132, child: Text('单价 × 数量', textAlign: TextAlign.right,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+        SizedBox(width: 10),
+        SizedBox(width: 72, child: Text('小计', textAlign: TextAlign.right,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+      ]),
+    );
+  }
+
   Widget _goodsRow(int idx, Map g) {
     final totalQty = _qty(g);
     final lineSub = _unit(g).isNotEmpty ? _price(g) * _qtyNum(g) : _price(g) * totalQty;
     final refundedQty = refundedGoods[idx] ?? 0;
     final fully = refundedQty >= totalQty && totalQty > 0;
     final partly = refundedQty > 0 && !fully;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3.5),
+    // 触屏行高：内边距加大，行与行细分隔线（v3.3.215）
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: PosTheme.line.withOpacity(0.6))),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 11),
       child: Row(children: [
         Container(
-          width: 18, height: 18,
+          width: 26, height: 26,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: fully ? const Color(0xFFFDEEEE) : PosTheme.bg,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
           ),
           child: Text('$idx', style: TextStyle(
-              fontSize: 10.5,
+              fontSize: 12.5, fontWeight: FontWeight.w700,
               color: fully ? PosTheme.red : PosTheme.textHint)),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Row(children: [
             Flexible(
               child: Text(_name(g),
                   style: TextStyle(
-                      fontSize: 13.5,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
                       color: fully ? PosTheme.textHint : null,
                       decoration: fully ? TextDecoration.lineThrough : null,
                       decorationColor: PosTheme.red,
@@ -473,36 +507,40 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
             if (fully) ...[
               const SizedBox(width: 6),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFDEEEE),
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(5),
                 ),
                 child: const Text('已退款',
-                    style: TextStyle(fontSize: 10, color: PosTheme.red)),
+                    style: TextStyle(fontSize: 11, color: PosTheme.red)),
               ),
             ] else if (partly) ...[
               const SizedBox(width: 6),
               Text('已退$refundedQty件',
-                  style: const TextStyle(fontSize: 10.5, color: PosTheme.red)),
+                  style: const TextStyle(fontSize: 11.5, color: PosTheme.red)),
             ],
           ]),
         ),
         const SizedBox(width: 8),
-        Text('¥${Fmt.money(_price(g))} ${_qtyTxt(g)}',
-            style: TextStyle(
-                fontSize: 12.5,
-                color: fully ? PosTheme.textHint : PosTheme.textSub,
-                decoration: fully ? TextDecoration.lineThrough : null,
-                decorationColor: PosTheme.red)),
+        SizedBox(
+          width: 132,
+          child: Text('¥${Fmt.money(_price(g))} ${_qtyTxt(g)}',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                  fontSize: 13.5,
+                  color: fully ? PosTheme.textHint : PosTheme.textSub,
+                  decoration: fully ? TextDecoration.lineThrough : null,
+                  decorationColor: PosTheme.red)),
+        ),
         const SizedBox(width: 10),
         SizedBox(
-          width: 66,
+          width: 72,
           child: Text('¥${Fmt.money(lineSub)}',
               textAlign: TextAlign.right,
               style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
                   color: fully ? PosTheme.textHint : null,
                   decoration: fully ? TextDecoration.lineThrough : null,
                   decorationColor: PosTheme.red)),

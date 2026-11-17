@@ -144,6 +144,8 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                     ]),
                   ),
                   const Divider(height: 14, color: PosTheme.line),
+                  // 列表表头（v3.3.215 触屏优化）
+                  _listHeader(),
                   Expanded(
                     child: loading
                         ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
@@ -155,7 +157,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                                     onRefresh: _load,
                                     color: PosTheme.accent,
                                     child: ListView.builder(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                       itemCount: f.length,
                                       itemBuilder: (_, i) => _orderRow(f[i]),
                                     ),
@@ -184,43 +186,80 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
 
   // ==================== 左侧列表行 ====================
 
+  /// 表头（v3.3.215）：与行布局对齐——左「订单号 / 状态」，右「金额」
+  Widget _listHeader() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(26, 4, 26, 8),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF7F8FA),
+        border: Border(bottom: BorderSide(color: PosTheme.line)),
+      ),
+      child: Row(children: [
+        const Expanded(
+          child: Text('订单号 / 状态',
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+        ),
+        const SizedBox(width: 96, child: Text('金额',
+            textAlign: TextAlign.right,
+            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+      ]),
+    );
+  }
+
   Widget _orderRow(Map o) {
     final on = selected != null && '${selected!['id']}' == '${o['id']}';
     final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
     final refundedAmt = double.tryParse('${o['refund_amount']}') ?? 0;
     final payOk = '${o['payment_status']}' == '1';
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: () => setState(() => selected = o),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: on ? const Color(0xFFFFF2ED) : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Flexible(
-                child: Text('${o['order_number'] ?? ''}',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+    // 触屏行高：内边距加大 + 选中态描边；Material+InkWell 提供按压墨水纹触感（v3.3.215）
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: on ? const Color(0xFFFFF2ED) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => setState(() => selected = o),
+          splashColor: PosTheme.accent.withOpacity(0.10),
+          highlightColor: PosTheme.accent.withOpacity(0.06),
+          hoverColor: PosTheme.accent.withOpacity(0.04),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                  color: on ? PosTheme.accent.withOpacity(0.45) : Colors.transparent,
+                  width: 1.2),
+            ),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Flexible(
+                    child: Text('${o['order_number'] ?? ''}',
+                        style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  const SizedBox(width: 8),
+                  if (!payOk) const TagChip('未支付', color: PosTheme.amber),
+                  if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
+                  if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
+                  if (refundSt == 0 && refundedAmt > 0) const TagChip('部分退款', color: PosTheme.red),
+                ]),
+                const SizedBox(height: 6),
+                Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? '其他支付'}',
+                    style: const TextStyle(fontSize: 13, color: PosTheme.textSub),
                     maxLines: 1, overflow: TextOverflow.ellipsis),
+              ])),
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 96,
+                child: Text('¥${Fmt.money(o['total'])}',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: PosTheme.accent)),
               ),
-              const SizedBox(width: 6),
-              if (!payOk) const TagChip('未支付', color: PosTheme.amber),
-              if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
-              if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
-              if (refundSt == 0 && refundedAmt > 0) const TagChip('部分退款', color: PosTheme.red),
             ]),
-            const SizedBox(height: 3),
-            Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? '其他支付'}',
-                style: const TextStyle(fontSize: 12, color: PosTheme.textSub),
-                maxLines: 1, overflow: TextOverflow.ellipsis),
-          ])),
-          const SizedBox(width: 8),
-          Text('¥${Fmt.money(o['total'])}',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-        ]),
+          ),
+        ),
       ),
     );
   }
