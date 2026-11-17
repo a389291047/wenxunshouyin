@@ -466,10 +466,13 @@ class _CustomerScreenPageState extends State<CustomerScreenPage> {
     final unit = '${it['u'] ?? ''}';
     final price = (it['p'] as num?)?.toDouble() ?? 0;
     final amount = (it['a'] as num?)?.toDouble() ?? 0;
+    // 一行三段等分平均分配（v3.3.216）：品名 / 数量×单价 / 小计，
+    // 全部弹性伸缩，超长省略号，任何一段都不会被挤压
     return Padding(
       padding: EdgeInsets.symmetric(vertical: 9 * s),
       child: Row(children: [
         Expanded(
+          flex: 2,
           child: Text(name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -479,17 +482,21 @@ class _CustomerScreenPageState extends State<CustomerScreenPage> {
                   color: const Color(0xFF16222F))),
         ),
         SizedBox(width: 10 * s),
-        SizedBox(
-          width: 118 * s,
+        Expanded(
+          flex: 2,
           child: Text('$qty$unit × ${price.toStringAsFixed(2)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.right,
               style: TextStyle(
                   fontSize: 14 * s, color: const Color(0xFF6B7686))),
         ),
-        SizedBox(width: 12 * s),
-        SizedBox(
-          width: 100 * s,
+        SizedBox(width: 10 * s),
+        Expanded(
+          flex: 1,
           child: Text('¥${amount.toStringAsFixed(2)}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.right,
               style: TextStyle(
                   fontSize: 19 * s,

@@ -22,6 +22,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
   bool loading = true;
   String? error;
   Map? selected;
+  String kw = ''; // 订单号 / 支付方式 / 金额 搜索（本页内过滤）
 
   /// 订单数据权限（v3.3.214）：收银员/服务员只能看当天，店长/商户主账号可看全部
   bool get canSeeAll => Session.canSeeAllOrders;
@@ -80,6 +81,16 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
           return dd.compareTo(ss) >= 0 && dd.compareTo(ee) <= 0;
         });
         break;
+    }
+    // 搜索过滤（不区分大小写，匹配订单号 / 支付方式 / 金额）
+    final k = kw.trim().toLowerCase();
+    if (k.isNotEmpty) {
+      l = l.where((o) {
+        final no = '${o['order_number'] ?? ''}'.toLowerCase();
+        final pm = '${o['payment_method'] ?? ''}'.toLowerCase();
+        final amt = Fmt.money(o['total']);
+        return no.contains(k) || pm.contains(k) || amt.contains(k);
+      });
     }
     return l.toList();
   }
@@ -143,8 +154,26 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                             style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
                     ]),
                   ),
+                  // 搜索行（v3.3.216）：订单号 / 支付方式 / 金额
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
+                    child: TextField(
+                      onChanged: (v) => setState(() { kw = v; _ensureSelected(); }),
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: '搜索订单号 / 支付方式 / 金额',
+                        prefixIcon: const Icon(Icons.search, size: 20),
+                        suffixIcon: kw.isEmpty
+                            ? null
+                            : IconButton(
+                                icon: const Icon(Icons.close, size: 17),
+                                onPressed: () => setState(() { kw = ''; _ensureSelected(); }),
+                              ),
+                      ),
+                    ),
+                  ),
                   const Divider(height: 14, color: PosTheme.line),
-                  // 列表表头（v3.3.215 触屏优化）
+                  // 列表表头：与单行布局对齐（订单号 / 时间 / 支付方式 / 金额）
                   _listHeader(),
                   Expanded(
                     child: loading
@@ -186,32 +215,74 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
 
   // ==================== 左侧列表行 ====================
 
-  /// 表头（v3.3.215）：与行布局对齐——左「订单号 / 状态」，右「金额」
+  /// 表头（v3.3.216）：与单行布局对齐——圆点+订单号 / 时间 / 支付方式 / 金额，四段等分
   Widget _listHeader() {
+    const segStyle = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub);
     return Container(
-      padding: const EdgeInsets.fromLTRB(26, 4, 26, 8),
+      padding: const EdgeInsets.fromLTRB(26, 6, 26, 8),
       decoration: const BoxDecoration(
         color: Color(0xFFF7F8FA),
         border: Border(bottom: BorderSide(color: PosTheme.line)),
       ),
       child: Row(children: [
         const Expanded(
-          child: Text('订单号 / 状态',
-              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+          flex: 3,
+          child: Text('订单号 / 状态', style: segStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
         ),
-        const SizedBox(width: 96, child: Text('金额',
-            textAlign: TextAlign.right,
-            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+        const SizedBox(width: 10),
+        const Expanded(
+          flex: 2,
+          child: Text('时间', style: segStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 10),
+        const Expanded(
+          flex: 2,
+          child: Text('支付方式', style: segStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 88,
+          child: Text('金额', textAlign: TextAlign.right, style: segStyle),
+        ),
       ]),
     );
   }
 
-  Widget _orderRow(Map o) {
-    final on = selected != null && '${selected!['id']}' == '${o['id']}';
+  /// 状态圆点：绿=正常已支付，橙=未支付/退款中，红=已退款/部分退款
+  Color _statusColor(Map o) {
     final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
     final refundedAmt = double.tryParse('${o['refund_amount']}') ?? 0;
-    final payOk = '${o['payment_status']}' == '1';
-    // 触屏行高：内边距加大 + 选中态描边；Material+InkWell 提供按压墨水纹触感（v3.3.215）
+    if (refundSt == 2 || (refundSt == 0 && refundedAmt > 0)) return PosTheme.red;
+    if (refundSt == 1) return PosTheme.amber;
+    if ('${o['payment_status']}' != '1') return PosTheme.amber;
+    return const Color(0xFF34A853);
+  }
+
+  String _statusText(Map o) {
+    final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
+    final refundedAmt = double.tryParse('${o['refund_amount']}') ?? 0;
+    if (refundSt == 2) return '已退款';
+    if (refundSt == 1) return '退款中';
+    if (refundSt == 0 && refundedAmt > 0) return '部分退款';
+    if ('${o['payment_status']}' != '1') return '未支付';
+    return '';
+  }
+
+  /// 单行布局（v3.3.216）：订单号 / 时间 / 支付方式 / 金额 一行等分平均分配，
+  /// 超长一律省略号截断，谁也不挤压谁；Material+InkWell 保留按压墨水纹触感
+  Widget _orderRow(Map o) {
+    final on = selected != null && '${selected!['id']}' == '${o['id']}';
+    final st = _statusText(o);
+    final t = Fmt.date(o['create_time']);
+    final time = t.length >= 16 ? t.substring(5, 16) : t; // MM-dd HH:mm
+    Widget seg(int flex, String text, TextStyle style, {bool right = false}) => Expanded(
+          flex: flex,
+          child: Text(text,
+              textAlign: right ? TextAlign.right : TextAlign.left,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style),
+        );
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
@@ -232,30 +303,29 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                   width: 1.2),
             ),
             child: Row(children: [
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Flexible(
-                    child: Text('${o['order_number'] ?? ''}',
-                        style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
-                        maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  const SizedBox(width: 8),
-                  if (!payOk) const TagChip('未支付', color: PosTheme.amber),
-                  if (refundSt == 1) const TagChip('退款中', color: PosTheme.amber),
-                  if (refundSt == 2) const TagChip('已退款', color: PosTheme.red),
-                  if (refundSt == 0 && refundedAmt > 0) const TagChip('部分退款', color: PosTheme.red),
-                ]),
-                const SizedBox(height: 6),
-                Text('${Fmt.date(o['create_time'])} · ${o['payment_method'] ?? '其他支付'}',
-                    style: const TextStyle(fontSize: 13, color: PosTheme.textSub),
-                    maxLines: 1, overflow: TextOverflow.ellipsis),
-              ])),
-              const SizedBox(width: 12),
+              // 状态圆点（固定宽，不参与挤压）：绿=正常，橙=未支付/退款中，红=已退款
+              Container(
+                width: 9, height: 9,
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(color: _statusColor(o), shape: BoxShape.circle),
+              ),
+              seg(3, '${o['order_number'] ?? ''}',
+                  const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700)),
+              const SizedBox(width: 10),
+              seg(2, time, const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+              const SizedBox(width: 10),
+              seg(2, st.isEmpty ? '${o['payment_method'] ?? '其他支付'}' : '$st · ${o['payment_method'] ?? ''}',
+                  TextStyle(
+                      fontSize: 13,
+                      color: st.isEmpty ? PosTheme.textSub : (st == '未支付' ? PosTheme.amber : PosTheme.red))),
+              const SizedBox(width: 10),
               SizedBox(
-                width: 96,
+                width: 88,
                 child: Text('¥${Fmt.money(o['total'])}',
                     textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: PosTheme.accent)),
               ),
             ]),
           ),
