@@ -464,12 +464,15 @@ class CloudPrinter {
   }
 
   /// 订单重打小票（订单管理页 云打印/USB打印 共用）
+  /// v3.3.213 修复称重商品打印：
+  ///   1. 商品明细统一走 parseGoods（兼容数组/对象/JSON字符串三种存储形态），
+  ///      旧代码只认 List 形态，解析失败被 catch 吞掉 → 整张小票无商品行
+  ///   2. 称重行 quantity 是小数（0.534），旧代码 int.tryParse 失败按 x1 打；
+  ///      现按小数打印并带单位（0.534kg），按件行仍打 xN
+  ///   3. 合计旧代码取 refund_amount ?? total，未退款时 refund_amount=0 顶着 → 合计 0.00；
+  ///      现仅退款单取 refund_amount，普通单固定取 total
   static String orderTicket(Map o, {bool isRefund = false}) {
-    List goods = [];
-    try {
-      final raw = o['goods_list'];
-      goods = raw is List ? raw : ((jsonDecode('${raw ?? '[]'}') as List?) ?? []);
-    } catch (_) {}
+    final goods = parseGoods(o);
     final sb = StringBuffer();
     sb.writeln('<FS2><center>${isRefund ? '退款单' : '订单小票'}</center></FS2>');
     sb.writeln('--------------------------------');
@@ -485,12 +488,15 @@ class CloudPrinter {
     for (final g in goods) {
       final name = '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
       final price = double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
-      final qty = int.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+      final unit = '${g['unit'] ?? ''}'.trim();
+      final qty = double.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+      // 称重行：0.534kg × 18.00（与零售收银小票口径一致）；按件行：xN
+      final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
       sb.writeln(name);
-      sb.writeln('  ¥${Fmt.money(price)} x$qty   ¥${Fmt.money(price * qty)}');
+      sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(price * qty)}');
     }
     sb.writeln('--------------------------------');
-    sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(o['refund_amount'] ?? o['total'])}');
+    sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(isRefund ? (o['refund_amount'] ?? o['total']) : o['total'])}');
     sb.writeln('支付方式: ${o['payment_method'] ?? '-'}');
     if (isRefund) {
       sb.writeln('退款时间: ${DateTime.now().toString().substring(0, 19)}');

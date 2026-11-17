@@ -81,6 +81,18 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   String _name(Map g) => '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
   double _price(Map g) => double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
   int _qty(Map g) => int.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+  /// 称重行真实数量（0.534）：仅用于展示/小计；退款按行计仍走 _qty（称重行算 1 件）
+  double _qtyNum(Map g) => double.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+  String _unit(Map g) => '${g['unit'] ?? ''}'.trim();
+  /// 数量文本：称重行 ×0.534kg，按件行 ×2
+  String _qtyTxt(Map g) {
+    final unit = _unit(g);
+    if (unit.isEmpty) return '×${_qty(g)}';
+    final q = _qtyNum(g);
+    var s = q == q.roundToDouble() ? q.toStringAsFixed(0) : q.toStringAsFixed(3);
+    if (s.contains('.')) s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '×$s$unit';
+  }
 
   // ==================== 打印 ====================
 
@@ -427,6 +439,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
 
   Widget _goodsRow(int idx, Map g) {
     final totalQty = _qty(g);
+    final lineSub = _unit(g).isNotEmpty ? _price(g) * _qtyNum(g) : _price(g) * totalQty;
     final refundedQty = refundedGoods[idx] ?? 0;
     final fully = refundedQty >= totalQty && totalQty > 0;
     final partly = refundedQty > 0 && !fully;
@@ -476,7 +489,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
           ]),
         ),
         const SizedBox(width: 8),
-        Text('¥${Fmt.money(_price(g))} ×$totalQty',
+        Text('¥${Fmt.money(_price(g))} ${_qtyTxt(g)}',
             style: TextStyle(
                 fontSize: 12.5,
                 color: fully ? PosTheme.textHint : PosTheme.textSub,
@@ -485,7 +498,7 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         const SizedBox(width: 10),
         SizedBox(
           width: 66,
-          child: Text('¥${Fmt.money(_price(g) * totalQty)}',
+          child: Text('¥${Fmt.money(lineSub)}',
               textAlign: TextAlign.right,
               style: TextStyle(
                   fontSize: 13,
