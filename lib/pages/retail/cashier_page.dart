@@ -747,10 +747,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
         _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
         if (await PrintPrefs.on('retail')) {
-          CloudPrinter.print(CloudPrinter.retailReceipt(
-            orderNo: orderNo, payMethod: picked, total: t,
-            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
-          )).catchError((_) => <String, dynamic>{});
+          CloudPrinter.printRetail(
+            CloudPrinter.retailReceipt(
+              orderNo: orderNo, payMethod: picked, total: t,
+              cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+            ),
+            alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
+          ).catchError((_) => <String, dynamic>{});
         }
         _clearCart();
         showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: picked));
@@ -783,10 +786,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
       // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
       if (await PrintPrefs.on('retail')) {
-        CloudPrinter.print(CloudPrinter.retailReceipt(
-          orderNo: orderNo, payMethod: picked, total: t,
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
-        )).catchError((_) => <String, dynamic>{});
+        CloudPrinter.printRetail(
+          CloudPrinter.retailReceipt(
+            orderNo: orderNo, payMethod: picked, total: t,
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+          ),
+          alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
+        ).catchError((_) => <String, dynamic>{});
       }
 
       _clearCart();

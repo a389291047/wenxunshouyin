@@ -57,6 +57,21 @@ class CloudPrinter {
     return printCloud(content);
   }
 
+  /// 零售收银小票（v3.3.214）：本地（USB/蓝牙）出票后，[alsoCloud]=true 时
+  /// 云打印机同步出一份（称重订单要求本地 + 云端都见票）；本地未出票时维持
+  /// 原兜底行为（云打印开关开着就发云打印机）。云打印失败静默，不影响收银。
+  static Future<Map<String, dynamic>> printRetail(String content, {bool alsoCloud = false}) async {
+    if (await UsbPrinter.isManual()) return {};
+    final local = await UsbPrinter.tryPrint(content) || await BtPrinter.tryPrint(content);
+    if (local && !alsoCloud) return {};
+    if (!await enabled()) return {};
+    try {
+      return await printCloud(content);
+    } catch (_) {
+      return {}; // 云端失败不影响本地已出的票
+    }
+  }
+
   /// 手动出票（补打小票等用户主动点击）：不受「手动打印模式」限制
   static Future<Map<String, dynamic>> printManual(String content) async {
     if (await UsbPrinter.tryPrint(content)) return {};
@@ -506,22 +521,23 @@ class CloudPrinter {
   }
 
   /// 解析订单 goods_list（零售/会员支付/餐饮混合格式）
-  /// 兼容三种存储形态：数组 [{...}]、对象 {"0":{...},"1":{...}}（按数字键排序）、JSON 字符串
+  /// 兼容四种存储形态：数组 [{...}]、对象 {"0":{...},"1":{...}}（按数字键排序）、JSON 字符串、
+  /// 双重编码字符串 "\"[{...}]\""（v3.3.214 会员支付旧落单 huiyuanzhifu 未解 cart 字符串导致，
+  /// 解一层得到 JSON 字符串时再解一层）
   static List<Map<String, dynamic>> parseGoods(Map o) {
     try {
       final raw = o['goods_list'];
       List? l;
-      if (raw is List) {
-        l = raw;
-      } else if (raw is Map) {
-        l = _mapValues(raw);
-      } else if ('$raw'.isNotEmpty && '$raw' != 'null') {
-        final d = jsonDecode('$raw');
-        if (d is List) {
-          l = d;
-        } else if (d is Map) {
-          l = _mapValues(d);
-        }
+      var cur = raw;
+      // 双重编码：解出来还是字符串就再解一层（最多两层，防脏数据死循环）
+      for (var i = 0; i < 2 && cur is String && cur.isNotEmpty && cur != 'null'; i++) {
+        final d = jsonDecode(cur);
+        cur = d;
+      }
+      if (cur is List) {
+        l = cur;
+      } else if (cur is Map) {
+        l = _mapValues(cur);
       }
       return (l ?? const [])
           .whereType<Map>()

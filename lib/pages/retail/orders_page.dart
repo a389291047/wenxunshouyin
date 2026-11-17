@@ -23,6 +23,9 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
   String? error;
   Map? selected;
 
+  /// 订单数据权限（v3.3.214）：收银员/服务员只能看当天，店长/商户主账号可看全部
+  bool get canSeeAll => Session.canSeeAllOrders;
+
   @override
   void initState() {
     super.initState();
@@ -56,7 +59,9 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
     });
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    switch (timeTab) {
+    // 收银员/服务员锁定当天：无论切到哪个时间档都只显示今天的单（v3.3.214）
+    final eff = canSeeAll ? timeTab : 0;
+    switch (eff) {
       case 0: // 今天
         final s = _day(now);
         l = l.where((o) => '${o['create_time']}'.startsWith(s));
@@ -126,11 +131,16 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                       const SizedBox(width: 8),
                       _seg('小程序订单', 1, tab, (v) => _switchFilter(() => tab = v)),
                       const Spacer(),
-                      _timeSeg('今天', 0),
-                      const SizedBox(width: 6),
-                      _timeSeg('昨天', 1),
-                      const SizedBox(width: 6),
-                      _timeSeg('上周', 2),
+                      // 收银员/服务员只显示「今天」档并锁定（v3.3.214）
+                      if (canSeeAll) ...[
+                        _timeSeg('今天', 0),
+                        const SizedBox(width: 6),
+                        _timeSeg('昨天', 1),
+                        const SizedBox(width: 6),
+                        _timeSeg('上周', 2),
+                      ] else
+                        const Text('收银员仅可查看当天订单',
+                            style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
                     ]),
                   ),
                   const Divider(height: 14, color: PosTheme.line),

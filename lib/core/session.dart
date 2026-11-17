@@ -16,6 +16,11 @@ class Session {
 
   static bool get isCashierOnly => roleId != 0;
 
+  /// 订单数据可见范围（v3.3.214）：店长(role_id=1)与商户主账号(role_id=0)可看全部，
+  /// 收银员/服务员等其他角色只能查看当天的订单
+  static bool get canSeeAllOrders =>
+      roleId == 0 || roleId == 1 || roleName.contains('店长');
+
   static Future<void> load() async {
     // 防御式读取：旧版 APP 缓存里同一 key 可能存的是字符串/布尔，
     // 直接 getInt/getBool 会抛类型转换异常导致启动黑屏，全部经字符串转换兜底

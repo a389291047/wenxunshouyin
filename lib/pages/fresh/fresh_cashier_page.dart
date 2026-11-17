@@ -45,6 +45,14 @@ class _CartLine {
 
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
+
+  /// 称重商品（v3.3.214：落单 payload 必须带 unit，否则后端拒绝称重单）
+  bool get byWeight => '${goods['sell_type'] ?? 0}' == '1';
+  String get unit {
+    if (!byWeight) return '';
+    final u = '${goods['danwei'] ?? ''}'.trim();
+    return u.isEmpty ? 'kg' : u;
+  }
 }
 
 class _FreshCashierPageState extends State<FreshCashierPage> {
@@ -337,7 +345,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       'id': l.goods['id'],
       'name': l.goods['title'],
       'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
-      'quantity': l.num,
+      'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+      'unit': l.byWeight ? l.unit : '', // 称重必带单位，后端强校验（v3.3.214）
       'guige': '${l.goods['guige'] ?? ''}',
       'image': _img(l.goods),
       'note': l.note, // 单行备注（小票打印用）
@@ -401,10 +410,14 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
     CashDrawer.autoOpen(method);
     if (await PrintPrefs.on('retail')) {
-      CloudPrinter.print(CloudPrinter.retailReceipt(
-        orderNo: orderNo, payMethod: method, total: t,
-        cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'note': l.note}).toList(),
-      )).catchError((_) => <String, dynamic>{});
+      final hasWeigh = cart.any((l) => l.byWeight);
+      CloudPrinter.printRetail(
+        CloudPrinter.retailReceipt(
+          orderNo: orderNo, payMethod: method, total: t,
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+        ),
+        alsoCloud: hasWeigh, // 称重订单本地出票后云打印机同步一份（v3.3.214）
+      ).catchError((_) => <String, dynamic>{});
     }
     _clearCart();
     showDialog(context: context, builder: (_) => _FreshSuccessDialog(orderNo: orderNo, total: t, method: method));

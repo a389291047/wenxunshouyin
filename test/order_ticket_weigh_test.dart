@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wenxun/core/cloud_printer.dart';
 
@@ -32,6 +34,23 @@ void main() {
       'goods_list': '{"0":{"name":"牛肉","price":18,"quantity":0.534,"unit":"kg"}}',
     });
     expect(ticket.contains('牛肉'), isTrue);
+  });
+
+  test('goods_list 双重编码（会员支付旧落单）能解开，购物清单不空', () {
+    // 旧版 huiyuanzhifu 把 cart JSON 字符串又 json_encode 了一次，
+    // 库里存的是 "[{\"id\":...}]" 这样的字符串再编码形态
+    final inner = '[{"id":"custom_1","name":"无码商品","price":80,"quantity":1,"unit":""}]';
+    final doubleEncoded = jsonEncode(inner);
+    final goods = CloudPrinter.parseGoods({'goods_list': doubleEncoded});
+    expect(goods, hasLength(1), reason: '双重编码应解两层');
+    expect(goods.first['name'], '无码商品');
+
+    final ticket = CloudPrinter.orderTicket({
+      'order_number': 'DD007',
+      'total': 80,
+      'goods_list': doubleEncoded,
+    });
+    expect(ticket.contains('无码商品'), isTrue, reason: '补打小票也应显示会员支付商品');
   });
 
   test('称重行按小数+单位打印，按件行打 xN', () {
