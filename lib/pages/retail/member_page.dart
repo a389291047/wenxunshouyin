@@ -597,7 +597,7 @@ class _AddVipDialogState extends State<_AddVipDialog> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
         width: 760,
-        height: 500,
+        height: 520,
         padding: const EdgeInsets.all(22),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // ---- 标题 ----
@@ -770,14 +770,14 @@ class _AddVipDialogState extends State<_AddVipDialog> {
             splashColor: PosTheme.accent.withOpacity(0.12),
             highlightColor: PosTheme.accent.withOpacity(0.06),
             child: Container(
-              height: 54,
+              height: 48,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: dis ? Colors.transparent : PosTheme.line),
               ),
               child: Text(label, style: TextStyle(
-                  fontSize: label.length > 1 ? 14 : 21,
+                  fontSize: label.length > 1 ? 13.5 : 20,
                   fontWeight: FontWeight.w700,
                   color: dis ? PosTheme.textHint : (label == '清空' ? PosTheme.red : PosTheme.textMain))),
             ),
@@ -788,7 +788,7 @@ class _AddVipDialogState extends State<_AddVipDialog> {
 
     final dotOn = active == _VipField.amount;
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFC),
         borderRadius: BorderRadius.circular(14),
@@ -805,25 +805,25 @@ class _AddVipDialogState extends State<_AddVipDialog> {
             _VipField.card => '实体卡号',
           }, style: const TextStyle(fontSize: 11.5, color: PosTheme.accent, fontWeight: FontWeight.w700)),
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         for (var row in [['7', '8', '9'], ['4', '5', '6'], ['1', '2', '3']]) ...[
           Row(children: [for (final k in row) key(k, () => _key(k))]),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
         Row(children: [
           key('.', dotOn ? () => _key('.') : null),
           key('0', () => _key('0')),
           key('⌫', () => _key('B')),
         ]),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         SizedBox(
-          width: double.infinity, height: 44,
+          width: double.infinity, height: 40,
           child: OutlinedButton.icon(
             onPressed: () => _key('C'),
             style: OutlinedButton.styleFrom(
                 foregroundColor: PosTheme.red, side: BorderSide(color: PosTheme.red.withOpacity(0.35))),
-            icon: const Icon(Icons.backspace_outlined, size: 17),
-            label: const Text('清空该字段', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+            icon: const Icon(Icons.backspace_outlined, size: 16),
+            label: const Text('清空该字段', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
           ),
         ),
       ]),
