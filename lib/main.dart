@@ -160,6 +160,13 @@ Future<void> _runCustomerScreen(String pos) async {
     }
     runApp(CustomerScreenApp(windowMode: pos != 'screen2'));
     await windowManager.show();
+    // v3.3.218：副屏默认真全屏（铺满整块副屏、盖住 Windows 任务栏），
+    // 任意分辨率副屏都按显示器尺寸自适应；ESC 退出全屏由客显页处理
+    if (pos == 'screen2') {
+      try {
+        await windowManager.setFullScreen(true);
+      } catch (_) {}
+    }
   });
 }
 
