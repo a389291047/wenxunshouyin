@@ -138,7 +138,11 @@ class _CartLineDialogState extends State<CartLineDialog> {
 
   void _bump(int delta) {
     final next = qty + delta;
-    setState(() => qty = next < 1 ? 1 : next);
+    setState(() {
+      qty = next < 1 ? 1 : next;
+      // 数量改小后赠送可能顶满 → 钳到「留出收钱部分」以内（v3.3.237）
+      giftQty = GiftMode.clampGift(qty, giftQty, widget.byWeight);
+    });
   }
 
   Future<void> _inputQty() async {
@@ -151,7 +155,10 @@ class _CartLineDialogState extends State<CartLineDialog> {
       hint: widget.byWeight ? '称重商品最多 3 位小数' : '输入整数件数',
     );
     if (v == null || v <= 0 || !mounted) return;
-    setState(() => qty = widget.byWeight ? double.parse(v.toStringAsFixed(3)) : v.roundToDouble());
+    setState(() {
+      qty = widget.byWeight ? double.parse(v.toStringAsFixed(3)) : v.roundToDouble();
+      giftQty = GiftMode.clampGift(qty, giftQty, widget.byWeight);
+    });
   }
 
   Future<void> _inputPrice() async {
@@ -181,6 +188,7 @@ class _CartLineDialogState extends State<CartLineDialog> {
   }
 
   /// 赠送数量：自定义数字键盘输入（按件整数 / 称重 3 位小数）
+  /// 含赠送模式下赠送必须小于数量（至少留 0.001kg / 1 件收钱），超出直接拦截（v3.3.237）
   Future<void> _inputGift() async {
     final v = await showNumberPad(
       context,
@@ -191,9 +199,14 @@ class _CartLineDialogState extends State<CartLineDialog> {
       hint: widget.byWeight ? '买0.5kg送0.25kg就输0.25（称重最多 3 位小数）' : '买2送1就输1（按件为整数）',
     );
     if (v == null || v <= 0 || !mounted) return;
-    setState(() {
-      giftQty = widget.byWeight ? double.parse(v.toStringAsFixed(3)) : v.roundToDouble();
-    });
+    final g = widget.byWeight ? double.parse(v.toStringAsFixed(3)) : v.roundToDouble();
+    if (GiftMode.giftOverflow(qty, g, widget.byWeight)) {
+      toast(context,
+          widget.byWeight ? '赠送不能顶满数量：数量 $qtyText$unit 至少要留一点收钱' : '赠送不能大于等于数量（$qtyText 件），至少留 1 件收钱',
+          error: true);
+      return;
+    }
+    setState(() => giftQty = g);
   }
 
   void _delete() => Navigator.pop(context, const CartLineEdit(num: 0, deleted: true));

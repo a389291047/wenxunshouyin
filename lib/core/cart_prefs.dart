@@ -29,6 +29,23 @@ class GiftMode {
     await sp.setString(_key, v);
     value.value = v;
   }
+
+  /// 赠送数量钳制（v3.3.237）：含赠送模式下赠送不能顶满数量，至少留出收钱部分
+  /// 称重最少收 0.001（单位数量）、按件最少收 1 件，避免出现 0 元购
+  static double clampGift(double qty, double gift, bool byWeight) {
+    if (!isDeduct) return gift;
+    final minPay = byWeight ? 0.001 : 1.0;
+    final maxGift = qty - minPay;
+    if (maxGift <= 0) return 0;
+    return gift > maxGift ? double.parse(maxGift.toStringAsFixed(3)) : gift;
+  }
+
+  /// 赠送是否超出可赠送上限（true=不允许）
+  static bool giftOverflow(double qty, double gift, bool byWeight) {
+    if (!isDeduct) return false;
+    final minPay = byWeight ? 0.001 : 1.0;
+    return gift > qty - minPay;
+  }
 }
 
 /// 购物车单行商品相关配置（v3.3.205）

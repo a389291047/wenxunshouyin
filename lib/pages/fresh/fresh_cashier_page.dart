@@ -282,6 +282,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       _removeLine(l);
       return;
     }
+    l.giftQty = GiftMode.clampGift(l.num.toDouble(), l.giftQty, l.byWeight); // 防赠送顶满 0 元购（v3.3.237）
     setState(() {});
   }
 
@@ -318,7 +319,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     setState(() {
       l.num = r.num.round() < 1 ? 1 : r.num.round();
       l.price = r.price;
-      l.giftQty = r.giftQty;
+      l.giftQty = GiftMode.clampGift(l.num.toDouble(), r.giftQty, l.byWeight);
     });
   }
 

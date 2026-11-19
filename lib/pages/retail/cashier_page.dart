@@ -544,6 +544,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       _removeLine(l);
       return;
     }
+    l.giftQty = GiftMode.clampGift(l.num, l.giftQty, l.byWeight); // 防赠送顶满 0 元购（v3.3.237）
     setState(() {});
   }
 
@@ -581,7 +582,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     setState(() {
       l.num = r.num;
       l.price = r.price;
-      l.giftQty = r.giftQty;
+      l.giftQty = GiftMode.clampGift(r.num, r.giftQty, l.byWeight);
     });
   }
 
