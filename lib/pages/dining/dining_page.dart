@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/cloud_printer.dart';
-import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
@@ -1694,15 +1693,13 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       builder: (_) => const NoCodeGoodsDialog(title: '无码菜品'),
     );
     if (r == null || !mounted) return;
-    final ok = await _pushDishes([{
+    await _pushDishes([{
       'goods_id': 0, // 无码菜品没有商品 id，后端强转 int 为 0
       'goods_name': r['name'],
       'goods_image': '',
       'unit_price': r['amount'],
       'quantity': r['num'],
     }], label: '${r['name']}×${r['num']}');
-    // 加菜成功的无码菜品记入「常用」（v3.3.178）
-    if (ok) await NoCodeCommon.add('${r['name']}');
   }
 
   /// 统一加菜入口：请求后端 → 暂存待传清单 → 刷新账单

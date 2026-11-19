@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../core/no_code_common.dart';
 import '../core/theme.dart';
 import 'widgets.dart';
 
@@ -9,8 +8,6 @@ import 'widgets.dart';
 /// - 金额只能通过弹窗内置 12 宫格数字键盘输入（不用系统键盘），价格默认第一个输入
 /// - 商品名称：可选，可用物理/系统键盘输入
 /// - 商品数量：可选，默认 1，点数量框后用键盘输入几就加几件，小计 = 单价 × 数量
-/// - 名称输入框右侧「常用」按钮（v3.3.179）：点开弹窗展示最多 5 张渐变卡片
-///   （自动记录最近 5 条支付成功/加菜成功的无码项），点击一键带入名称与单价
 ///
 /// 返回 {'name': String, 'amount': double, 'num': int}；取消返回 null
 class NoCodeGoodsDialog extends StatefulWidget {
@@ -26,15 +23,6 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
   String num = '1'; // 数量（默认 1）
   bool priceActive = true; // 当前键盘作用域：true=单价（默认第一个）
   bool numTouched = false; // 数量是否被用户改过（改过则以输入为准，没改过视为 1）
-  List<String> common = []; // 常用无码项名称（v3.3.181：非空才在名称框右侧显示「常用」按钮）
-
-  @override
-  void initState() {
-    super.initState();
-    NoCodeCommon.load().then((l) {
-      if (mounted) setState(() => common = l);
-    });
-  }
 
   double get amount => double.tryParse(price) ?? 0;
   int get qty => (int.tryParse(num) ?? 0) < 1 ? 1 : int.tryParse(num)!;
@@ -69,84 +57,6 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
         numTouched = true;
         if (num.length < 3) num += k;
       }
-    });
-  }
-
-  /// 「常用」选择弹窗：最多 5 张渐变卡片（只带名称，价格需手输）
-  Future<void> _pickFromCommon() async {
-    final items = await NoCodeCommon.load();
-    if (!mounted) return;
-    if (items.isEmpty) {
-      toast(context, '还没有常用项：无码${widget.title == '无码菜品' ? '菜品' : '商品'}支付成功后会自动记录最近 ${NoCodeCommon.max} 条名称');
-      return;
-    }
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Container(
-          width: 420,
-          padding: const EdgeInsets.all(20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Row(children: [
-              const Icon(Icons.bookmark_border, size: 20, color: PosTheme.accent),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: Text('常用${widget.title}',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.textMain))),
-              Text('最多 ${NoCodeCommon.max} 条', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-              const SizedBox(width: 8),
-              InkWell(
-                onTap: () => Navigator.pop(ctx),
-                borderRadius: BorderRadius.circular(20),
-                child: const SizedBox(width: 34, height: 34, child: Icon(Icons.close, size: 22, color: PosTheme.textHint)),
-              ),
-            ]),
-            const SizedBox(height: 12),
-            for (final name in items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: InkWell(
-                  onTap: () => Navigator.pop(ctx, name),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [const Color(0xFFFF8A50), PosTheme.accent]),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(children: [
-                      const Icon(Icons.touch_app_outlined, size: 19, color: Colors.white),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(name,
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: Colors.white)),
-                      ),
-                    ]),
-                  ),
-                ),
-              ),
-            const SizedBox(height: 2),
-            const Text('点击卡片只带入名称，单价请用下方键盘输入（设置页可删除不用的常用项）',
-                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-          ]),
-        ),
-      ),
-    );
-    if (picked == null || !mounted) return;
-    _pickCommon(picked);
-  }
-
-  /// 常用项一键带入：只填名称，价格留给收银员输入（v3.3.181）
-  void _pickCommon(String name) {
-    setState(() {
-      nameCtrl.text = name.trim();
-      priceActive = true;
     });
   }
 
@@ -190,7 +100,7 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
             ),
           ]),
           const SizedBox(height: 20),
-          // 名称（可选，物理/系统键盘输入）；有常用项时右内侧显示紧凑「常用」按钮
+          // 名称（可选，物理/系统键盘输入）
           TextField(
             controller: nameCtrl,
             maxLength: 30,
@@ -201,22 +111,6 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
               hintText: '${widget.title}名称（可选）',
               prefixIcon: const Icon(Icons.edit_outlined, size: 20),
               contentPadding: const EdgeInsets.symmetric(vertical: 15),
-              // suffix 贴在输入内容之后靠右排，不占输入区、不影响正常输入
-              suffix: common.isEmpty
-                  ? null
-                  : InkWell(
-                      onTap: _pickFromCommon,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(10, 4, 2, 4),
-                        child: Row(mainAxisSize: MainAxisSize.min, children: [
-                          const Icon(Icons.bookmark_border, size: 17, color: PosTheme.accent),
-                          const SizedBox(width: 4),
-                          const Text('常用',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.accent)),
-                        ]),
-                      ),
-                    ),
             ),
           ),
           const SizedBox(height: 14),

@@ -15,7 +15,6 @@ import '../../core/cloud_printer.dart';
 import '../../core/customer_display.dart';
 import '../../core/display_prefs.dart';
 import '../../core/layout_prefs.dart';
-import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/printer_route.dart';
@@ -117,7 +116,6 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadStaffs();
     _loadRoute();
     _loadCloudOn();
-    _loadNoCode();
     // 显示自定义设置（v3.3.193）：改完即时反映到设置页自身（整体字体缩放直接生效）
     DisplayPrefs.fontScale.addListener(_onDisplayChanged);
     DisplayPrefs.fontWeight.addListener(_onDisplayChanged);
@@ -143,52 +141,6 @@ class _SettingsPageState extends State<SettingsPage> {
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     super.dispose();
-  }
-
-  // 无码商品常用（v3.3.181）：本机配置，自动记录最近 5 条名称，只可删除不可手工添加
-  List<String> noCodeItems = [];
-
-  Future<void> _loadNoCode() async {
-    final l = await NoCodeCommon.load();
-    if (mounted) setState(() => noCodeItems = l);
-  }
-
-  /// 无码商品常用：只记名称（和常用做法同样的标签样式），支付/加菜成功自动记录，仅可删除
-  Widget _noCodeCard() {
-    return AppCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _sectionTitle(Icons.bookmark_border, '无码商品常用'),
-      const SizedBox(height: 4),
-      Text('收银时点「无码商品/无码菜品」名称框右侧「常用」，选名称一键带入（单价仍需手输）。'
-          '零售/生鲜支付成功、餐饮加菜成功的无码项名称自动记录，最多 ${NoCodeCommon.max} 条（新的顶掉最旧的），此处只可删除。',
-          style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-      const SizedBox(height: 10),
-      Wrap(
-        spacing: 8, runSpacing: 8,
-        children: noCodeItems.asMap().entries.map((en) => Container(
-          padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF7F8FA),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: PosTheme.line),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Text(en.value, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: PosTheme.textMain)),
-            const SizedBox(width: 6),
-            InkWell(
-              onTap: () async {
-                await NoCodeCommon.removeAt(en.key);
-                await _loadNoCode();
-              },
-              borderRadius: BorderRadius.circular(20),
-              child: const Icon(Icons.cancel_outlined, size: 17, color: PosTheme.textHint),
-            ),
-          ]),
-        )).toList(),
-      ),
-      if (noCodeItems.isEmpty)
-        Text('暂无常用项。收银时用过的无码项名称会自动出现在这里（最近 ${NoCodeCommon.max} 条）。',
-            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
-    ]));
   }
 
   /// 加载打印机绑定配置：先与云端同步（换电脑/换账号自动拉取），再读本机缓存
@@ -1902,7 +1854,6 @@ class _SettingsPageState extends State<SettingsPage> {
     {'key': 'drawer',   'icon': Icons.savings_outlined,     'label': '钱箱'},
     {'key': 'receipt',  'icon': Icons.receipt_long_outlined,'label': '小票打印设置'},
     {'key': 'zuofa',    'icon': Icons.restaurant_menu,      'label': '常用做法'},
-    {'key': 'nocode',   'icon': Icons.bookmark_border,      'label': '无码商品常用'},
     {'key': 'scale',    'icon': Icons.scale_outlined,        'label': '称重设备'},
     {'key': 'voice',    'icon': Icons.volume_up_outlined,   'label': '语音播报'},
     {'key': 'password', 'icon': Icons.lock_outline,         'label': '权限密码'},
@@ -1938,7 +1889,6 @@ class _SettingsPageState extends State<SettingsPage> {
       case 'drawer':  return _drawerCard();
       case 'receipt': return _printPrefsCard();
       case 'zuofa':   return _zuofaCard();
-      case 'nocode':  return _noCodeCard();
       case 'scale':   return const _ScaleCard();
       case 'voice':   return _voiceCard();
       case 'password':return _refundPwdCard();

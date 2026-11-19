@@ -11,7 +11,6 @@ import '../../core/clear_pin.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/display_prefs.dart';
 import '../../core/layout_prefs.dart';
-import '../../core/no_code_common.dart';
 import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/scale.dart';
@@ -843,7 +842,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           return;
         }
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
-        _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.printRetail(
             CloudPrinter.retailReceipt(
@@ -883,7 +881,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (!mounted) return;
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
-      _recordCustomUsed(); // 支付成功的无码商品记入「常用」（v3.3.178）
 
       // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
       CashDrawer.autoOpen(picked);
@@ -909,15 +906,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
-    }
-  }
-
-  /// 支付成功的无码商品记入「常用」（v3.3.178）：cart 中 custom_ 前缀的行
-  Future<void> _recordCustomUsed() async {
-    for (final l in cart) {
-      if ('${l.goods['id']}'.startsWith('custom_')) {
-        await NoCodeCommon.add('${l.goods['title']}');
-      }
     }
   }
 
