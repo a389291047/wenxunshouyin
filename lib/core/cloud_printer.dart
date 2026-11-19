@@ -344,9 +344,12 @@ class CloudPrinter {
       final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
       sb.writeln('$name');
       sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(sub)}');
-      // 单行备注（v3.3.205，如「不要袋子/切开」）
-      final note = '${g['note'] ?? ''}'.trim();
-      if (note.isNotEmpty) sb.writeln('  * $note');
+      // 单行赠送数量（v3.3.231）：买2送1 / 买0.5kg送0.25kg，0 元行
+      final gift = double.tryParse('${g['gift_qty'] ?? 0}') ?? 0;
+      if (gift > 0) {
+        final giftTxt = unit.isNotEmpty ? '${_qtyStr(gift)}$unit' : 'x${gift.round()}';
+        sb.writeln('  赠送 $giftTxt   ¥0.00');
+      }
     }
     // 赠品区（v3.3.222）：买一送一 / 买1kg送0.5kg / 满赠，0 元行，明确标「赠品」
     if (gifts.isNotEmpty) {
@@ -545,6 +548,12 @@ class CloudPrinter {
         sb.writeln('  赠送 $qtyTxt   ¥0.00');
       } else {
         sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(price * qty)}');
+        // 单行赠送数量（v3.3.231）：买2送1 / 买0.5kg送0.25kg，0 元行
+        final gift = double.tryParse('${g['gift_qty'] ?? 0}') ?? 0;
+        if (gift > 0) {
+          final giftTxt = unit.isNotEmpty ? '${_qtyStr(gift)}$unit' : 'x${gift.round()}';
+          sb.writeln('  赠送 $giftTxt   ¥0.00');
+        }
       }
     }
     sb.writeln('--------------------------------');

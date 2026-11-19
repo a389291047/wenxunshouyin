@@ -40,12 +40,21 @@ class _CartLine {
   final Map goods;
   int num;
   double? price; // 单行改价（null = 按商品原价）v3.3.205
-  String note = ''; // 单行备注（随小票打印）v3.3.205
+  double giftQty = 0; // 赠送数量（0=无；称重商品单位同商品，随小票打 0 元行）v3.3.231
   _CartLine(this.goods, this.num);
   double get listPrice => double.tryParse('${goods['amount'] ?? goods['price'] ?? 0}') ?? 0;
 
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
+
+  /// 赠送数量展示：按件 x1 / 称重 0.25kg（v3.3.231）
+  String get giftText {
+    if (giftQty <= 0) return '';
+    if (!byWeight) return 'x${giftQty.round()}';
+    var s = giftQty.toStringAsFixed(3);
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '${s.isEmpty ? '0' : s}$unit';
+  }
 
   /// 称重商品（v3.3.214：落单 payload 必须带 unit，否则后端拒绝称重单）
   bool get byWeight => '${goods['sell_type'] ?? 0}' == '1';
@@ -278,7 +287,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       subtitle: guige.isEmpty ? '' : '规格 $guige',
       listPrice: l.listPrice,
       num: l.num.toDouble(),
-      note: l.note,
+      giftQty: l.giftQty,
       price: l.price,
       unit: _unit(l.goods),
       accent: FreshColors.accent,
@@ -292,7 +301,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     setState(() {
       l.num = r.num.round() < 1 ? 1 : r.num.round();
       l.price = r.price;
-      l.note = r.note;
+      l.giftQty = r.giftQty;
     });
   }
 
@@ -399,7 +408,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             'unit': l.byWeight ? l.unit : '', // 称重必带单位，后端强校验（v3.3.214）
             'guige': '${l.goods['guige'] ?? ''}',
             'image': _img(l.goods),
-            'note': l.note, // 单行备注（小票打印用）
+            'gift_qty': l.giftQty, // 单行赠送数量（小票打 0 元行，不计价）v3.3.231
           }),
       // 赠品以 0 元行随单提交（v3.3.222）
       for (final g in act.gifts)
@@ -411,7 +420,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           'unit': g.byWeight ? g.unit : '',
           'guige': '${g.goods['guige'] ?? ''}',
           'image': _img(g.goods),
-          'note': '',
+          'gift_qty': 0,
         },
     ];
 
@@ -484,7 +493,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             for (final g in act.gifts)
               {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
           ],
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
         ),
         alsoCloud: hasWeigh, // 称重订单本地出票后云打印机同步一份（v3.3.214）
       ).catchError((_) => <String, dynamic>{});
@@ -872,9 +881,9 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
                                           : '¥${Fmt.money(l.unitPrice)}/${_unit(l.goods)}${l.price != null ? '（原 ¥${Fmt.money(l.listPrice)}）' : ''}',
                                       maxLines: 1, overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-                                  if (l.note.isNotEmpty)
-                                    Text('备注：${l.note}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12, color: PosTheme.amber, fontWeight: FontWeight.w600)),
+                                  if (l.giftQty > 0)
+                                    Text('赠送：${l.giftText}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
                                 ]),
                               ),
                               _stepper(l),

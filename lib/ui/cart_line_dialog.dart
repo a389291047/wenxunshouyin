@@ -1,44 +1,29 @@
 import 'package:flutter/material.dart';
 
-import '../core/cart_prefs.dart';
 import '../core/clear_pin.dart';
 import '../core/theme.dart';
 import 'widgets.dart';
-
-/// 商品备注常用语（商户可直接点选，也可自己输入）
-const List<String> kQuickNotes = <String>[
-  '不要袋子',
-  '需要袋子',
-  '打包分开',
-  '切开',
-  '去皮',
-  '去根',
-  '加冰',
-  '加热',
-  '少糖',
-  '开发票',
-];
 
 /// 单行编辑结果
 class CartLineEdit {
   final double num;
   final double? price; // null = 按商品原价
-  final String note;
+  final double giftQty; // 赠送数量（0=无；称重商品单位同商品，随小票打 0 元行）v3.3.231
   final bool deleted;
   const CartLineEdit({
     required this.num,
     this.price,
-    this.note = '',
+    this.giftQty = 0,
     this.deleted = false,
   });
 }
 
-/// 打开「单个商品」操作弹窗（v3.3.205）
+/// 打开「单个商品」操作弹窗（v3.3.205；v3.3.231 备注改为赠送数量）
 ///
 /// 收银页购物车里点某一行商品即可打开，支持：
 /// - 改数量（步进 + 数字键盘直接输入）
 /// - 改价（原价 / 9折 / 8.5折 / 8折 / 自定义单价，可配置权限密码）
-/// - 备注（常用语点选 + 自定义，随小票打印）
+/// - 赠送数量（自定义输入，买2送1输1；称重买0.5kg送0.25kg输0.25，随小票打 0 元行）
 /// - 删除该商品（可撤销）
 ///
 /// 返回 null 表示取消；否则返回编辑结果。
@@ -48,7 +33,7 @@ Future<CartLineEdit?> showCartLineDialog(
   String subtitle = '',
   required double listPrice,
   required double num,
-  String note = '',
+  double giftQty = 0,
   double? price,
   bool byWeight = false,
   String unit = '',
@@ -62,7 +47,7 @@ Future<CartLineEdit?> showCartLineDialog(
       subtitle: subtitle,
       listPrice: listPrice,
       num: num,
-      note: note,
+      giftQty: giftQty,
       price: price,
       byWeight: byWeight,
       unit: unit,
@@ -77,7 +62,7 @@ class CartLineDialog extends StatefulWidget {
   final String subtitle;
   final double listPrice;
   final double num;
-  final String note;
+  final double giftQty;
   final double? price;
   final bool byWeight;
   final String unit;
@@ -90,7 +75,7 @@ class CartLineDialog extends StatefulWidget {
     this.subtitle = '',
     required this.listPrice,
     required this.num,
-    this.note = '',
+    this.giftQty = 0,
     this.price,
     this.byWeight = false,
     this.unit = '',
@@ -105,16 +90,7 @@ class CartLineDialog extends StatefulWidget {
 class _CartLineDialogState extends State<CartLineDialog> {
   late double qty = widget.num;
   late double? price = widget.price;
-  late String note = widget.note;
-  List<String> recentNotes = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    CartPrefs.recentNotes().then((v) {
-      if (mounted) setState(() => recentNotes = v);
-    });
-  }
+  late double giftQty = widget.giftQty;
 
   Color get accent => widget.accent;
   double get unitPrice => price ?? widget.listPrice;
@@ -127,6 +103,15 @@ class _CartLineDialogState extends State<CartLineDialog> {
     var s = qty.toStringAsFixed(3);
     s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
     return s.isEmpty ? '0' : s;
+  }
+
+  /// 赠送数量展示：按件 x1 / 称重 0.25kg
+  String giftText(double g) {
+    if (g <= 0) return '';
+    if (!widget.byWeight) return 'x${g.round()}';
+    var s = g.toStringAsFixed(3);
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '${s.isEmpty ? '0' : s}${unit.isEmpty ? '' : ' $unit'}';
   }
 
   /// 改价前校验权限（未开启则直接通过）
@@ -181,34 +166,27 @@ class _CartLineDialogState extends State<CartLineDialog> {
     setState(() => price = double.parse((widget.listPrice * rate).toStringAsFixed(2)));
   }
 
-  Future<void> _editNote() async {
-    final v = await showNoteEditor(
+  /// 赠送数量：自定义数字键盘输入（按件整数 / 称重 3 位小数）
+  Future<void> _inputGift() async {
+    final v = await showNumberPad(
       context,
-      title: '商品备注',
-      initial: note,
-      presets: _presetNotes,
-      hint: '例：不要袋子 / 切开 / 少放辣（会打印在小票上）',
+      title: '赠送数量',
+      initial: giftQty > 0 ? giftText(giftQty).replaceAll(RegExp(r'[a-zA-Z ]+$'), '') : '',
+      decimal: widget.byWeight,
+      unit: widget.byWeight ? unit : '',
+      hint: widget.byWeight ? '买0.5kg送0.25kg就输0.25（称重最多 3 位小数）' : '买2送1就输1（按件为整数）',
     );
-    if (v == null || !mounted) return;
-    setState(() => note = v.trim());
-    await CartPrefs.addRecentNote(note);
-  }
-
-  List<String> get _presetNotes {
-    final list = <String>[];
-    for (final n in [...recentNotes, ...kQuickNotes]) {
-      if (n.trim().isEmpty || list.contains(n)) continue;
-      list.add(n);
-      if (list.length >= 8) break;
-    }
-    return list;
+    if (v == null || v <= 0 || !mounted) return;
+    setState(() {
+      giftQty = widget.byWeight ? double.parse(v.toStringAsFixed(3)) : v.roundToDouble();
+    });
   }
 
   void _delete() => Navigator.pop(context, const CartLineEdit(num: 0, deleted: true));
 
   void _done() => Navigator.pop(
         context,
-        CartLineEdit(num: qty, price: price, note: note.trim()),
+        CartLineEdit(num: qty, price: price, giftQty: giftQty),
       );
 
   @override
@@ -307,13 +285,16 @@ class _CartLineDialogState extends State<CartLineDialog> {
           ]),
           const SizedBox(height: 14),
 
-          // 备注
+          // 赠送数量（v3.3.231，替代备注；随小票打 0 元行）
           Row(children: [
-            const Text('商品备注', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+            const Text('赠送数量', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+            const SizedBox(width: 8),
+            Text(widget.byWeight ? '称重按 $unit 送' : '按件送',
+                style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
             const Spacer(),
-            if (note.isNotEmpty)
+            if (giftQty > 0)
               InkWell(
-                onTap: () => setState(() => note = ''),
+                onTap: () => setState(() => giftQty = 0),
                 borderRadius: BorderRadius.circular(6),
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -323,41 +304,35 @@ class _CartLineDialogState extends State<CartLineDialog> {
           ]),
           const SizedBox(height: 8),
           InkWell(
-            onTap: _editNote,
+            onTap: _inputGift,
             borderRadius: BorderRadius.circular(10),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: note.isEmpty ? const Color(0xFFF7F8FA) : const Color(0xFFFFF8EC),
+                color: giftQty <= 0 ? const Color(0xFFF7F8FA) : const Color(0xFFEFF7EF),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: note.isEmpty ? PosTheme.line : PosTheme.amber.withValues(alpha: 0.55)),
+                border: Border.all(color: giftQty <= 0 ? PosTheme.line : Colors.green.withValues(alpha: 0.45)),
               ),
               child: Row(children: [
-                Icon(Icons.edit_note, size: 19, color: note.isEmpty ? PosTheme.textSub : PosTheme.amber),
+                Icon(Icons.redeem_outlined, size: 19, color: giftQty <= 0 ? PosTheme.textSub : Colors.green),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(note.isEmpty ? '添加备注（会打印在小票上）' : note,
+                  child: Text(giftQty <= 0 ? '未赠送 · 点击输入（会打印在小票上）' : '赠送 ${giftText(giftQty)} · ¥0.00',
                       maxLines: 2, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 14, color: note.isEmpty ? PosTheme.textSub : PosTheme.textMain,
-                          fontWeight: note.isEmpty ? FontWeight.w400 : FontWeight.w600)),
+                      style: TextStyle(fontSize: 14, color: giftQty <= 0 ? PosTheme.textSub : Colors.green.shade700,
+                          fontWeight: giftQty <= 0 ? FontWeight.w400 : FontWeight.w700)),
                 ),
                 const Icon(Icons.chevron_right, size: 20, color: PosTheme.textHint),
               ]),
             ),
           ),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final n in _presetNotes.take(6))
-              _chip(n, note == n, () {
-                setState(() => note = note == n ? '' : n);
-                if (note.isNotEmpty) CartPrefs.addRecentNote(note);
-              }, small: true),
-          ]),
           const SizedBox(height: 16),
 
           // 小计
           Row(children: [
-            Text(widget.byWeight ? '$qtyText$unit × ¥${Fmt.money(unitPrice)}' : '$qtyText 件 × ¥${Fmt.money(unitPrice)}',
+            Text(widget.byWeight
+                    ? '$qtyText$unit × ¥${Fmt.money(unitPrice)}${giftQty > 0 ? ' + 赠送 ${giftText(giftQty)}' : ''}'
+                    : '$qtyText 件 × ¥${Fmt.money(unitPrice)}${giftQty > 0 ? ' + 赠送 ${giftText(giftQty)}' : ''}',
                 style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
             const Spacer(),
             const Text('小计 ', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
@@ -615,101 +590,6 @@ class _NumberPadDialogState extends State<_NumberPadDialog> {
             ? const Icon(Icons.backspace_outlined, size: 21, color: PosTheme.textSub)
             : Text(k, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
       ),
-    );
-  }
-}
-
-// ==================== 备注编辑 ====================
-
-Future<String?> showNoteEditor(
-  BuildContext context, {
-  required String title,
-  String initial = '',
-  List<String> presets = const [],
-  String hint = '',
-}) {
-  return showDialog<String>(
-    context: context,
-    builder: (_) => _NoteDialog(title: title, initial: initial, presets: presets, hint: hint),
-  );
-}
-
-class _NoteDialog extends StatefulWidget {
-  final String title;
-  final String initial;
-  final List<String> presets;
-  final String hint;
-
-  const _NoteDialog({required this.title, this.initial = '', this.presets = const [], this.hint = ''});
-
-  @override
-  State<_NoteDialog> createState() => _NoteDialogState();
-}
-
-class _NoteDialogState extends State<_NoteDialog> {
-  late final TextEditingController ctrl = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(widget.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-      content: SizedBox(
-        width: 440,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            maxLength: 30,
-            decoration: InputDecoration(
-              hintText: widget.hint,
-              border: const OutlineInputBorder(),
-              counterText: '',
-              isDense: true,
-            ),
-            onSubmitted: (v) => Navigator.pop(context, v),
-          ),
-          if (widget.presets.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final n in widget.presets)
-                InkWell(
-                  onTap: () => setState(() {
-                    final cur = ctrl.text.trim();
-                    ctrl.text = cur.isEmpty ? n : (cur.contains(n) ? cur : '$cur $n');
-                    ctrl.selection = TextSelection.fromPosition(TextPosition(offset: ctrl.text.length));
-                  }),
-                  borderRadius: BorderRadius.circular(8),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF7F8FA),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: PosTheme.line),
-                    ),
-                    child: Text(n, style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                  ),
-                ),
-            ]),
-          ],
-        ]),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('清空')),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: PosTheme.accent),
-          onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-          child: const Text('确定', style: TextStyle(color: Colors.white)),
-        ),
-      ],
     );
   }
 }

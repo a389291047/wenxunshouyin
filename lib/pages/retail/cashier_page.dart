@@ -42,8 +42,8 @@ class _CartLine {
   final Map goods;
   double num; // 按件为整数；称重商品为重量（3 位小数，单位见商品 danwei）
   double? price; // 单行改价（null = 按商品原价）v3.3.205
-  String note; // 单行备注（随小票打印）v3.3.205
-  _CartLine(this.goods, this.num, {this.price, this.note = ''});
+  double giftQty; // 赠送数量（0=无；称重商品单位同商品，随小票打 0 元行）v3.3.231
+  _CartLine(this.goods, this.num, {this.price, this.giftQty = 0});
   bool get byWeight => '${goods['sell_type'] ?? 0}' == '1';
   String get unit => byWeight ? _unitOf(goods) : '';
 
@@ -52,6 +52,15 @@ class _CartLine {
 
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
+
+  /// 赠送数量展示：按件 x1 / 称重 0.25kg（v3.3.231）
+  String get giftText {
+    if (giftQty <= 0) return '';
+    if (!byWeight) return 'x${giftQty.round()}';
+    var s = giftQty.toStringAsFixed(3);
+    s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '${s.isEmpty ? '0' : s}$unit';
+  }
 
   static String _unitOf(Map g) {
     final u = '${g['danwei'] ?? ''}'.trim();
@@ -531,7 +540,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         title: '改价需要权限密码', sub: '输入当前收银员的权限密码（与退款密码相同）');
   }
 
-  /// 点购物车某行 → 改数量 / 改价 / 备注 / 删除
+  /// 点购物车某行 → 改数量 / 改价 / 赠送数量 / 删除
   Future<void> _lineEdit(_CartLine l) async {
     final guige = '${l.goods['guige'] ?? ''}'.trim();
     final r = await showCartLineDialog(
@@ -540,7 +549,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       subtitle: guige.isEmpty ? '' : '规格 $guige',
       listPrice: l.listPrice,
       num: l.num,
-      note: l.note,
+      giftQty: l.giftQty,
       price: l.price,
       byWeight: l.byWeight,
       unit: l.unit,
@@ -555,7 +564,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     setState(() {
       l.num = r.num;
       l.price = r.price;
-      l.note = r.note;
+      l.giftQty = r.giftQty;
     });
   }
 
@@ -634,7 +643,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       holds.insert(0, {
         'time': t,
         'vip': vip,
-        'items': cart.map((l) => {'goods': l.goods, 'num': l.num, 'price': l.price, 'note': l.note}).toList(),
+        'items': cart.map((l) => {'goods': l.goods, 'num': l.num, 'price': l.price, 'gift_qty': l.giftQty}).toList(),
       });
       if (holds.length > 20) holds.removeLast(); // 最多 20 单，超出丢最旧
       cart.clear();
@@ -689,7 +698,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             Map<String, dynamic>.from(m['goods'] as Map),
             (m['num'] as num?)?.toDouble() ?? 1,
             price: (m['price'] as num?)?.toDouble(),
-            note: '${m['note'] ?? ''}',
+            giftQty: (m['gift_qty'] as num?)?.toDouble() ?? 0,
           );
         })
         .toList();
@@ -801,7 +810,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             'unit': l.byWeight ? l.unit : '',
             'guige': '${l.goods['guige'] ?? ''}',
             'image': _img(l.goods),
-            'note': l.note, // 单行备注（小票打印用）
+            'gift_qty': l.giftQty, // 单行赠送数量（小票打 0 元行，不计价）v3.3.231
           }),
       // 赠品以 0 元行随单提交（v3.3.222）：订单明细能看出是赠品，退款仍按实付金额
       for (final g in act.gifts)
@@ -813,7 +822,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           'unit': g.byWeight ? g.unit : '',
           'guige': '${g.goods['guige'] ?? ''}',
           'image': _img(g.goods),
-          'note': '',
+          'gift_qty': 0,
         },
     ];
 
@@ -851,7 +860,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 for (final g in act.gifts)
                   {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
               ],
-              cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+              cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
             ),
             alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
           ).catchError((_) => <String, dynamic>{});
@@ -895,7 +904,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               for (final g in act.gifts)
                 {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
             ],
-            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
           ),
           alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
         ).catchError((_) => <String, dynamic>{});
@@ -1567,9 +1576,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                                               : '¥${Fmt.money(l.unitPrice)}${l.price != null ? '（原 ¥${Fmt.money(l.listPrice)}）' : ''}'),
                                       maxLines: 1, overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-                                  if (l.note.isNotEmpty)
-                                    Text('备注：${l.note}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 12, color: PosTheme.amber, fontWeight: FontWeight.w600)),
+                                  if (l.giftQty > 0)
+                                    Text('赠送：${l.giftText}',
+                                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
                                 ]),
                               ),
                               _stepper(l),
