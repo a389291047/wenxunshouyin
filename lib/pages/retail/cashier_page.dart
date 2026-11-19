@@ -1004,19 +1004,20 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
   }
 
-  // v3.3.188：去掉「收银」标题与右侧时间；无码商品移到左上角原标题处，
-  // 搜索框占用其余全部宽度（右侧预留位置给后续新增按钮）
+  // v3.3.225：无码商品与左侧分类栏同宽对齐（124）、去图标只留文字；
+  // 触屏键盘按钮移到无码商品后面（原在搜索框右侧）。
+  // 搜索框占用其余全部宽度。
   Widget _topBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      padding: const EdgeInsets.fromLTRB(0, 14, 20, 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _noCodeBtn(),
-          const SizedBox(width: 14),
-          Expanded(child: _searchBox()),
           const SizedBox(width: 10),
           _kbBtn(),
+          const SizedBox(width: 14),
+          Expanded(child: _searchBox()),
           if (_showScaleBar) ...[
             const SizedBox(width: 10),
             _scaleBar(),
@@ -1027,29 +1028,29 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   /// 无码商品入口（扫码枪扫不到的商品手动录入）
+  /// v3.3.225：宽度 124 与分类栏对齐，去图标只显示文字
   Widget _noCodeBtn() {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _noCodeGoods,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          height: 48,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          decoration: BoxDecoration(
-            color: PosTheme.tint,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.35)),
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.keyboard_alt_outlined, size: 21, color: PosTheme.accentLive),
-            const SizedBox(width: 8),
-            Text('无码商品',
+    return SizedBox(
+      width: 124,
+      height: 48,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _noCodeGoods,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: PosTheme.tint,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.35)),
+            ),
+            child: Text('无码商品',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     color: PosTheme.accentLive)),
-          ]),
+          ),
         ),
       ),
     );
