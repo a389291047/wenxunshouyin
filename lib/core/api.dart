@@ -302,6 +302,8 @@ class Api {
     required List<Map<String, dynamic>> cart,
     int totalCount = 0,
     double vipDiscount = 1.0,
+    int renyuanId = 0, // 收银员归属（v3.3.240，交班统计会员支付依赖此字段）
+    String cashierName = '',
   }) async {
     return post('/api/order/huiyuanzhifu', {
       'id': wenxunId,
@@ -313,6 +315,8 @@ class Api {
       'vipDiscount': vipDiscount,
       'paymentMethod': '会员支付',
       'cart': cart,
+      if (renyuanId > 0) 'renyuan_id': renyuanId,
+      if (cashierName.isNotEmpty) 'cashier_name': cashierName,
     });
   }
 

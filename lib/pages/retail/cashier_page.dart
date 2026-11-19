@@ -868,6 +868,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           originalTotal: total, // 商品原价合计（t 为券后应收，v3.3.219）
           cart: cartPayload,
           totalCount: count,
+          renyuanId: Session.staffId, // 会员单归属收银员（v3.3.240，交班统计）
+          cashierName: Session.staffName,
         );
         if (!mounted) return;
         Navigator.pop(context); // loading
