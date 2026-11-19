@@ -1009,7 +1009,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // 搜索框占用其余全部宽度。
   Widget _topBar() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(0, 14, 20, 10),
+      padding: const EdgeInsets.fromLTRB(14, 14, 20, 10),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [

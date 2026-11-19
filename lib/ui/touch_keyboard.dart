@@ -133,7 +133,7 @@ class TouchKeyboard extends StatelessWidget {
         const SizedBox(width: 6),
         Expanded(
           child: Text(
-            hintText.isEmpty ? '输入商品简拼（如 pg = 苹果）或条码数字' : hintText,
+            hintText.isEmpty ? '输入商品简拼' : hintText,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
