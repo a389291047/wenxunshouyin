@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/touch_keyboard.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
@@ -80,7 +81,9 @@ class _MemberPageState extends State<MemberPage> {
     return Api.base + (raw.startsWith('/') ? '' : '/') + raw;
   }
 
-  // ==================== 添加会员（触屏版，v3.3.216） ====================
+  // ==================== 添加会员（触屏版，v3.3.231 改版） ====================
+  /// v3.3.231：等级不再手选——自动取「10折」等级，没有则提示无法添加会员；
+  /// 姓名移除（后端缺省用手机号）；提交走 v3.Vip/addVip
   Future<void> _addVip() async {
     if (!Session.vipadd) {
       toast(context, '当前账号没有添加会员权限', error: true);
@@ -93,6 +96,18 @@ class _MemberPageState extends State<MemberPage> {
       return;
     }
 
+    // 自动匹配 10 折等级（discount=10）
+    Map? lv10;
+    for (final e in _levels) {
+      if ((double.tryParse('${e['discount']}') ?? 0) == 10) { lv10 = e; break; }
+    }
+    if (lv10 == null) {
+      toast(context, '无法添加会员：未找到10折会员等级，请先在会员等级设置里添加', error: true);
+      return;
+    }
+    final lv10Id = int.tryParse('${lv10['id']}') ?? 0;
+    final lv10Title = '${lv10['title'] ?? ''}';
+
     // 自定义过渡：遮罩 20% 黑 + 120ms 快速淡入。
     // 默认 showDialog 是黑 54% 淡入，低配收银机丢帧时会整屏黑一下
     final r = await showGeneralDialog<Map>(
@@ -100,7 +115,7 @@ class _MemberPageState extends State<MemberPage> {
       barrierDismissible: false,
       barrierColor: const Color(0x33000000),
       transitionDuration: const Duration(milliseconds: 120),
-      pageBuilder: (_, __, ___) => _AddVipDialog(levels: _levels),
+      pageBuilder: (_, __, ___) => _AddVipDialog(lvId: lv10Id, lvTitle: lv10Title),
       transitionBuilder: (_, anim, __, child) => FadeTransition(
         opacity: CurvedAnimation(parent: anim, curve: Curves.easeOut),
         child: child,
@@ -109,12 +124,9 @@ class _MemberPageState extends State<MemberPage> {
     if (r == null || !mounted) return;
     loadingDialog(context, '添加中…');
     try {
-      final resp = await Api.vipAdd(
+      final resp = await Api.vipAddV3(
         wenxunId: Session.wenxunId,
         phone: '${r['phone'] ?? ''}',
-        name: '${r['name'] ?? ''}',
-        lvId: int.tryParse('${r['lvId']}') ?? 0,
-        levelName: '${r['lvTitle'] ?? ''}',
         amount: ('${r['amount'] ?? ''}'.trim().isEmpty) ? '0' : '${r['amount']}'.trim(),
         score: ('${r['score'] ?? ''}'.trim().isEmpty) ? '0' : '${r['score']}'.trim(),
         shika: '${r['shika'] ?? ''}',
@@ -476,59 +488,39 @@ class _VipAvatarState extends State<_VipAvatar> {
   }
 }
 
-// ==================== 添加会员弹窗（触屏版 v3.3.216） ====================
-/// - 手机号/初始金额/初始积分/实体卡号：点击选中后用右侧 12 宫格数字键盘录入，不调系统键盘
-/// - 会员姓名/会员车牌：中文输入保留系统键盘 TextField
-/// - 会员等级：大触点弹出菜单选择
+// ==================== 添加会员弹窗（v3.3.231 改版） ====================
+/// - 复用收银页触屏键盘 TouchKeyboard（无小数点，字母键自动忽略），替换原右侧 12 宫格
+/// - 移除会员姓名、会员等级选择：等级自动 10 折（进弹窗前已解析好），姓名缺省手机号（后端处理）
+/// - 初始金额 / 初始积分 / 更多信息（实体卡号 / 车牌）保留
 enum _VipField { phone, amount, score, card }
 
 class _AddVipDialog extends StatefulWidget {
-  final List levels; // 进弹窗前已预取好，弹窗固定尺寸一次成型（避免黑屏一闪）
-  const _AddVipDialog({required this.levels});
+  final int lvId;      // 自动匹配到的 10 折等级 ID（仅展示用，提交由后端自动取）
+  final String lvTitle;
+  const _AddVipDialog({required this.lvId, required this.lvTitle});
   @override
   State<_AddVipDialog> createState() => _AddVipDialogState();
 }
 
 class _AddVipDialogState extends State<_AddVipDialog> {
-  final nameCtrl = TextEditingController();
   final chepaiCtrl = TextEditingController();
   _VipField active = _VipField.phone;
+  bool kbOpen = true; // 收起后点击任意输入框重新展开
   String phone = '', amount = '', score = '', card = '';
-  int? lvId;
-  String lvTitle = '';
   bool more = false;
   String? err;
 
-  // ---------- 数字键盘 ----------
+  // ---------- 键盘写入（只收数字键，字母键忽略；无小数点） ----------
   void _key(String k) {
     setState(() {
       err = null;
-      if (k == 'C') {
-        _setActive('');
-        return;
-      }
-      if (k == 'B') {
-        final cur = _activeVal();
-        if (cur.isNotEmpty) _setActive(cur.substring(0, cur.length - 1));
-        return;
-      }
-      if (k == '.') {
-        if (active != _VipField.amount) return;
-        if (amount.isEmpty) { amount = '0.'; return; }
-        if (!amount.contains('.')) amount = '$amount.';
-        return;
-      }
+      if (k.length != 1 || int.tryParse(k) == null) return;
       switch (active) {
         case _VipField.phone:
           if (phone.length < 11) phone += k;
           break;
         case _VipField.amount:
-          final dot = amount.indexOf('.');
-          if (dot == -1) {
-            if (amount.length < 7) amount += k;
-          } else if (amount.length - dot - 1 < 2) {
-            amount += k;
-          }
+          if (amount.length < 7) amount += k;
           break;
         case _VipField.score:
           if (score.length < 7) score += k;
@@ -540,14 +532,31 @@ class _AddVipDialogState extends State<_AddVipDialog> {
     });
   }
 
+  void _backspace() {
+    setState(() {
+      err = null;
+      final cur = _activeVal();
+      if (cur.isNotEmpty) _setActive(cur.substring(0, cur.length - 1));
+    });
+  }
+
+  void _clearActive() => setState(() { err = null; _setActive(''); });
+
   String _activeVal() => switch (active) { _VipField.phone => phone, _VipField.amount => amount, _VipField.score => score, _VipField.card => card };
   void _setActive(String v) => switch (active) { _VipField.phone => phone = v, _VipField.amount => amount = v, _VipField.score => score = v, _VipField.card => card = v };
+
+  String get _activeLabel => switch (active) {
+    _VipField.phone => '手机号码',
+    _VipField.amount => '初始金额',
+    _VipField.score => '初始积分',
+    _VipField.card => '实体卡号',
+  };
 
   // ---------- 触控数字框 ----------
   Widget _numBox(_VipField f, String label, String value, {String hint = ''}) {
     final on = active == f;
     return InkWell(
-      onTap: () => setState(() { active = f; err = null; }),
+      onTap: () => setState(() { active = f; kbOpen = true; err = null; }),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
@@ -574,15 +583,31 @@ class _AddVipDialogState extends State<_AddVipDialog> {
     );
   }
 
+  /// 会员等级只读展示（自动 10 折，不可点）
+  Widget _levelBox() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4EE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PosTheme.accent, width: 1.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('会员等级（自动）', style: const TextStyle(
+            fontSize: 12, fontWeight: FontWeight.w600, color: PosTheme.accent)),
+        const SizedBox(height: 3),
+        Text(widget.lvTitle.isEmpty ? '10折' : widget.lvTitle,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                fontSize: 19, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+      ]),
+    );
+  }
+
   Future<void> _save() async {
-    if (!RegExp(r'^1\d{10}$').hasMatch(phone)) { setState(() => err = '请输入正确的手机号码'); return; }
-    if (nameCtrl.text.trim().isEmpty) { setState(() => err = '请输入会员姓名'); return; }
-    if (lvId == null) { setState(() => err = '请选择会员等级'); return; }
+    if (!RegExp(r'^1\d{10}$').hasMatch(phone)) { setState(() => err = '请输入正确的11位手机号'); return; }
     Navigator.pop(context, {
       'phone': phone,
-      'name': nameCtrl.text.trim(),
-      'lvId': lvId,
-      'lvTitle': lvTitle,
       'amount': amount.trim(),
       'score': score.trim(),
       'shika': card.trim(),
@@ -596,9 +621,9 @@ class _AddVipDialogState extends State<_AddVipDialog> {
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Container(
-        width: 760,
-        height: 520,
-        padding: const EdgeInsets.all(22),
+        width: 700,
+        height: 620,
+        padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // ---- 标题 ----
           Row(children: [
@@ -616,7 +641,7 @@ class _AddVipDialogState extends State<_AddVipDialog> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
                 Text('添加会员', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                 SizedBox(height: 1),
-                Text('手机号 / 金额 / 积分 / 卡号 点一下再用右侧键盘输入',
+                Text('手机号 / 金额 / 积分 点一下再用下方键盘输入，等级自动10折',
                     style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
               ]),
             ),
@@ -627,69 +652,72 @@ class _AddVipDialogState extends State<_AddVipDialog> {
             ),
           ]),
           const SizedBox(height: 14),
+          // ---- 表单 ----
           Expanded(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // ---- 左：表单 ----
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.only(right: 4, bottom: 4),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Row(children: [
-                      Expanded(child: _numBox(_VipField.phone, '手机号码 *', phone, hint: '点击后输入 11 位手机号')),
-                      const SizedBox(width: 12),
-                      Expanded(child: _levelSelector()),
-                    ]),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: nameCtrl,
-                      maxLength: 10,
-                      onChanged: (_) { if (err != null) setState(() => err = null); },
-                      decoration: const InputDecoration(
-                        labelText: '会员姓名 *', hintText: '请输入会员姓名', counterText: '',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(child: _numBox(_VipField.amount, '初始金额 (¥)', amount, hint: '0.00')),
-                      const SizedBox(width: 12),
-                      Expanded(child: _numBox(_VipField.score, '初始积分', score, hint: '0')),
-                    ]),
-                    const SizedBox(height: 4),
-                    InkWell(
-                      onTap: () => setState(() => more = !more),
-                      borderRadius: BorderRadius.circular(8),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Text(more ? '收起附加信息 ∧' : '更多信息（实体卡号 / 车牌） ∨',
-                            style: const TextStyle(fontSize: 13, color: PosTheme.accent, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    if (more) ...[
-                      Row(children: [
-                        Expanded(child: _numBox(_VipField.card, '实体卡号', card, hint: '点击后输入')),
-                        const SizedBox(width: 12),
-                        Expanded(child: TextField(
-                          controller: chepaiCtrl,
-                          maxLength: 8,
-                          decoration: const InputDecoration(
-                            labelText: '会员车牌', hintText: '如 粤A12345', counterText: '',
-                          ),
-                        )),
-                      ]),
-                    ],
-                  ]),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Expanded(child: _numBox(_VipField.phone, '手机号码 *', phone, hint: '点击后输入 11 位手机号')),
+                  const SizedBox(width: 12),
+                  Expanded(child: _levelBox()),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: _numBox(_VipField.amount, '初始金额 (¥)', amount, hint: '0')),
+                  const SizedBox(width: 12),
+                  Expanded(child: _numBox(_VipField.score, '初始积分', score, hint: '0')),
+                ]),
+                const SizedBox(height: 4),
+                InkWell(
+                  onTap: () => setState(() => more = !more),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(more ? '收起附加信息 ∧' : '更多信息（实体卡号 / 车牌） ∨',
+                        style: const TextStyle(fontSize: 13, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              // ---- 右：数字键盘 ----
-              SizedBox(width: 252, child: _keypad()),
-            ]),
+                if (more) ...[
+                  Row(children: [
+                    Expanded(child: _numBox(_VipField.card, '实体卡号', card, hint: '点击后输入')),
+                    const SizedBox(width: 12),
+                    Expanded(child: TextField(
+                      controller: chepaiCtrl,
+                      maxLength: 8,
+                      decoration: const InputDecoration(
+                        labelText: '会员车牌', hintText: '如 粤A12345', counterText: '',
+                      ),
+                    )),
+                  ]),
+                ],
+              ]),
+            ),
           ),
+          // ---- 触屏键盘（复用收银页 TouchKeyboard，无小数点） ----
+          if (kbOpen)
+            TouchKeyboard(
+              keyHeight: 34,
+              hintText: '正在输入：$_activeLabel${_activeVal().isEmpty ? '' : ' · ${_activeVal()}'}',
+              onInput: _key,
+              onBackspace: _backspace,
+              onClear: _clearActive,
+              onClose: () => setState(() => kbOpen = false),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() => kbOpen = true),
+                icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
+                label: const Text('打开键盘', style: TextStyle(fontSize: 13)),
+              ),
+            ),
           if (err != null) Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.only(top: 6),
             child: Text(err!, style: const TextStyle(fontSize: 12.5, color: PosTheme.red)),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           // ---- 底部按钮 ----
           Row(children: [
             SizedBox(
@@ -706,127 +734,6 @@ class _AddVipDialogState extends State<_AddVipDialog> {
           ]),
         ]),
       ),
-    );
-  }
-
-  // 会员等级：大触点选择框 + 弹出菜单
-  Widget _levelSelector() {
-    final on = lvId != null;
-    return PopupMenuButton<int>(
-      initialValue: lvId,
-      offset: const Offset(0, 8),
-      elevation: 8,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      itemBuilder: (_) => widget.levels.map((lv) => PopupMenuItem<int>(
-        value: int.tryParse('${lv['id']}'),
-        height: 52,
-        child: Text('${lv['title'] ?? ''}',
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-      )).toList(),
-      onSelected: (v) => setState(() {
-        lvId = v;
-        err = null;
-        final hit = widget.levels.where((e) => int.tryParse('${e['id']}') == v).toList();
-        lvTitle = hit.isNotEmpty ? '${hit.first['title'] ?? ''}' : '';
-      }),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: on ? const Color(0xFFFFF4EE) : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 1.5 : 1),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('会员等级 *', style: TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600,
-              color: on ? PosTheme.accent : PosTheme.textSub)),
-          const SizedBox(height: 3),
-          Row(children: [
-            Expanded(
-              child: Text(lvTitle.isEmpty ? '点击选择等级' : lvTitle,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: 17, fontWeight: FontWeight.w800,
-                      color: lvTitle.isEmpty ? PosTheme.textHint : (on ? PosTheme.accent : PosTheme.textMain))),
-            ),
-            const Icon(Icons.expand_more, size: 20, color: PosTheme.textHint),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  // 12 宫格触屏数字键盘：7 8 9 / 4 5 6 / 1 2 3 / . 0 ⌫ + 清空
-  Widget _keypad() {
-    Widget key(String label, VoidCallback? onTap, {Color? color}) {
-      final dis = onTap == null;
-      return Expanded(
-        child: Material(
-          color: dis ? const Color(0xFFF2F3F7) : (color ?? Colors.white),
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            splashColor: PosTheme.accent.withOpacity(0.12),
-            highlightColor: PosTheme.accent.withOpacity(0.06),
-            child: Container(
-              height: 48,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: dis ? Colors.transparent : PosTheme.line),
-              ),
-              child: Text(label, style: TextStyle(
-                  fontSize: label.length > 1 ? 13.5 : 20,
-                  fontWeight: FontWeight.w700,
-                  color: dis ? PosTheme.textHint : (label == '清空' ? PosTheme.red : PosTheme.textMain))),
-            ),
-          ),
-        ),
-      );
-    }
-
-    final dotOn = active == _VipField.amount;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFAFBFC),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: PosTheme.line),
-      ),
-      child: Column(children: [
-        Row(children: [
-          Text('数字键盘', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
-          const Spacer(),
-          Text(switch (active) {
-            _VipField.phone => '手机号码',
-            _VipField.amount => '初始金额',
-            _VipField.score => '初始积分',
-            _VipField.card => '实体卡号',
-          }, style: const TextStyle(fontSize: 11.5, color: PosTheme.accent, fontWeight: FontWeight.w700)),
-        ]),
-        const SizedBox(height: 8),
-        for (var row in [['7', '8', '9'], ['4', '5', '6'], ['1', '2', '3']]) ...[
-          Row(children: [for (final k in row) key(k, () => _key(k))]),
-          const SizedBox(height: 6),
-        ],
-        Row(children: [
-          key('.', dotOn ? () => _key('.') : null),
-          key('0', () => _key('0')),
-          key('⌫', () => _key('B')),
-        ]),
-        const SizedBox(height: 6),
-        SizedBox(
-          width: double.infinity, height: 40,
-          child: OutlinedButton.icon(
-            onPressed: () => _key('C'),
-            style: OutlinedButton.styleFrom(
-                foregroundColor: PosTheme.red, side: BorderSide(color: PosTheme.red.withOpacity(0.35))),
-            icon: const Icon(Icons.backspace_outlined, size: 16),
-            label: const Text('清空该字段', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          ),
-        ),
-      ]),
     );
   }
 }

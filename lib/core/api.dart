@@ -424,6 +424,28 @@ class Api {
     });
   }
 
+  /// 添加会员新版（v3.3.231，走 v3.Vip/addVip）：
+  /// 不传姓名（后端缺省用手机号）、不选等级（后端自动取10折等级，没有则报「无法添加会员」）
+  static Future<Map<String, dynamic>> vipAddV3({
+    required int wenxunId,
+    required String phone,
+    String amount = '0',
+    String score = '0',
+    String shika = '',
+    String chepai = '',
+  }) async {
+    return post('/api/v3.Vip/addVip', {
+      'wenxun_id': wenxunId,
+      'vip_id': wenxunId,
+      'staff_id': Session.staffId,
+      'phone': phone,
+      'amount': amount,
+      'score': score,
+      'shika': shika,
+      'chepai': chepai,
+    });
+  }
+
   /// 充值档次列表（与小程序充值页同源 v1.vip/huodonglst；wx_vip_huodong）
   static Future<List> vipRechargeTiers(int wenxunId) async {
     final r = await post('/api/v1.vip/huodonglst', {'wenxun_id': wenxunId}, withToken: false);
