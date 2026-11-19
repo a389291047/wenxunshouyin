@@ -9,7 +9,7 @@ import 'widgets.dart';
 /// 店铺营销活动配置（v3.3.222）
 ///
 /// 设置 → 营销活动。四类活动 + 四个常用模板一键添加：
-/// 满50减5 / 买一送一 / 买一斤送半斤 / 满额赠品。
+/// 满50减5 / 买一送一 / 买1kg送0.5kg / 满额赠品。
 /// 配置存本机（ActivityStore），收银页结算时自动计算，小票打印活动与赠品。
 class ActivityAdminCard extends StatefulWidget {
   const ActivityAdminCard({super.key});
@@ -53,7 +53,7 @@ class _ActivityAdminCardState extends State<ActivityAdminCard> {
         break;
       case 'weightbogo':
         a = StoreActivity(
-            id: '$now', type: 'maizeng', name: '买一斤送半斤',
+            id: '$now', type: 'maizeng', name: '买1kg送0.5kg',
             buy: 1, gift: 0.5, giftSame: true, scope: 'goods');
         break;
       default:
@@ -81,7 +81,7 @@ class _ActivityAdminCardState extends State<ActivityAdminCard> {
       Wrap(spacing: 10, runSpacing: 10, children: [
         _quickBtn('满减', '满50减5', Icons.remove_circle_outline, 'manjian'),
         _quickBtn('买一送一', '按件买赠', Icons.card_giftcard, 'bogo'),
-        _quickBtn('买一斤送半斤', '称重买赠', Icons.scale_outlined, 'weightbogo'),
+        _quickBtn('买1kg送0.5kg', '称重买赠', Icons.scale_outlined, 'weightbogo'),
         _quickBtn('满额赠品', '满X元送赠品', Icons.redeem_outlined, 'manzeng'),
       ]),
       const SizedBox(height: 16),
@@ -449,9 +449,9 @@ class _ActivityEditorState extends State<_ActivityEditor> {
       case 'maizeng':
         return [
           Row(children: [
-            _numTile('买（件/斤）', buy, '买多少', (v) => setState(() => buy = v)),
+            _numTile('买（件/kg）', buy, '买多少', (v) => setState(() => buy = v)),
             const SizedBox(width: 12),
-            _numTile('送（件/斤）', gift, '送多少', (v) => setState(() => gift = v)),
+            _numTile('送（件/kg）', gift, '送多少', (v) => setState(() => gift = v)),
           ]),
           const SizedBox(height: 10),
           Row(children: [
@@ -515,7 +515,7 @@ class _ActivityEditorState extends State<_ActivityEditor> {
       case 'zhekou':
         return '按指定商品小计打折，例如 9 折。与满减同时存在时取更优惠的一个。';
       case 'maizeng':
-        return '按件商品：买 1 送 1 就是买一送一；称重商品：买 1 斤送 0.5 斤就是买一斤送半斤。'
+        return '按件商品：买 1 送 1 就是买一送一；称重商品：买 1kg 送 0.5kg 就是买1kg送0.5kg。'
             '赠品按每满 N 份计算，赠品以 0 元行打印在小票上。';
       case 'manzeng':
         return '指定商品（或全场）满额后赠送指定商品，赠品以 0 元行打印在小票上。';

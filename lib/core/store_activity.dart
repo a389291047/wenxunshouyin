@@ -9,8 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 四类常用活动，商户在「设置 → 营销活动」自定义：
 /// - manjian 满减：指定商品满 X 元减 Y 元
 /// - zhekou  折扣：指定商品打 X 折
-/// - maizeng 买赠：买 N（件/斤）送 M（件/斤），送同品或指定赠品
-///            按件商品即「买一送一」，称重商品即「买一斤送半斤」
+/// - maizeng 买赠：买 N（件/kg）送 M（件/kg），送同品或指定赠品
+///            按件商品即「买一送一」，称重商品即「买1kg送0.5kg」
 /// - manzeng 满赠：指定商品满 X 元送指定赠品
 ///
 /// 结算规则：金额类（满减/折扣）一次只取优惠最大的一个；赠品类可同时生效，
@@ -269,7 +269,7 @@ class ActivityEngine {
 
         case 'maizeng':
           // 买 N 送 M：逐行判断（同品赠送时按行商品），跨行不累计，符合门店习惯。
-          // 称重商品按重量算（买一斤送半斤），按件商品自动取整（送礼必须整件）。
+          // 称重商品按重量算（买1kg送0.5kg），按件商品自动取整（送礼必须整件）。
           for (final l in inScope) {
             if (a.buy <= 0 || a.gift <= 0) continue;
             final times = (l.qty / a.buy).floor();

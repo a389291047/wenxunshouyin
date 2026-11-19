@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wenxun/core/store_activity.dart';
 
 /// 店铺活动计算引擎（v3.3.222）
-/// 覆盖：满减、折扣取最优、买一送一（按件）、买一斤送半斤（称重）、
+/// 覆盖：满减、折扣取最优、买一送一（按件）、买1kg送0.5kg（称重）、
 /// 满赠、赠品合并、指定商品范围、按件赠品取整。
 void main() {
   Map goods(int id, String title, {int sellType = 0, String unit = ''}) => {
@@ -102,12 +102,12 @@ void main() {
     expect(r.labels.any((e) => e.contains('赠')), isTrue);
   });
 
-  test('买一斤送半斤（称重）：买1.2kg 送 0.5kg 同品', () {
+  test('买1kg送0.5kg（称重）：买1.2kg 送 0.5kg 同品', () {
     final r = ActivityEngine.compute(
       lines: [line(apple, 1.2, 10)],
       acts: [
         StoreActivity(
-            id: '1', type: 'maizeng', name: '买一斤送半斤',
+            id: '1', type: 'maizeng', name: '买1kg送0.5kg',
             buy: 1, gift: 0.5, giftSame: true, scope: 'goods', goodsIds: [1]),
       ],
       goodsById: index([apple]),
@@ -118,12 +118,12 @@ void main() {
     expect(r.gifts.first.qtyText, '0.5kg');
   });
 
-  test('买一斤送半斤配到按件商品：赠品取整，不足 1 件不送', () {
+  test('买1kg送0.5kg配到按件商品：赠品取整，不足 1 件不送', () {
     final r = ActivityEngine.compute(
       lines: [line(cola, 1, 3)],
       acts: [
         StoreActivity(
-            id: '1', type: 'maizeng', name: '买一斤送半斤',
+            id: '1', type: 'maizeng', name: '买1kg送0.5kg',
             buy: 1, gift: 0.5, giftSame: true, scope: 'goods', goodsIds: [2]),
       ],
       goodsById: index([cola]),

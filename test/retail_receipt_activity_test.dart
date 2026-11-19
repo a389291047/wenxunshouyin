@@ -31,7 +31,7 @@ void main() {
     expect(s, contains('5.5kg'));
   });
 
-  test('买一斤送半斤：赠品按重量打印', () {
+  test('买1kg送0.5kg：赠品按重量打印', () {
     final s = CloudPrinter.retailReceipt(
       orderNo: 'A2',
       payMethod: '会员支付',

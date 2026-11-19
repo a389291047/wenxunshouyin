@@ -348,7 +348,7 @@ class CloudPrinter {
       final note = '${g['note'] ?? ''}'.trim();
       if (note.isNotEmpty) sb.writeln('  * $note');
     }
-    // 赠品区（v3.3.222）：买一送一 / 买一斤送半斤 / 满赠，0 元行，明确标「赠品」
+    // 赠品区（v3.3.222）：买一送一 / 买1kg送0.5kg / 满赠，0 元行，明确标「赠品」
     if (gifts.isNotEmpty) {
       sb.writeln('--------------------------------');
       sb.writeln('赠品:');
