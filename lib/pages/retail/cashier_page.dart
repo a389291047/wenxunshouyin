@@ -1952,19 +1952,15 @@ class _PayDialogState extends State<RetailPayDialog> {
             )),
           ]),
           SizedBox(height: gap),
-          // 抹零（v3.3.238，仅现金）：抹分去分留角 / 抹角去角留元，点选切换
-          Row(children: [
-            Text('抹零', style: TextStyle(fontSize: compact ? 13 : 14, color: PosTheme.textSub)),
-            SizedBox(width: compact ? 8 : 12),
-            _mollenBtn(1, '抹分', mollenType == 1, compact),
-            const SizedBox(width: 8),
-            _mollenBtn(2, '抹角', mollenType == 2, compact),
-            const Spacer(),
-            if (mollen > 0)
+          if (mollen > 0) ...[
+            // 抹零已生效提示（v3.3.239 切换按钮移入数字键盘 0 后）
+            Row(children: [
+              const Spacer(),
               Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
                   style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
-          ]),
-          if (mollen > 0) SizedBox(height: gap),
+            ]),
+            SizedBox(height: gap),
+          ],
           // 快捷金额
           Row(children: [
             for (final v in [50.0, 100.0, 200.0, payable]) ...[
@@ -2093,25 +2089,6 @@ class _PayDialogState extends State<RetailPayDialog> {
     );
   }
 
-  /// 抹零切换按钮（v3.3.238）
-  Widget _mollenBtn(int type, String label, bool on, bool compact) {
-    return InkWell(
-      onTap: () => setState(() => mollenType = mollenType == type ? 0 : type),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: compact ? 6 : 8),
-        decoration: BoxDecoration(
-          color: on ? Colors.green.withOpacity(0.12) : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: on ? Colors.green : PosTheme.line, width: on ? 1.5 : 1),
-        ),
-        child: Text(label, style: TextStyle(
-            fontSize: compact ? 13.5 : 15, fontWeight: FontWeight.w700,
-            color: on ? Colors.green : PosTheme.textSub)),
-      ),
-    );
-  }
-
   Widget _keypad(double keyH) {
     const keys = [
       ['1', '2', '3', '<'],
@@ -2129,14 +2106,34 @@ class _PayDialogState extends State<RetailPayDialog> {
             ]
           ]),
         ),
+      // 底行：0 占两格，后面是抹零键（v3.3.239 移入；小数点在第三行、退格在第一行保留）
       Row(children: [
         Expanded(flex: 2, child: _keyBtn('0', keyH)),
         const SizedBox(width: 8),
-        Expanded(child: _keyBtn('.', keyH)),
+        Expanded(child: _mollenKey(1, '抹分', mollenType == 1, keyH)),
         const SizedBox(width: 8),
-        Expanded(child: _keyBtn('<', keyH)),
+        Expanded(child: _mollenKey(2, '抹角', mollenType == 2, keyH)),
       ]),
     ]);
+  }
+
+  /// 抹零键位（v3.3.239）：样式对齐数字键，选中态绿色高亮
+  Widget _mollenKey(int type, String label, bool on, double keyH) {
+    return InkWell(
+      onTap: () => setState(() => mollenType = mollenType == type ? 0 : type),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: keyH,
+        decoration: BoxDecoration(
+          color: on ? Colors.green.withOpacity(0.14) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: on ? Colors.green : Colors.transparent, width: 1.5),
+        ),
+        child: Center(child: Text(label, style: TextStyle(
+            fontSize: 17, fontWeight: FontWeight.w700,
+            color: on ? Colors.green : PosTheme.textSub))),
+      ),
+    );
   }
 
   Widget _keyBtn(String k, double keyH) {
