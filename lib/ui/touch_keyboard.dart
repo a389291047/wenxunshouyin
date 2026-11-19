@@ -57,33 +57,72 @@ class TouchKeyboard extends StatelessWidget {
         children: [
           _hintBar(),
           const SizedBox(height: 6),
-          _letterRow(_digits),
-          const SizedBox(height: 6),
-          _letterRow(_row1),
-          const SizedBox(height: 6),
-          Row(children: [
-            ..._row2.map(_flexKey),
-            Expanded(child: _key('⌫', onTap: onBackspace,
-                bg: const Color(0xFFE9EBF0), fg: PosTheme.textMain)),
-          ]),
-          const SizedBox(height: 6),
-          Row(children: [
-            ..._row3.map(_flexKey),
-            const SizedBox(width: 6),
-            Expanded(flex: 3, child: _key('空格', onTap: () => onInput(' '),
-                bg: const Color(0xFFE9EBF0), fg: PosTheme.textSub, fontSize: 15)),
-            const SizedBox(width: 6),
-            Expanded(flex: 2, child: _key('清空', onTap: onClear,
-                bg: const Color(0xFFE9EBF0), fg: PosTheme.textMain, fontSize: 15)),
-            const SizedBox(width: 6),
-            Expanded(flex: 3, child: _key('收起键盘', onTap: onClose,
-                bg: PosTheme.accentLive, fg: Colors.white, fontSize: 15,
-                bold: true)),
-          ]),
+          // v3.3.226：10 列等宽网格对齐——字母键四行同宽同样式；
+          // 功能键按格数跨列（⌫ 占 1 格、清空 1 格、收起键盘 2 格），不再用空格键。
+          LayoutBuilder(builder: (context, c) {
+            final pitch = c.maxWidth / 10; // 每格宽度
+            Widget cell(String k) => _cell(
+                _key(k.toUpperCase(), onTap: () => onInput(k)), pitch);
+            return Column(
+              children: [
+                Row(children: [for (final k in _digits) cell(k)]),
+                const SizedBox(height: 6),
+                Row(children: [for (final k in _row1) cell(k)]),
+                const SizedBox(height: 6),
+                Row(children: [
+                  for (final k in _row2) cell(k),
+                  _cell(
+                      _key('⌫',
+                          onTap: onBackspace,
+                          bg: const Color(0xFFE9EBF0),
+                          fg: PosTheme.textMain),
+                      pitch),
+                ]),
+                const SizedBox(height: 6),
+                Row(children: [
+                  for (final k in _row3) cell(k),
+                  _cell(
+                      _key('清空',
+                          onTap: onClear,
+                          bg: const Color(0xFFE9EBF0),
+                          fg: PosTheme.textMain,
+                          fontSize: 15),
+                      pitch),
+                  _span(
+                      _key('收起键盘',
+                          onTap: onClose,
+                          bg: PosTheme.accentLive,
+                          fg: Colors.white,
+                          fontSize: 15,
+                          bold: true),
+                      pitch,
+                      2),
+                ]),
+              ],
+            );
+          }),
         ],
       ),
     );
   }
+
+  /// 单格键：固定占 1 列宽（pitch），内边距 3 形成键间 6px 间隙
+  Widget _cell(Widget key, double pitch) => SizedBox(
+        width: pitch,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: key,
+        ),
+      );
+
+  /// 跨格键：占 n 列宽（含格间间隙）
+  Widget _span(Widget key, double pitch, int n) => SizedBox(
+        width: pitch * n,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: key,
+        ),
+      );
 
   /// 顶部提示条：当前输入什么、匹配到几个商品
   Widget _hintBar() {
@@ -104,16 +143,6 @@ class TouchKeyboard extends StatelessWidget {
       ]),
     );
   }
-
-  Widget _letterRow(List<String> keys) =>
-      Row(children: keys.map(_flexKey).toList());
-
-  Widget _flexKey(String k) => Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 3),
-          child: _key(k.toUpperCase(), onTap: () => onInput(k)),
-        ),
-      );
 
   Widget _key(
     String label, {

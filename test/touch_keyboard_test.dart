@@ -57,9 +57,21 @@ void main() {
     expect(r['c'], [1, 1, 1]); // 收起由外部隐藏，组件只负责回调
   });
 
-  testWidgets('空格键输入空格', (t) async {
-    final r = await pump(t, const Size(1366, 768));
-    await t.tap(find.text('空格'));
-    expect(r['input'], [' ']);
+  testWidgets('v3.3.226 无空格键，字母四行网格对齐（每行 10 格）', (t) async {
+    await pump(t, const Size(1366, 768));
+    expect(find.text('空格'), findsNothing); // 空格键已移除
+    // 26 个字母全部存在且同宽：数字行 10 键 / QWERTY 10 / ASDFG 9+⌫ / ZXCVBNM 7+清空+收起
+    for (final k in ['Q', 'W', 'P', 'A', 'L', 'Z', 'M']) {
+      expect(find.text(k), findsOneWidget);
+    }
+    // 四行的字母键宽度一致（网格对齐）：取键的 Material 盒子宽
+    double? w;
+    for (final k in ['Q', 'A', 'Z']) {
+      final kw = t.getSize(
+          find.ancestor(of: find.text(k), matching: find.byType(Material)).first).width;
+      expect(kw, greaterThan(60)); // 1366 宽下单格约 120
+      if (w != null) expect(kw, w, reason: '字母 $k 与上行宽度应一致');
+      w = kw;
+    }
   });
 }
