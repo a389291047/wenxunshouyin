@@ -10,6 +10,7 @@ import '../../core/pay_methods.dart';
 import '../../core/print_prefs.dart';
 import '../../core/search_focus.dart';
 import '../../core/session.dart';
+import '../../core/store_activity.dart';
 import '../../core/theme.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/cart_line_dialog.dart';
@@ -77,6 +78,13 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     searchKeeper.init();
     _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
     _load();
+    // 店铺活动（v3.3.222）：生鲜同样支持满减/买赠
+    ActivityStore.list.addListener(_onActivityChanged);
+    ActivityStore.ensure();
+  }
+
+  void _onActivityChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 副屏快照：名称 / 数量 / 单位 / 单价 / 金额 + 合计
@@ -86,7 +94,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     CustomerDisplay.publish(
       shop: Session.shopName,
       vipId: Session.wenxunId,
-      total: double.parse(total.toStringAsFixed(2)),
+      total: double.parse(payable.toStringAsFixed(2)), // 活动优惠后应收（v3.3.222）
       items: cart.map((l) {
         final byWeight = '${l.goods['sell_type'] ?? 0}' == '1';
         final u = '${l.goods['danwei'] ?? ''}'.trim();
@@ -104,6 +112,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   @override
   void dispose() {
     _cdTimer?.cancel();
+    ActivityStore.list.removeListener(_onActivityChanged);
     searchKeeper.dispose();
     super.dispose();
   }
@@ -137,6 +146,45 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
 
   double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.num);
   int get count => cart.fold(0, (s, l) => s + l.num);
+
+  // ==================== 店铺活动（v3.3.222） ====================
+  Map<int, Map> get _goodsIndex {
+    final m = <int, Map>{};
+    for (final g in goods) {
+      final id = int.tryParse('${g['id']}') ?? 0;
+      if (id > 0) m[id] = g as Map;
+    }
+    return m;
+  }
+
+  ActivityResult get activityResult {
+    if (cart.isEmpty) return ActivityResult.empty;
+    final lines = <ActivityCartLine>[];
+    for (final l in cart) {
+      lines.add(ActivityCartLine(
+        goodsId: int.tryParse('${l.goods['id']}') ?? 0,
+        catId: int.tryParse('${l.goods['cat_id']}') ?? 0,
+        qty: l.num.toDouble(),
+        unitPrice: l.unitPrice,
+        byWeight: l.byWeight,
+        goods: l.goods,
+      ));
+    }
+    return ActivityEngine.compute(
+      lines: lines,
+      acts: ActivityStore.list.value,
+      goodsById: _goodsIndex,
+    );
+  }
+
+  double get actDiscount => activityResult.discount;
+
+  /// 应收 = 合计 - 活动优惠，最低 0.01 元
+  double get payable {
+    final v = total - actDiscount;
+    if (v >= 0.01) return v;
+    return total > 0 ? 0.01 : 0;
+  }
 
   double _price(Map g) => double.tryParse('${g['amount'] ?? g['price'] ?? 0}') ?? 0;
 
@@ -280,7 +328,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   // ==================== 结算收款 ====================
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
-    final t = total;
+    final t = payable; // 应收（活动优惠后，v3.3.222）
     final order = await PayMethods.load();
 
     // ===== 快捷通道（v3.3.177 复用餐饮）：默认支付方式是微信/支付宝时，
@@ -341,16 +389,31 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
   Future<void> _createPaidOrder(String picked, double t,
       {String xyfOrderNo = '', int xyfChannel = 0}) async {
-    final cartPayload = cart.map((l) => {
-      'id': l.goods['id'],
-      'name': l.goods['title'],
-      'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
-      'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
-      'unit': l.byWeight ? l.unit : '', // 称重必带单位，后端强校验（v3.3.214）
-      'guige': '${l.goods['guige'] ?? ''}',
-      'image': _img(l.goods),
-      'note': l.note, // 单行备注（小票打印用）
-    }).toList();
+    final act = activityResult; // 活动快照（清空购物车前）
+    final cartPayload = <Map<String, dynamic>>[
+      ...cart.map((l) => {
+            'id': l.goods['id'],
+            'name': l.goods['title'],
+            'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
+            'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+            'unit': l.byWeight ? l.unit : '', // 称重必带单位，后端强校验（v3.3.214）
+            'guige': '${l.goods['guige'] ?? ''}',
+            'image': _img(l.goods),
+            'note': l.note, // 单行备注（小票打印用）
+          }),
+      // 赠品以 0 元行随单提交（v3.3.222）
+      for (final g in act.gifts)
+        {
+          'id': g.goods['id'],
+          'name': '${g.title}（赠品）',
+          'price': 0,
+          'quantity': g.qty,
+          'unit': g.byWeight ? g.unit : '',
+          'guige': '${g.goods['guige'] ?? ''}',
+          'image': _img(g.goods),
+          'note': '',
+        },
+    ];
 
     if (picked == '会员支付') {
       final bal = _vipBalance();
@@ -365,7 +428,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           vipId: int.tryParse('${vip!['id']}') ?? 0,
           phone: '${vip!['phone'] ?? ''}',
           total: t,
-          originalTotal: t,
+          originalTotal: total, // 商品原价合计（t 为活动优惠后应收，v3.3.222）
           cart: cartPayload,
           totalCount: count,
         );
@@ -390,6 +453,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         wenxunId: Session.wenxunId,
         renyuanId: Session.staffId,
         total: t,
+        originalTotal: total, // 活动前原价合计（v3.3.222，补打小票显示优惠）
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
         cart: cartPayload,
@@ -409,11 +473,17 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   Future<void> _afterPaid(String orderNo, String method, double t) async {
     // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
     CashDrawer.autoOpen(method);
+    final act = activityResult; // 清空购物车前取活动快照
     if (await PrintPrefs.on('retail')) {
       final hasWeigh = cart.any((l) => l.byWeight);
       CloudPrinter.printRetail(
         CloudPrinter.retailReceipt(
           orderNo: orderNo, payMethod: method, total: t,
+          activityDiscount: act.discount, activityLines: act.labels,
+          gifts: [
+            for (final g in act.gifts)
+              {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
+          ],
           cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
         ),
         alsoCloud: hasWeigh, // 称重订单本地出票后云打印机同步一份（v3.3.214）
@@ -421,6 +491,41 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     }
     _clearCart();
     showDialog(context: context, builder: (_) => _FreshSuccessDialog(orderNo: orderNo, total: t, method: method));
+  }
+
+  // 命中的店铺活动 / 赠品提示条（v3.3.222）
+  Widget _activityBar() {
+    final a = activityResult;
+    if (a.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final t in a.labels)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5484D).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.local_offer, size: 13, color: Color(0xFFE5484D)),
+                  const SizedBox(width: 4),
+                  Text(t,
+                      style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFE5484D))),
+                ]),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   double _vipBalance() {
@@ -785,11 +890,17 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
             child: Column(children: [
+              _activityBar(), // 命中的活动与赠品（v3.3.222）
               Row(children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
                 const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-                Text('¥${Fmt.money(total)}', style: const TextStyle(fontSize: 30, color: FreshColors.accent, fontWeight: FontWeight.w800)),
+                if (actDiscount > 0) ...[
+                  Text('¥${Fmt.money(total)}',
+                      style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
+                  const SizedBox(width: 8),
+                ],
+                Text('¥${Fmt.money(payable)}', style: const TextStyle(fontSize: 30, color: FreshColors.accent, fontWeight: FontWeight.w800)),
               ]),
               const SizedBox(height: 14),
               Row(children: [
@@ -804,7 +915,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
                   flex: 2,
                   child: SizedBox(
                     height: 62,
-                    child: BigButton('收款 ¥${Fmt.money(total)}', onTap: cart.isEmpty ? null : _checkout, height: 62,
+                    child: BigButton('收款 ¥${Fmt.money(payable)}', onTap: cart.isEmpty ? null : _checkout, height: 62,
                       color: FreshColors.accent),
                   ),
                 ),

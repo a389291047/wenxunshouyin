@@ -28,6 +28,7 @@ import '../../core/usb_printer.dart';
 import '../../core/updater.dart';
 import '../../core/voice.dart';
 import '../../core/window_prefs.dart';
+import '../../ui/activity_admin.dart';
 import '../../ui/receipt_preview.dart';
 import '../../ui/update_dialog.dart';
 import '../../ui/widgets.dart';
@@ -1888,6 +1889,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   static const List<Map<String, Object>> _navDefs = [
     {'key': 'store',    'icon': Icons.storefront,           'label': '店铺信息'},
+    {'key': 'activity', 'icon': Icons.campaign_outlined,    'label': '营销活动'},
     {'key': 'func',     'icon': Icons.tune_outlined,        'label': '功能设置'},
     {'key': 'display',  'icon': Icons.format_size,          'label': '显示设置'},
     {'key': 'cd',       'icon': Icons.desktop_windows_outlined, 'label': '副屏客显'},
@@ -1917,6 +1919,7 @@ class _SettingsPageState extends State<SettingsPage> {
       if (it['key'] == 'bt' && !BtPrinter.supported) continue;        // 不支持蓝牙的设备不显示
       if (it['key'] == 'drawer' && !CashDrawer.supported) continue;   // 钱箱仅 Windows / Android
       if (it['key'] == 'zuofa' && Session.hangye != 2) continue;      // 常用做法仅餐饮版
+      if (it['key'] == 'activity' && Session.hangye == 2) continue;   // 营销活动当前接入零售收银（v3.3.222）
       if (it['key'] == 'scale' && !ScaleSupport.canUseScale) continue; // 苹果端不接秤，只手输重量
       if (it['key'] == 'cd' && !(Platform.isWindows || Platform.isAndroid)) continue; // 副屏客显：Windows / 安卓（v3.3.212）
       list.add(it);
@@ -1926,6 +1929,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Widget _navContent(String key) {
     switch (key) {
+      case 'activity': return const ActivityAdminCard();
       case 'update':  return _updateCard();
       case 'payorder':return _payOrderCard();
       case 'cloud':   return _cloudCard();

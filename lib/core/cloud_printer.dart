@@ -320,9 +320,12 @@ class CloudPrinter {
   static String retailReceipt({
     required String orderNo,
     required String payMethod,
-    required double total, // 应收合计（优惠券抵扣后）
+    required double total, // 应收合计（活动优惠 + 优惠券抵扣后）
     required List<Map<String, dynamic>> cart,
     double coupon = 0, // 优惠券抵扣金额（v3.3.219，>0 时小票打优惠券行）
+    double activityDiscount = 0, // 活动优惠金额（满减/折扣，v3.3.222）
+    List<String> activityLines = const [], // 活动说明（含赠品），首条为金额活动
+    List<Map<String, dynamic>> gifts = const [], // 赠品行（0 元，v3.3.222）
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>$shopTitle</center></FS2>');
@@ -345,11 +348,31 @@ class CloudPrinter {
       final note = '${g['note'] ?? ''}'.trim();
       if (note.isNotEmpty) sb.writeln('  * $note');
     }
+    // 赠品区（v3.3.222）：买一送一 / 买一斤送半斤 / 满赠，0 元行，明确标「赠品」
+    if (gifts.isNotEmpty) {
+      sb.writeln('--------------------------------');
+      sb.writeln('赠品:');
+      for (final g in gifts) {
+        final name = '${g['name']}';
+        final qty = double.tryParse('${g['quantity']}') ?? 0;
+        final unit = '${g['unit'] ?? ''}'.trim();
+        final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
+        sb.writeln('$name（赠品）');
+        sb.writeln('  赠送 $qtyTxt   ¥0.00');
+      }
+    }
     sb.writeln('--------------------------------');
-    if (coupon > 0) {
-      // 优惠券单：商品合计 → 优惠券抵扣 → 实收合计（v3.3.219）
-      sb.writeln('商品合计: ¥${Fmt.money(total + coupon)}');
-      sb.writeln('优惠券: -¥${Fmt.money(coupon)}');
+    final hasCut = coupon > 0 || activityDiscount > 0;
+    if (hasCut) {
+      // 商品合计 → 活动优惠 → 优惠券 → 实收合计
+      sb.writeln('商品合计: ¥${Fmt.money(total + coupon + activityDiscount)}');
+      if (activityDiscount > 0) {
+        final label = activityLines.isNotEmpty
+            ? activityLines.first.split(' -¥').first
+            : '活动优惠';
+        sb.writeln('$label: -¥${Fmt.money(activityDiscount)}');
+      }
+      if (coupon > 0) sb.writeln('优惠券: -¥${Fmt.money(coupon)}');
       sb.writeln('<B>合计: ¥${Fmt.money(total)}</B>');
     } else {
       sb.writeln('合计: ¥${Fmt.money(total)}');
@@ -516,10 +539,25 @@ class CloudPrinter {
       // 称重行：0.534kg × 18.00（与零售收银小票口径一致）；按件行：xN
       final qtyTxt = unit.isNotEmpty ? '${_qtyStr(qty)}$unit' : 'x${qty.round()}';
       sb.writeln(name);
-      sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(price * qty)}');
+      // 赠品行（v3.3.222）：订单明细里存的是「商品名（赠品）」0 元行
+      final isGift = name.contains('（赠品）') || (price == 0 && '${g['note'] ?? ''}'.contains('赠品'));
+      if (isGift) {
+        sb.writeln('  赠送 $qtyTxt   ¥0.00');
+      } else {
+        sb.writeln('  ¥${Fmt.money(price)} $qtyTxt   ¥${Fmt.money(price * qty)}');
+      }
     }
     sb.writeln('--------------------------------');
-    sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(isRefund ? (o['refund_amount'] ?? o['total']) : o['total'])}');
+    final totalV = double.tryParse('${isRefund ? (o['refund_amount'] ?? o['total']) : o['total']}') ?? 0;
+    final origV = double.tryParse('${o['original_total'] ?? 0}') ?? 0;
+    if (!isRefund && origV > totalV + 0.001) {
+      // 有活动/优惠券：商品合计 → 优惠 → 实收（v3.3.222 补打口径与首次打印一致）
+      sb.writeln('商品合计: ¥${Fmt.money(origV)}');
+      sb.writeln('优惠: -¥${Fmt.money(origV - totalV)}');
+      sb.writeln('<B>合计: ¥${Fmt.money(totalV)}</B>');
+    } else {
+      sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(totalV)}');
+    }
     sb.writeln('支付方式: ${o['payment_method'] ?? '-'}');
     if (isRefund) {
       sb.writeln('退款时间: ${DateTime.now().toString().substring(0, 19)}');

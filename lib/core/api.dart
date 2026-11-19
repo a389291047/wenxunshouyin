@@ -274,6 +274,7 @@ class Api {
     int vipId = 0,
     String payOrderNo = '', // 星驿付支付流水号（扫码收款单退款关联）
     int payChannel = 0, // 星驿付渠道：1支付宝 2微信 9银联 12数币
+    double originalTotal = 0, // 商品原价合计（活动/优惠券前，v3.3.222 供补打小票显示优惠）
   }) async {
     return post('/shouyin/order/add', {
       'id': wenxunId,
@@ -284,6 +285,7 @@ class Api {
       if (vipId > 0) 'vip_id': vipId,
       if (payOrderNo.isNotEmpty) 'pay_order_no': payOrderNo,
       if (payChannel > 0) 'payment_channel': payChannel,
+      if (originalTotal > 0) 'original_total': originalTotal,
     });
   }
 

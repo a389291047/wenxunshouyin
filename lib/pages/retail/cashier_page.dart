@@ -17,6 +17,7 @@ import '../../core/print_prefs.dart';
 import '../../core/scale.dart';
 import '../../core/search_focus.dart';
 import '../../core/session.dart';
+import '../../core/store_activity.dart';
 import '../../core/theme.dart';
 import '../../core/theme_prefs.dart';
 import '../../core/voice.dart';
@@ -109,6 +110,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
     _loadHolds();
     _load();
+    // 店铺活动（v3.3.222）：加载 + 监听，设置里改完回来自动生效
+    ActivityStore.list.addListener(_onActivityChanged);
+    ActivityStore.ensure();
+  }
+
+  /// 活动配置变化（设置页增删改）→ 重算应收与赠品
+  void _onActivityChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 副屏快照（v3.3.209）：名称 / 数量 / 单位 / 单价 / 金额 + 件数合计
@@ -139,6 +148,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
+    ActivityStore.list.removeListener(_onActivityChanged);
     scaleSub?.cancel();
     scanDebounce?.cancel();
     _cdTimer?.cancel();
@@ -333,8 +343,51 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   static const double couponValue = 5.0;
   /// 优惠券实际抵扣：启用且合计 > 5 元时抵 5 元（合计不足 5 元不生效，避免 0 元单）
   double get couponApplied => couponOn && total > couponValue ? couponValue : 0;
-  /// 应收金额 = 合计 - 优惠券抵扣
-  double get payable => (total - couponApplied) < 0 ? 0 : total - couponApplied;
+  /// 应收金额 = 合计 - 活动优惠 - 优惠券抵扣（v3.3.222 活动接入）
+  /// 最低 0.01 元：满减配置过大时不产生 0 元单
+  double get payable {
+    final v = total - actDiscount - couponApplied;
+    if (v >= 0.01) return v;
+    return total > 0 ? 0.01 : 0;
+  }
+
+  // ==================== 店铺活动（v3.3.222） ====================
+  // 满减/折扣/买赠/满赠，配置在 设置 → 营销活动，结算时自动计算。
+  // 每次 build 现算：活动条数少、购物车行数少，开销可忽略。
+
+  /// 商品 id → 商品资料（找指定赠品用）
+  Map<int, Map> get _goodsIndex {
+    final m = <int, Map>{};
+    for (final g in goods) {
+      final id = int.tryParse('${g['id']}') ?? 0;
+      if (id > 0) m[id] = g as Map;
+    }
+    return m;
+  }
+
+  /// 当前购物车的活动计算结果（金额优惠 + 赠品）
+  ActivityResult get activityResult {
+    if (cart.isEmpty) return ActivityResult.empty;
+    final lines = <ActivityCartLine>[];
+    for (final l in cart) {
+      lines.add(ActivityCartLine(
+        goodsId: int.tryParse('${l.goods['id']}') ?? 0,
+        catId: int.tryParse('${l.goods['cat_id']}') ?? 0,
+        qty: l.num,
+        unitPrice: l.unitPrice,
+        byWeight: l.byWeight,
+        goods: l.goods,
+      ));
+    }
+    return ActivityEngine.compute(
+      lines: lines,
+      acts: ActivityStore.list.value,
+      goodsById: _goodsIndex,
+    );
+  }
+
+  /// 活动优惠金额（满减 / 折扣）
+  double get actDiscount => activityResult.discount;
 
   /// 是否称重商品（商品资料 sell_type=1）
   bool _isWeighted(Map g) => '${g['sell_type'] ?? 0}' == '1';
@@ -737,16 +790,31 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// [coupon] 优惠券抵扣金额（v3.3.219），t 为抵扣后的应收
   Future<void> _finishOrder(String picked, double t,
       {double coupon = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
-    final cartPayload = cart.map((l) => {
-      'id': l.goods['id'],
-      'name': l.goods['title'],
-      'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
-      'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
-      'unit': l.byWeight ? l.unit : '',
-      'guige': '${l.goods['guige'] ?? ''}',
-      'image': _img(l.goods),
-      'note': l.note, // 单行备注（小票打印用）
-    }).toList();
+    final act = activityResult; // 活动快照：清空购物车前取，小票与赠品行共用
+    final cartPayload = <Map<String, dynamic>>[
+      ...cart.map((l) => {
+            'id': l.goods['id'],
+            'name': l.goods['title'],
+            'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
+            'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+            'unit': l.byWeight ? l.unit : '',
+            'guige': '${l.goods['guige'] ?? ''}',
+            'image': _img(l.goods),
+            'note': l.note, // 单行备注（小票打印用）
+          }),
+      // 赠品以 0 元行随单提交（v3.3.222）：订单明细能看出是赠品，退款仍按实付金额
+      for (final g in act.gifts)
+        {
+          'id': g.goods['id'],
+          'name': '${g.title}（赠品）',
+          'price': 0,
+          'quantity': g.qty,
+          'unit': g.byWeight ? g.unit : '',
+          'guige': '${g.goods['guige'] ?? ''}',
+          'image': _img(g.goods),
+          'note': '',
+        },
+    ];
 
     // 会员余额支付：校验余额 → 后端扣款（联拓富会员走联拓富真实扣款）+ 落单
     if (picked == '会员支付') {
@@ -778,6 +846,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           CloudPrinter.printRetail(
             CloudPrinter.retailReceipt(
               orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
+              activityDiscount: act.discount, activityLines: act.labels,
+              gifts: [
+                for (final g in act.gifts)
+                  {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
+              ],
               cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
             ),
             alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
@@ -798,6 +871,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         wenxunId: Session.wenxunId,
         renyuanId: Session.staffId,
         total: t,
+        originalTotal: total, // 活动/券前原价合计（v3.3.222，补打小票显示优惠）
         paymentMethod: picked,
         vipId: vip == null ? 0 : int.tryParse('${vip!['id']}') ?? 0,
         cart: cartPayload,
@@ -817,6 +891,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         CloudPrinter.printRetail(
           CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
+            activityDiscount: act.discount, activityLines: act.labels,
+            gifts: [
+              for (final g in act.gifts)
+                {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
+            ],
             cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
           ),
           alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
@@ -1514,13 +1593,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
             child: Column(children: [
+              _activityBar(), // 命中的活动与赠品（v3.3.222）
               Row(children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
                 const SizedBox(width: 10),
                 _couponChip(), // 5元优惠券（v3.3.219）
                 const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-                if (couponApplied > 0) ...[
+                if (couponApplied > 0 || actDiscount > 0) ...[
                   Text('¥${Fmt.money(total)}',
                       style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
                   const SizedBox(width: 8),
@@ -1558,6 +1638,41 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             ]),
           ),
         ],
+      ),
+    );
+  }
+
+  // 命中的店铺活动 / 赠品提示条（v3.3.222）：无可享活动时不占位
+  Widget _activityBar() {
+    final a = activityResult;
+    if (a.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final t in a.labels)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE5484D).withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.local_offer, size: 13, color: Color(0xFFE5484D)),
+                  const SizedBox(width: 4),
+                  Text(t,
+                      style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFE5484D))),
+                ]),
+              ),
+          ],
+        ),
       ),
     );
   }
