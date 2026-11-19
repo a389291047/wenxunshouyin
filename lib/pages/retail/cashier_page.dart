@@ -23,6 +23,7 @@ import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
 import '../../ui/cart_line_dialog.dart';
 import '../../ui/no_code_goods.dart';
+import '../../ui/touch_keyboard.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/weigh_dialog.dart';
 import '../../ui/widgets.dart';
@@ -70,6 +71,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   final searchKeeper = SearchFocusKeeper();
   final searchCtrl = TextEditingController();
 
+  // 自带触屏键盘（v3.3.221）：触摸屏收银机上顾客自助输简拼/条码，
+  // 不依赖已被关闭的 Windows 系统触摸键盘。状态本机记忆。
+  bool kbOpen = false;
+  static const _kbPrefKey = 'retail_touch_kb';
+
   // 购物车面板位置（v3.3.189，设置 → 功能设置可切换左/右）
   String cartSide = 'right';
 
@@ -85,6 +91,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   void initState() {
     super.initState();
     searchKeeper.init();
+    // 上次用过触屏键盘的机器，进来就展开（顾客点单场景）
+    SharedPreferences.getInstance().then((p) {
+      final on = p.getBool(_kbPrefKey) ?? false;
+      if (mounted && on != kbOpen) setState(() => kbOpen = on);
+    });
     CartSide.side().then((v) {
       if (mounted && v != cartSide) setState(() => cartSide = v);
     });
@@ -303,11 +314,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       g = g.where((x) => '${x['cat_id']}' == '$selectedCat');
     }
     if (keyword.isNotEmpty) {
-      // 名称 + 简拼（jianpin 首字母字段，忽略大小写）双匹配（v3.3.65）
+      // 名称 + 简拼（jianpin 首字母字段，忽略大小写）+ 商品编码/条码 三匹配（v3.3.65 / v3.3.221）
+      // 编码匹配是为触屏键盘的数字键准备的：顾客能输条码找货，扫码枪扫普通条码也能过滤出结果
       final kw = keyword.toLowerCase();
       g = g.where((x) =>
           '${x['title']}'.contains(keyword) ||
-          '${x['jianpin'] ?? ''}'.toLowerCase().contains(kw));
+          '${x['jianpin'] ?? ''}'.toLowerCase().contains(kw) ||
+          '${x['code'] ?? x['bianma'] ?? ''}'.contains(keyword));
     }
     return g.toList();
   }
@@ -413,7 +426,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 点击商品：称重商品走称重面板；多规格弹规格组合弹窗；单规格直接加购
   Future<void> _tapGoods(Map g) async {
     if (_isWeighted(g)) {
-      return _weighAndAdd(g);
+      await _weighAndAdd(g);
+      _clearKeywordAfterAdd();
+      return;
     }
     if (_hasSpecs(g)) {
       final sku = await showDialog<Map>(
@@ -431,9 +446,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         'goods_image_url': g['goods_image_url'] ?? '',
         'goods_image_url_alt': g['goods_image_url_alt'] ?? '',
       });
+      _clearKeywordAfterAdd();
       return;
     }
     _add(g);
+    _clearKeywordAfterAdd();
   }
 
   void _dec(_CartLine l) {
@@ -889,6 +906,19 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                             ],
                     ),
         ),
+        // 自带触屏键盘（v3.3.221）：展开时挤压上方内容，不遮挡商品/底栏
+        if (kbOpen)
+          TouchKeyboard(
+            // 小窗口（<680 高）用紧凑键高，保证商品区和底栏仍有空间
+            keyHeight: MediaQuery.of(context).size.height < 680 ? 34 : 40,
+            hintText: keyword.isEmpty
+                ? ''
+                : '已输入「$keyword」· 匹配 ${filtered.length} 个商品',
+            onInput: _kbInput,
+            onBackspace: _kbBackspace,
+            onClear: _kbClear,
+            onClose: _kbToggle,
+          ),
       ],
     );
   }
@@ -904,6 +934,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           _noCodeBtn(),
           const SizedBox(width: 14),
           Expanded(child: _searchBox()),
+          const SizedBox(width: 10),
+          _kbBtn(),
           if (_showScaleBar) ...[
             const SizedBox(width: 10),
             _scaleBar(),
@@ -940,6 +972,60 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ),
       ),
     );
+  }
+
+  /// 触屏键盘开关按钮（搜索框右侧，v3.3.221）
+  Widget _kbBtn() {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: kbOpen ? PosTheme.accentLive : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: kbOpen ? Colors.transparent : PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _kbToggle,
+          child: Icon(Icons.keyboard_alt_outlined,
+              size: 24, color: kbOpen ? Colors.white : PosTheme.textSub),
+        ),
+      ),
+    );
+  }
+
+  /// 开合触屏键盘。状态存本机，换班/重启后保持（顾客点单机器常开）。
+  void _kbToggle() {
+    setState(() => kbOpen = !kbOpen);
+    SharedPreferences.getInstance().then((p) => p.setBool(_kbPrefKey, kbOpen));
+    if (!kbOpen) searchKeeper.node.requestFocus(); // 收起后扫码枪继续可用
+  }
+
+  /// 键盘写入：直接改 controller 并复用搜索逻辑（不走模拟按键，避免焦点问题）
+  void _kbWrite(String text) {
+    searchCtrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _onSearchChanged(text);
+  }
+
+  void _kbInput(String ch) => _kbWrite(searchCtrl.text + ch);
+
+  void _kbBackspace() {
+    final t = searchCtrl.text;
+    if (t.isEmpty) return;
+    _kbWrite(t.substring(0, t.length - 1));
+  }
+
+  void _kbClear() => _kbWrite('');
+
+  /// 键盘展开状态下加购成功 → 清空搜索词，顾客接着输下一个（连续点单）
+  void _clearKeywordAfterAdd() {
+    if (!kbOpen || keyword.isEmpty) return;
+    searchCtrl.clear();
+    setState(() => keyword = '');
   }
 
   /// 商品搜索框：与大按钮同高 48，圆角白底 + 柔和阴影，字号放大
