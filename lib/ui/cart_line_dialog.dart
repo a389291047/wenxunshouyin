@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/cart_prefs.dart';
 import '../core/clear_pin.dart';
 import '../core/theme.dart';
 import 'widgets.dart';
@@ -95,13 +96,19 @@ class _CartLineDialogState extends State<CartLineDialog> {
   Color get accent => widget.accent;
   double get unitPrice => price ?? widget.listPrice;
 
-  /// 应付数量 = 数量 - 赠送数量（赠送不计价，v3.3.232）
+  /// 应付数量（v3.3.235 按赠送计价模式）：含赠送=数量−赠送；不含赠送=数量即付钱部分
   double get payNum {
+    if (!GiftMode.isDeduct) return qty;
     final v = qty - giftQty;
     return v > 0 ? v : 0;
   }
 
   double get sub => unitPrice * payNum;
+
+  /// 赠送口径提示（随模式变化）
+  String get _giftModeHint => GiftMode.isDeduct
+      ? '买2送1：数量录 3、赠送填 1 → 收 2 件的钱'
+      : '买2送1：数量录 2、赠送填 1 → 收 2 件的钱，顾客共拿 3 件';
   String get unit => widget.unit.trim();
 
   /// 数量展示：按件整数 / 称重去尾零
@@ -332,6 +339,10 @@ class _CartLineDialogState extends State<CartLineDialog> {
                 const Icon(Icons.chevron_right, size: 20, color: PosTheme.textHint),
               ]),
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 5),
+            child: Text(_giftModeHint, style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
           ),
           const SizedBox(height: 16),
 

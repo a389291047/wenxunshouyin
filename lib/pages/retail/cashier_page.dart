@@ -53,8 +53,11 @@ class _CartLine {
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
 
-  /// 应付数量 = 数量 - 赠送数量（v3.3.232：赠送不计价，合计按此口径扣减）
+  /// 应付数量（v3.3.235 按赠送计价模式）：
+  /// - 含赠送模式（默认）：数量 − 赠送（数量=顾客拿走总量，收钱扣掉赠送）
+  /// - 不含赠送模式：数量即付钱部分，赠送额外拿走，收钱按全量
   double get payNum {
+    if (!GiftMode.isDeduct) return num;
     final v = num - giftQty;
     return v > 0 ? v : 0;
   }
@@ -127,6 +130,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     // 店铺活动（v3.3.222）：加载 + 监听，设置里改完回来自动生效
     ActivityStore.list.addListener(_onActivityChanged);
     ActivityStore.ensure();
+    // 赠送计价模式（v3.3.235）：设置里切换后收银页即时生效
+    GiftMode.load();
+    GiftMode.value.addListener(_onGiftModeChanged);
+  }
+
+  void _onGiftModeChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 活动配置变化（设置页增删改）→ 重算应收与赠品
@@ -163,6 +173,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     ActivityStore.list.removeListener(_onActivityChanged);
+    GiftMode.value.removeListener(_onGiftModeChanged);
     scaleSub?.cancel();
     scanDebounce?.cancel();
     _cdTimer?.cancel();

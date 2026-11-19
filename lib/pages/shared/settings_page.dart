@@ -75,6 +75,7 @@ class _SettingsPageState extends State<SettingsPage> {
   // 功能设置（v3.3.187）
   bool searchFocusOn = false; // 搜索框始终聚焦
   String cartSide = 'right'; // 购物车显示位置（left/right）
+  bool giftDeductOn = true; // 赠送计价：数量是否含赠送（v3.3.235）
 
   // 语音播报
   bool voiceEnabled = true;
@@ -1319,10 +1320,12 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadFunc() async {
     final on = await SearchFocus.enabled();
     final side = await CartSide.side();
+    await GiftMode.load();
     if (!mounted) return;
     setState(() {
       searchFocusOn = on;
       cartSide = side;
+      giftDeductOn = GiftMode.isDeduct;
     });
   }
 
@@ -1385,6 +1388,40 @@ class _SettingsPageState extends State<SettingsPage> {
               final v = sel.first;
               setState(() => cartSide = v);
               await CartSide.setSide(v);
+            },
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 赠送计价模式（v3.3.235，商户自选两种口径）
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SizedBox(height: 10),
+            Text('赠送计价模式', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            SizedBox(height: 3),
+            Text('数量含赠送（默认）：购物车数量=顾客拿走的总量，收钱自动扣掉赠送。买2送1录3件收2件钱。\n数量即付钱：购物车数量=付钱部分，赠送的额外拿走。买2送1录2件收2件钱，顾客共拿3件。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            SizedBox(height: 10),
+          ])),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'deduct', label: Text('数量含赠送', style: TextStyle(fontSize: 13))),
+              ButtonSegment(value: 'keep', label: Text('数量即付钱', style: TextStyle(fontSize: 13))),
+            ],
+            selected: {giftDeductOn ? GiftMode.deductMode : GiftMode.keepMode},
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: PosTheme.accentLive,
+              selectedForegroundColor: Colors.white,
+              foregroundColor: PosTheme.textSub,
+            ),
+            onSelectionChanged: (sel) async {
+              final v = sel.first;
+              setState(() => giftDeductOn = v == GiftMode.deductMode);
+              await GiftMode.set(v);
             },
           ),
         ]),
