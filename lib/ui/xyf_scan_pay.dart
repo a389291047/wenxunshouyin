@@ -3,6 +3,7 @@ import '../core/api.dart';
 import '../core/theme.dart';
 import '../core/voice.dart';
 import 'brand_logos.dart';
+import 'widgets.dart';
 
 /// 星驿付 · 扫码收款弹窗（v3.3.165，收银机接扫码枪）
 ///
@@ -90,6 +91,8 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
   String errorMsg = '';
   Map? order; // 成功后的 wx_pay_orders 行
   bool submitting = false;
+  String _payNo = ''; // 本次/上次提交用的我方单号（重试前先查它，防重复收款）
+  bool _needNewNo = false; // 上一笔已确认失败，下次提交换新单号
 
   @override
   void dispose() {
@@ -121,8 +124,9 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
 
   /// 我方业务单号：XYF + 业务前缀(R零售/D餐饮/C充值) + 时间戳 + 4位随机
   /// 外部已传入（orderNo）则直接用，保证支付流水号与业务订单一致关联
-  String _genOrderNo() {
-    if ((widget.orderNo ?? '').isNotEmpty) return widget.orderNo!;
+  /// [forceNew]=true 时忽略外部单号重新生成（上一笔已确认失败，重试必须换号）
+  String _genOrderNo({bool forceNew = false}) {
+    if (!forceNew && (widget.orderNo ?? '').isNotEmpty) return widget.orderNo!;
     final biz = widget.bizType == 'dining'
         ? 'D'
         : (widget.bizType == 'recharge' ? 'C' : 'R');
@@ -144,11 +148,14 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
       errorMsg = '';
     });
     _startElapsed();
+    final no = _genOrderNo(forceNew: _needNewNo);
+    _payNo = no;
+    _needNewNo = false;
     try {
       final o = await Api.xyfScanPay(
         amount: widget.amount,
         authCode: code,
-        orderNo: _genOrderNo(),
+        orderNo: no,
         bizType: widget.bizType,
         onStatus: (s) {
           if (mounted) setState(() => payStatus = s);
@@ -187,7 +194,50 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
     }
   }
 
-  void _retry() {
+  /// 重新扫码（v3.3.220）：先回查上一笔单号，避免「上一笔其实已付款」还让顾客再付一次。
+  /// - 已支付成功 → 直接按成功回传（正常落单，不再产生未落单流水）
+  /// - 仍在处理中 → 拦住并提示等待，不重复收款
+  /// - 已明确失败 / 查不到 → 换新单号重新扫码
+  Future<void> _retry() async {
+    final lastNo = _payNo;
+    if (lastNo.isNotEmpty) {
+      try {
+        final q = await Api.xyfQueryOrder(lastNo);
+        final d = q['data'];
+        if ('${q['code']}' == '0' && d is Map) {
+          final m = Map<String, dynamic>.from(d);
+          final st = int.tryParse('${m['status'] ?? 0}') ?? 0;
+          if (st == 3) {
+            // 上一笔其实已经付成功了：按成功回传，避免重复收款 + 未落单
+            if (!mounted) return;
+            VoiceService.instance.pay('扫码', widget.amount);
+            setState(() {
+              order = m;
+              phase = 'success';
+              errorMsg = '';
+            });
+            Future.delayed(const Duration(milliseconds: 1200), () {
+              if (!mounted) return;
+              Navigator.pop(context, {
+                'payNo': '${m['order_no'] ?? ''}',
+                'orderNo': '${m['three_order_no'] ?? lastNo}',
+                'order': m,
+              });
+            });
+            return;
+          }
+          if (st == 1 || st == 2) {
+            if (!mounted) return;
+            setState(() => errorMsg = '上一笔仍在等待支付结果，请稍等片刻再点「重新扫码」，请勿重复向顾客收款');
+            toast(context, '上一笔仍在处理中，稍等再试', error: true);
+            return;
+          }
+        }
+      } catch (_) {
+        // 查询失败：按未完成处理，换新单号
+      }
+    }
+    _needNewNo = true;
     setState(() {
       phase = 'input';
       codeCtrl.clear();

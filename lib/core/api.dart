@@ -147,7 +147,7 @@ class Api {
       if (st == 3) return o;
       if (st == 4) throw ApiError('${o['error_msg'] ?? '顾客取消支付'}');
     }
-    throw ApiError('支付超时（25 秒未确认），请重新扫码收款');
+    throw ApiError('支付超时（25 秒未确认）：顾客可能仍在输入密码，点「重新扫码」会先核对上一笔结果');
   }
 
   /// 退款状态轮询（零售）：refundStatus = none无退款中记录 | processing | success | fail
