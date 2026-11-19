@@ -341,8 +341,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   /// 5元优惠券面额（v3.3.219）
   static const double couponValue = 5.0;
-  /// 优惠券实际抵扣：启用且合计 > 5 元时抵 5 元（合计不足 5 元不生效，避免 0 元单）
-  double get couponApplied => couponOn && total > couponValue ? couponValue : 0;
+  /// 券的门槛基数：活动优惠后的金额（v3.3.222）
+  double get couponBase => total - actDiscount;
+  /// 优惠券实际抵扣：启用且活动后仍 > 5 元时抵 5 元（不足不生效，避免 0 元单）
+  double get couponApplied => couponOn && couponBase > couponValue ? couponValue : 0;
   /// 应收金额 = 合计 - 活动优惠 - 优惠券抵扣（v3.3.222 活动接入）
   /// 最低 0.01 元：满减配置过大时不产生 0 元单
   double get payable {
