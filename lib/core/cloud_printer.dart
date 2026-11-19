@@ -325,6 +325,7 @@ class CloudPrinter {
     required List<Map<String, dynamic>> cart,
     double coupon = 0, // 优惠券抵扣金额（v3.3.219，>0 时小票打优惠券行）
     double activityDiscount = 0, // 活动优惠金额（满减/折扣，v3.3.222）
+    double mollen = 0, // 现金抹零金额（v3.3.238，>0 时打「抹零优惠」行）
     List<String> activityLines = const [], // 活动说明（含赠品），首条为金额活动
     List<Map<String, dynamic>> gifts = const [], // 赠品行（0 元，v3.3.222）
   }) {
@@ -366,10 +367,10 @@ class CloudPrinter {
       }
     }
     sb.writeln('--------------------------------');
-    final hasCut = coupon > 0 || activityDiscount > 0;
+    final hasCut = coupon > 0 || activityDiscount > 0 || mollen > 0;
     if (hasCut) {
-      // 商品合计 → 活动优惠 → 优惠券 → 实收合计
-      sb.writeln('商品合计: ¥${Fmt.money(total + coupon + activityDiscount)}');
+      // 商品合计 → 活动优惠 → 优惠券 → 抹零 → 实收合计
+      sb.writeln('商品合计: ¥${Fmt.money(total + coupon + activityDiscount + mollen)}');
       if (activityDiscount > 0) {
         final label = activityLines.isNotEmpty
             ? activityLines.first.split(' -¥').first
@@ -377,6 +378,7 @@ class CloudPrinter {
         sb.writeln('$label: -¥${Fmt.money(activityDiscount)}');
       }
       if (coupon > 0) sb.writeln('优惠券: -¥${Fmt.money(coupon)}');
+      if (mollen > 0) sb.writeln('抹零优惠: -¥${Fmt.money(mollen)}');
       sb.writeln('<B>合计: ¥${Fmt.money(total)}</B>');
     } else {
       sb.writeln('合计: ¥${Fmt.money(total)}');

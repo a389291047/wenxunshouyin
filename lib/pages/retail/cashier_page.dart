@@ -755,7 +755,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // ==================== 结算收款 ====================
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
-    final t = payable; // 应收（含优惠券抵扣，v3.3.219）
+    double t = payable; // 应收（含优惠券抵扣，v3.3.219；现金抹零后可减）
     final coupon = couponApplied; // 本次抵扣金额（小票打印用）
     final order = await PayMethods.load();
 
@@ -789,10 +789,17 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     String pickedMethod;
     String xyfOrderNo = '';
     int xyfChannel = 0;
+    double mollen = 0; // 现金抹零金额（v3.3.238）
     if (picked is Map) {
       pickedMethod = '${picked['method']}';
       xyfOrderNo = '${picked['xyf_order_no'] ?? ''}';
       xyfChannel = (picked['xyf_channel'] as int?) ?? 0;
+      // 现金抹零（v3.3.238）：弹窗带回抹零金额，应收相应扣减
+      final m = (picked['mollen'] as num?)?.toDouble() ?? 0;
+      if (m > 0) {
+        mollen = m;
+        t = double.parse((t - m).toStringAsFixed(2));
+      }
     } else {
       pickedMethod = picked;
     }
@@ -810,14 +817,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       xyfOrderNo = '${pay['orderNo'] ?? preNo}';
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
-    await _finishOrder(pickedMethod, t, coupon: coupon,
+    await _finishOrder(pickedMethod, t, coupon: coupon, mollen: mollen,
         xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
   }
 
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
-  /// [coupon] 优惠券抵扣金额（v3.3.219），t 为抵扣后的应收
+  /// [coupon] 优惠券抵扣金额（v3.3.219），[mollen] 现金抹零（v3.3.238），t 为抵扣后的应收
   Future<void> _finishOrder(String picked, double t,
-      {double coupon = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
+      {double coupon = 0, double mollen = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
     final act = activityResult; // 活动快照：清空购物车前取，小票与赠品行共用
     final cartPayload = <Map<String, dynamic>>[
       ...cart.map((l) => {
@@ -873,7 +880,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           CloudPrinter.printRetail(
             CloudPrinter.retailReceipt(
               orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
-              activityDiscount: act.discount, activityLines: act.labels,
+              activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
               gifts: [
                 for (final g in act.gifts)
                   {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
@@ -917,7 +924,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         CloudPrinter.printRetail(
           CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
-            activityDiscount: act.discount, activityLines: act.labels,
+            activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
             gifts: [
               for (final g in act.gifts)
                 {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
@@ -1800,6 +1807,7 @@ class RetailPayDialog extends StatefulWidget {
 class _PayDialogState extends State<RetailPayDialog> {
   String? method;
   String received = ''; // 现金实收（数字键盘输入）
+  int mollenType = 0; // 抹零模式（v3.3.238）：0 不抹 / 1 抹分 / 2 抹角（仅现金）
   final icons = {
     '现金': Icons.payments_outlined,
     '扫码收款': Icons.qr_code_scanner,
@@ -1832,7 +1840,24 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   double get receivedVal => double.tryParse(received) ?? 0;
-  double get change => (receivedVal - widget.total).clamp(0, double.maxFinite);
+
+  /// 抹零金额（v3.3.238，仅现金）：抹分=去分留角（49.53→49.50），抹角=去角留元（49.50→49.00）
+  double get mollen {
+    if (method != '现金' || mollenType == 0) return 0;
+    if (mollenType == 1) {
+      final v = (widget.total * 10).floorToDouble() / 10;
+      return double.parse((widget.total - v).toStringAsFixed(2));
+    }
+    return double.parse((widget.total - widget.total.floorToDouble()).toStringAsFixed(2));
+  }
+
+  /// 抹零后应收（最低 0.01，避免 0 元单）
+  double get payable {
+    final v = widget.total - mollen;
+    return v >= 0.01 ? double.parse(v.toStringAsFixed(2)) : widget.total;
+  }
+
+  double get change => (receivedVal - payable).clamp(0, double.maxFinite);
 
   void _key(String k) {
     setState(() {
@@ -1927,16 +1952,29 @@ class _PayDialogState extends State<RetailPayDialog> {
             )),
           ]),
           SizedBox(height: gap),
+          // 抹零（v3.3.238，仅现金）：抹分去分留角 / 抹角去角留元，点选切换
+          Row(children: [
+            Text('抹零', style: TextStyle(fontSize: compact ? 13 : 14, color: PosTheme.textSub)),
+            SizedBox(width: compact ? 8 : 12),
+            _mollenBtn(1, '抹分', mollenType == 1, compact),
+            const SizedBox(width: 8),
+            _mollenBtn(2, '抹角', mollenType == 2, compact),
+            const Spacer(),
+            if (mollen > 0)
+              Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
+                  style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
+          ]),
+          if (mollen > 0) SizedBox(height: gap),
           // 快捷金额
           Row(children: [
-            for (final v in [50.0, 100.0, 200.0, widget.total]) ...[
+            for (final v in [50.0, 100.0, 200.0, payable]) ...[
               Expanded(child: InkWell(
                 onTap: () => setState(() => received = Fmt.money(v)),
                 borderRadius: BorderRadius.circular(10),
                 child: Container(
                   height: quickH, alignment: Alignment.center,
                   decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
-                  child: Text(v == widget.total ? '刚好' : '¥${v.toInt()}',
+                  child: Text(v == payable ? '刚好' : '¥${v.toInt()}',
                       style: TextStyle(fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
                 ),
               )),
@@ -1986,8 +2024,13 @@ class _PayDialogState extends State<RetailPayDialog> {
                 color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: btnH),
           )),
           SizedBox(width: compact ? 8 : 14),
-          Expanded(flex: 2, child: BigButton('确认收款 ¥${Fmt.money(widget.total)}',
-              onTap: method == null ? null : () => Navigator.pop(context, method), height: btnH)),
+          Expanded(flex: 2, child: BigButton('确认收款 ¥${Fmt.money(payable)}',
+              onTap: method == null
+                  ? null
+                  : () => Navigator.pop(context, method == '现金' && mollen > 0
+                      ? {'method': '现金', 'mollen': mollen}
+                      : method),
+              height: btnH)),
         ]),
       ]),
     );
@@ -2046,6 +2089,25 @@ class _PayDialogState extends State<RetailPayDialog> {
           Text(m + (disabled ? '（未选会员）' : ''),
               style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain)),
         ]),
+      ),
+    );
+  }
+
+  /// 抹零切换按钮（v3.3.238）
+  Widget _mollenBtn(int type, String label, bool on, bool compact) {
+    return InkWell(
+      onTap: () => setState(() => mollenType = mollenType == type ? 0 : type),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 16, vertical: compact ? 6 : 8),
+        decoration: BoxDecoration(
+          color: on ? Colors.green.withOpacity(0.12) : const Color(0xFFF7F8FA),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: on ? Colors.green : PosTheme.line, width: on ? 1.5 : 1),
+        ),
+        child: Text(label, style: TextStyle(
+            fontSize: compact ? 13.5 : 15, fontWeight: FontWeight.w700,
+            color: on ? Colors.green : PosTheme.textSub)),
       ),
     );
   }

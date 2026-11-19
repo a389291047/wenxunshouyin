@@ -355,7 +355,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   // ==================== 结算收款 ====================
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
-    final t = payable; // 应收（活动优惠后，v3.3.222）
+    double t = payable; // 应收（活动优惠后，v3.3.222；现金抹零后可减）
     final order = await PayMethods.load();
 
     // ===== 快捷通道（v3.3.177 复用餐饮）：默认支付方式是微信/支付宝时，
@@ -388,10 +388,16 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     String pickedMethod;
     String xyfOrderNo = '';
     int xyfChannel = 0;
+    double mollen = 0; // 现金抹零金额（v3.3.238）
     if (picked is Map) {
       pickedMethod = '${picked['method']}';
       xyfOrderNo = '${picked['xyf_order_no'] ?? ''}';
       xyfChannel = (picked['xyf_channel'] as int?) ?? 0;
+      final m = (picked['mollen'] as num?)?.toDouble() ?? 0;
+      if (m > 0) {
+        mollen = m;
+        t = double.parse((t - m).toStringAsFixed(2));
+      }
     } else {
       pickedMethod = picked;
     }
@@ -409,13 +415,14 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       xyfOrderNo = '${pay['orderNo'] ?? preNo}';
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
-    await _createPaidOrder(pickedMethod, t,
+    await _createPaidOrder(pickedMethod, t, mollen: mollen,
         xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
   }
 
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
+  /// [mollen] 现金抹零金额（v3.3.238，小票打「抹零优惠」行）
   Future<void> _createPaidOrder(String picked, double t,
-      {String xyfOrderNo = '', int xyfChannel = 0}) async {
+      {double mollen = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
     final act = activityResult; // 活动快照（清空购物车前）
     final cartPayload = <Map<String, dynamic>>[
       ...cart.map((l) => {
@@ -466,7 +473,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           return;
         }
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
-        _afterPaid(orderNo, picked, t);
+        _afterPaid(orderNo, picked, t, mollen: mollen);
       } on ApiError catch (e) {
         if (mounted) Navigator.pop(context);
         toast(context, e.message, error: true);
@@ -490,14 +497,14 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       if (!mounted) return;
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
-      _afterPaid(orderNo, picked, t);
+      _afterPaid(orderNo, picked, t, mollen: mollen);
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
   }
 
-  Future<void> _afterPaid(String orderNo, String method, double t) async {
+  Future<void> _afterPaid(String orderNo, String method, double t, {double mollen = 0}) async {
     // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
     CashDrawer.autoOpen(method);
     final act = activityResult; // 清空购物车前取活动快照
@@ -506,7 +513,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       CloudPrinter.printRetail(
         CloudPrinter.retailReceipt(
           orderNo: orderNo, payMethod: method, total: t,
-          activityDiscount: act.discount, activityLines: act.labels,
+          activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
           gifts: [
             for (final g in act.gifts)
               {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},

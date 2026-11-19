@@ -56,4 +56,21 @@ void main() {
     expect(s, contains('赠送 x1   ¥0.00'));
     expect(s, contains('合计: ¥32.00'));
   });
-}
+
+  /// 现金抹零（v3.3.238）：小票打「抹零优惠」行，商品合计含抹零金额
+  group('现金抹零', () {
+  test('现金抹零：商品合计 ¥50.00 → 抹零 -¥0.50 → 合计 ¥49.50', () {
+    final s = CloudPrinter.retailReceipt(
+      orderNo: 'A20261120005',
+      payMethod: '现金',
+      total: 49.50,
+      mollen: 0.50,
+      cart: [
+        {'name': '示例商品', 'price': 50, 'quantity': 1, 'unit': '', 'gift_qty': 0},
+      ],
+    );
+    expect(s, contains('抹零优惠: -¥0.50'));
+    expect(s, contains('商品合计: ¥50.00'));
+    expect(s, contains('合计: ¥49.50'));
+  });
+});}
