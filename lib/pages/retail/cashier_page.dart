@@ -911,6 +911,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         cart: cartPayload,
         payOrderNo: xyfOrderNo,
         payChannel: xyfChannel,
+        mollen: mollen, // 现金抹零落库（v3.3.239，交班统计/补打小票共用）
       );
       if (!mounted) return;
       Navigator.pop(context);

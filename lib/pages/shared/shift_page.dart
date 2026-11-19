@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api.dart';
 import '../../core/bt_printer.dart';
@@ -32,6 +33,27 @@ class _ShiftPageState extends State<ShiftPage> {
   int czCount = 0;
   double czCash = 0;
   double czScan = 0;
+  // 当天现金抹零统计（v3.3.239）：wx_order.quiling 当天累计
+  double mollenTotal = 0;
+  int mollenCount = 0;
+  // 备付金（v3.3.239）：放在钱箱的起始现金，本机可改，交班小票打印
+  double pettyCash = 0;
+
+  /// 备付金存储 key（按商户隔离，本机独立——钱箱实物在哪台机器就记在哪台）
+  String get _pettyKey => 'shift_petty_cash_${Session.wenxunId}';
+
+  /// 钱箱现金 = 备付金 + 今日现金收款 - 今日现金退款
+  double get drawerCash {
+    final xianjin = double.tryParse('${stats['xianjin']}') ?? 0;
+    var cashRefund = 0.0;
+    for (final o in refundOrders) {
+      if ('${o['payment_method'] ?? ''}'.contains('现金')) {
+        cashRefund += double.tryParse('${o['refund_amount']}') ?? 0;
+      }
+    }
+    final v = pettyCash + xianjin - cashRefund;
+    return v < 0 ? 0 : v;
+  }
   bool loading = true;
   String? error;
   bool cloudOn = true;   // 云打印开关（设置 → 云打印机）
@@ -51,6 +73,8 @@ class _ShiftPageState extends State<ShiftPage> {
       // 来源1：小程序订单（wx_order.refund_status=2）；来源2：统一退款记录 wx_refund（堂食/收银，status=2 成功）
       var ra = 0.0;
       var rc = 0;
+      var molT = 0.0; // 当天抹零累计（v3.3.239）
+      var molC = 0;
       final ro = <Map>[];
       try {
         final now = DateTime.now();
@@ -65,10 +89,16 @@ class _ShiftPageState extends State<ShiftPage> {
           ro.add(o);
         }
 
-        // 来源1：小程序订单退款
+        // 来源1：小程序订单退款 + 当天抹零统计（v3.3.239）
         try {
           final orders = await Api.ordersAll(Session.wenxunId);
           for (final o in orders) {
+            // 当天现金抹零累计（wx_order.quiling，v3.3.239 落库）
+            final m = double.tryParse('${o['quiling'] ?? 0}') ?? 0;
+            if (m > 0 && '${o['create_time'] ?? ''}'.startsWith(today)) {
+              molT += m;
+              molC++;
+            }
             if ('${o['refund_status']}' != '2') continue;
             addIfToday(o, '${o['refund_time'] ?? o['update_time'] ?? ''}', 'refund_amount');
           }
@@ -126,6 +156,9 @@ class _ShiftPageState extends State<ShiftPage> {
       // 打印通道开关（商户自选：打印 / 不打印）
       final cOn = await CloudPrinter.enabled();
       final uOn = UsbPrinter.supported && await UsbPrinter.enabled();
+      // 备付金（v3.3.239）：本地读取
+      final prefs = await SharedPreferences.getInstance();
+      final petty = prefs.getDouble(_pettyKey) ?? 0;
       if (!mounted) return;
       setState(() {
         stats = s;
@@ -139,6 +172,9 @@ class _ShiftPageState extends State<ShiftPage> {
         czCount = czC;
         czCash = czCa;
         czScan = czSc;
+        mollenTotal = molT;
+        mollenCount = molC;
+        pettyCash = petty;
         cloudOn = cOn;
         usbOn = uOn;
         loading = false;
@@ -164,7 +200,54 @@ class _ShiftPageState extends State<ShiftPage> {
         czCount: czCount,
         czCash: czCash,
         czScan: czScan,
+        mollenTotal: mollenTotal,
+        mollenCount: mollenCount,
+        pettyCash: pettyCash,
+        drawerCash: drawerCash,
       );
+
+  /// 修改备付金（v3.3.239）：数字输入，本机保存，交班小票打印
+  Future<void> _editPetty() async {
+    final ctrl = TextEditingController(text: pettyCash > 0 ? Fmt.money(pettyCash) : '');
+    final v = await showDialog<double>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('修改备付金', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('放在钱箱里的起始现金（如早上放的 ¥200 找零金）',
+              style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrl,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              prefixText: '¥ ',
+              hintText: '0.00',
+              isDense: true,
+            ),
+          ),
+        ]),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 0.0),
+            child: const Text('清零', style: TextStyle(color: PosTheme.red)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, double.tryParse(ctrl.text.trim()) ?? 0),
+            child: const Text('保存', style: TextStyle(color: PosTheme.accent, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (v == null || !mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_pettyKey, v);
+    setState(() => pettyCash = v);
+    if (mounted) toast(context, '备付金已保存');
+  }
 
   /// 云打印交班单（强制走云打印机，不做 USB 分流）
   Future<void> _cloudPrintShift() async {
@@ -297,6 +380,36 @@ class _ShiftPageState extends State<ShiftPage> {
                               Expanded(child: StatTile(label: '会员支付', value: '¥${Fmt.money(stats['vip'])}', icon: Icons.badge_outlined, color: PosTheme.blue)),
                               const SizedBox(width: 10),
                               Expanded(child: StatTile(label: '现金收款', value: '¥${Fmt.money(stats['xianjin'])}', icon: Icons.payments_outlined, color: PosTheme.amber)),
+                            ]),
+                            // 抹零 / 钱箱（v3.3.239）：备付金点击可改，钱箱现金 = 备付金 + 现金收款 - 现金退款
+                            const SizedBox(height: 10),
+                            Row(children: [
+                              Expanded(child: StatTile(
+                                  label: '现金抹零（$mollenCount 笔）',
+                                  value: '¥${Fmt.money(mollenTotal)}',
+                                  icon: Icons.savings_outlined, color: PosTheme.green)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: _editPetty,
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Stack(children: [
+                                    StatTile(
+                                        label: '备付金（点击修改）',
+                                        value: '¥${Fmt.money(pettyCash)}',
+                                        icon: Icons.inventory_2_outlined, color: const Color(0xFF7C3AED)),
+                                    const Positioned(
+                                      right: 8, top: 8,
+                                      child: Icon(Icons.edit, size: 14, color: PosTheme.textHint),
+                                    ),
+                                  ]),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(child: StatTile(
+                                  label: '钱箱现金',
+                                  value: '¥${Fmt.money(drawerCash)}',
+                                  icon: Icons.account_balance_wallet_outlined, color: PosTheme.amber)),
                             ]),
                             // 餐饮版：零售（wx_order）与堂食（wx_table_order）库表分开，分开展示构成（v3.3.88）
                             if (Session.hangye == 2 && ((double.tryParse('${stats['canyin']}') ?? 0) > 0 || (double.tryParse('${stats['lingshou']}') ?? 0) > 0)) ...[

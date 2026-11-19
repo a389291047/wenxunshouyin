@@ -482,6 +482,11 @@ class CloudPrinter {
     int czCount = 0,
     double czCash = 0,
     double czScan = 0,
+    // 当天现金抹零 / 钱箱（v3.3.239）
+    double mollenTotal = 0,
+    int mollenCount = 0,
+    double pettyCash = 0,
+    double drawerCash = 0,
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>交班单</center></FS2>');
@@ -495,6 +500,9 @@ class CloudPrinter {
     sb.writeln('会员支付: ¥${Fmt.money(vip)}');
     sb.writeln('现金收款: ¥${Fmt.money(xianjin)}');
     sb.writeln('扫码收款: ¥${Fmt.money(saoma)}');
+    if (mollenTotal > 0) {
+      sb.writeln('现金抹零: -¥${Fmt.money(mollenTotal)} ($mollenCount 笔)');
+    }
     if (refundCount > 0) {
       sb.writeln('退款笔数: $refundCount');
       sb.writeln('退款金额: ¥${Fmt.money(refundAmount)}');
@@ -511,6 +519,10 @@ class CloudPrinter {
       sb.writeln('现金充值: ¥${Fmt.money(czCash)}');
       sb.writeln('扫码充值: ¥${Fmt.money(czScan)}');
     }
+    // 钱箱（v3.3.239）：备付金可改，钱箱现金 = 备付金 + 现金收款 - 现金退款
+    sb.writeln('--------------------------------');
+    sb.writeln('备付金: ¥${Fmt.money(pettyCash)}');
+    sb.writeln('钱箱现金: ¥${Fmt.money(drawerCash)}');
     sb.writeln('--------------------------------');
     sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');
     return sb.toString();
@@ -564,10 +576,18 @@ class CloudPrinter {
     sb.writeln('--------------------------------');
     final totalV = double.tryParse('${isRefund ? (o['refund_amount'] ?? o['total']) : o['total']}') ?? 0;
     final origV = double.tryParse('${o['original_total'] ?? 0}') ?? 0;
+    final molV = double.tryParse('${o['quiling'] ?? 0}') ?? 0; // 现金抹零（v3.3.239 落库）
     if (!isRefund && origV > totalV + 0.001) {
-      // 有活动/优惠券：商品合计 → 优惠 → 实收（v3.3.222 补打口径与首次打印一致）
+      // 有活动/优惠券/抹零：商品合计 → 优惠 → 抹零 → 实收（口径与首次打印一致）
       sb.writeln('商品合计: ¥${Fmt.money(origV)}');
-      sb.writeln('优惠: -¥${Fmt.money(origV - totalV)}');
+      final actCut = origV - totalV - molV; // 活动/优惠券部分（抹零单独一行）
+      if (actCut > 0.001) sb.writeln('优惠: -¥${Fmt.money(actCut)}');
+      if (molV > 0.001) sb.writeln('抹零优惠: -¥${Fmt.money(molV)}');
+      sb.writeln('<B>合计: ¥${Fmt.money(totalV)}</B>');
+    } else if (!isRefund && molV > 0.001) {
+      // 仅抹零：商品合计 → 抹零 → 实收
+      sb.writeln('商品合计: ¥${Fmt.money(totalV + molV)}');
+      sb.writeln('抹零优惠: -¥${Fmt.money(molV)}');
       sb.writeln('<B>合计: ¥${Fmt.money(totalV)}</B>');
     } else {
       sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(totalV)}');

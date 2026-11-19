@@ -76,6 +76,9 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     }
   }
 
+  /// 现金抹零金额（v3.3.239，wx_order.quiling 落库后订单详情可显示）
+  double get mollen => double.tryParse('${o['quiling'] ?? 0}') ?? 0;
+
   List<Map<String, dynamic>> get goods => CloudPrinter.parseGoods(o);
   int get goodsCount => goods.fold(0, (s, g) => s + _qty(g));
 
@@ -358,6 +361,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         _kvRow(Icons.schedule, Fmt.date(o['create_time'])),
         const SizedBox(height: 5),
         _kvRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}'),
+        if (mollen > 0) ...[
+          const SizedBox(height: 5),
+          _kvRow(Icons.savings_outlined, '现金抹零 -¥${Fmt.money(mollen)}', color: Colors.green),
+        ],
         if (refunded > 0) ...[
           const SizedBox(height: 5),
           _kvRow(Icons.undo, '已退 ¥${Fmt.money(refunded)} · ${o['refund_reason'] ?? ''}',
