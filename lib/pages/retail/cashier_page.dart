@@ -1028,10 +1028,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   /// 无码商品入口（扫码枪扫不到的商品手动录入）
-  /// v3.3.225：宽度 124 与分类栏对齐，去图标只显示文字
+  /// v3.3.227：顶栏左缘留 14 间距，按钮宽 110 = 分类栏 124 - 14，
+  /// 右边缘与分类栏对齐、不超出
   Widget _noCodeBtn() {
     return SizedBox(
-      width: 124,
+      width: 110,
       height: 48,
       child: Material(
         color: Colors.transparent,
