@@ -692,33 +692,14 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
   }
 
   Future<void> _settle(Map row) async {
-    // 现金/扫码按钮顺序按商户「支付方式排序」（v3.3.176 全场景复用）
-    final payOrder = await PayMethods.load();
-    final cashFirst = payOrder.indexOf('现金') <= payOrder.indexOf('扫码收款');
-    final cashBtn = BigButton('现金收款', onTap: () => Navigator.pop(context, '现金'), color: PosTheme.green, height: 46);
-    final scanBtn = BigButton('扫码收款', onTap: () => Navigator.pop(context, '扫码收款'), color: PosTheme.blue, height: 46);
-    final pay = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('挂账核销', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-        content: SizedBox(width: 280, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('挂账人：${row['name'] ?? ''} ${row['phone'] ?? ''}', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
-          const SizedBox(height: 6),
-          Text('金额 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-          const SizedBox(height: 14),
-          ...(cashFirst ? [cashBtn, const SizedBox(height: 8), scanBtn] : [scanBtn, const SizedBox(height: 8), cashBtn]),
-        ])),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消'))],
-      ),
-    );
-    if (pay == null || !mounted) return;
-    // 扫码收款：先星驿付真实收款，成功后再核销（v3.3.161）
-    if (pay == '扫码收款') {
-      final scan = await showXyfScanPayDialog(context,
-          amount: double.tryParse('${row['amount']}') ?? 0, title: '挂账核销 · 扫码收款', bizType: 'dining');
-      if (scan == null || !mounted) return;
-    }
-    final ok = await confirm(context, '确认收款', '挂账 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)} 已收到（$pay），核销本笔？');
+    final amount = double.tryParse('${row['amount']}') ?? 0;
+    // v3.3.230：核销统一走星驿付扫码收款（与零售收款同一套流程），
+    // 移除现金核销——扫码成功即真实到账，再确认核销台账。
+    final scan = await showXyfScanPayDialog(context,
+        amount: amount, title: '挂账核销 · 扫码收款', bizType: 'dining');
+    if (scan == null || !mounted) return;
+    const pay = '扫码收款';
+    final ok = await confirm(context, '确认核销', '扫码收款 ¥${Fmt.money(amount)} 已到账，核销本笔挂账？');
     if (!ok || !mounted) return;
     loadingDialog(context, '核销中…');
     try {
@@ -726,7 +707,7 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
       if (!mounted) return;
       Navigator.pop(context); // loading
       if ('${r['code']}' == '200') {
-        toast(context, '核销成功 ¥${Fmt.money(double.tryParse('${row['amount']}') ?? 0)}');
+        toast(context, '核销成功 ¥${Fmt.money(amount)}');
         // 打印结清小票
         final d = (r['data'] ?? {}) as Map;
         if (await PrintPrefs.on('dining')) {
