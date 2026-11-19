@@ -507,9 +507,11 @@ class _SettingsPageState extends State<SettingsPage> {
     final now = DateTime.now().toString().substring(0, 19);
     switch (key) {
       case 'retail':
-        return CloudPrinter.retailReceipt(orderNo: 'DD$now示例', payMethod: '微信支付', total: 58,
+        // v3.3.234：示例带单行赠送（按件买2送1 + 称重买1kg送0.5kg），预览/测试打印可见赠送效果
+        return CloudPrinter.retailReceipt(orderNo: 'DD$now示例', payMethod: '微信支付', total: 84,
           cart: [
-            {'name': '示例商品 A', 'price': '18.00', 'quantity': 2},
+            {'name': '示例商品 A', 'price': '18.00', 'quantity': 2, 'unit': '', 'gift_qty': 1},
+            {'name': '散装糖果', 'price': '26.00', 'quantity': 1, 'unit': 'kg', 'gift_qty': 0.5},
             {'name': '示例商品 B', 'price': '22.00', 'quantity': 1},
           ]);
       case 'dining':
