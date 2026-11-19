@@ -53,6 +53,12 @@ class _CartLine {
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
 
+  /// 应付数量 = 数量 - 赠送数量（v3.3.232：赠送不计价，合计按此口径扣减）
+  double get payNum {
+    final v = num - giftQty;
+    return v > 0 ? v : 0;
+  }
+
   /// 赠送数量展示：按件 x1 / 称重 0.25kg（v3.3.231）
   String get giftText {
     if (giftQty <= 0) return '';
@@ -138,10 +144,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       total: double.parse(payable.toStringAsFixed(2)), // 券后应收（v3.3.219）
       items: cart.map((l) => <String, dynamic>{
             'n': '${l.goods['title'] ?? ''}',
-            'q': l.byWeight ? l.num.toStringAsFixed(3) : '${l.num.round()}',
+            'q': l.byWeight ? l.payNum.toStringAsFixed(3) : '${l.payNum.round()}',
             'u': l.unit,
             'p': double.parse(l.unitPrice.toStringAsFixed(2)),
-            'a': double.parse((l.unitPrice * l.num).toStringAsFixed(2)),
+            'a': double.parse((l.unitPrice * l.payNum).toStringAsFixed(2)),
           }).toList(),
     );
   }
@@ -343,7 +349,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     return g.toList();
   }
 
-  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.num);
+  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.payNum);
   // 件数：按件商品累加数量，称重行按 1 笔计
   int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
 
@@ -383,7 +389,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       lines.add(ActivityCartLine(
         goodsId: int.tryParse('${l.goods['id']}') ?? 0,
         catId: int.tryParse('${l.goods['cat_id']}') ?? 0,
-        qty: l.num,
+        qty: l.payNum, // 应付数量参与活动（赠送部分不再触发买赠，避免双重赠送）
         unitPrice: l.unitPrice,
         byWeight: l.byWeight,
         goods: l.goods,
@@ -806,7 +812,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             'id': l.goods['id'],
             'name': l.goods['title'],
             'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
-            'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+            'quantity': l.payNum, // 应付数量（赠送部分已扣减，v3.3.232）
             'unit': l.byWeight ? l.unit : '',
             'guige': '${l.goods['guige'] ?? ''}',
             'image': _img(l.goods),
@@ -860,7 +866,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 for (final g in act.gifts)
                   {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
               ],
-              cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
+              cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.payNum, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
             ),
             alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
           ).catchError((_) => <String, dynamic>{});
@@ -904,7 +910,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               for (final g in act.gifts)
                 {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
             ],
-            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
+            cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.payNum, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
           ),
           alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
         ).catchError((_) => <String, dynamic>{});
@@ -1555,7 +1561,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                                 _lineTag('改价', PosTheme.accentLive),
                               ],
                               const SizedBox(width: 6),
-                              Text('¥${Fmt.money(l.unitPrice * l.num)}', textAlign: TextAlign.right,
+                              Text('¥${Fmt.money(l.unitPrice * l.payNum)}', textAlign: TextAlign.right,
                                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                               const SizedBox(width: 4),
                               InkWell(

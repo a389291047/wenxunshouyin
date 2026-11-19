@@ -47,6 +47,12 @@ class _CartLine {
   /// 成交单价：有改价用改价，否则用资料价
   double get unitPrice => price ?? listPrice;
 
+  /// 应付数量 = 数量 - 赠送数量（v3.3.232：赠送不计价，合计按此口径扣减）
+  double get payNum {
+    final v = num - giftQty;
+    return v > 0 ? v : 0;
+  }
+
   /// 赠送数量展示：按件 x1 / 称重 0.25kg（v3.3.231）
   String get giftText {
     if (giftQty <= 0) return '';
@@ -109,10 +115,10 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         final u = '${l.goods['danwei'] ?? ''}'.trim();
         return <String, dynamic>{
           'n': '${l.goods['title'] ?? ''}',
-          'q': byWeight ? l.num.toStringAsFixed(3) : '${l.num}',
+          'q': byWeight ? l.payNum.toStringAsFixed(3) : '${l.payNum.round()}',
           'u': byWeight ? (u.isEmpty ? 'kg' : u) : '',
           'p': double.parse(l.unitPrice.toStringAsFixed(2)),
-          'a': double.parse((l.unitPrice * l.num).toStringAsFixed(2)),
+          'a': double.parse((l.unitPrice * l.payNum).toStringAsFixed(2)),
         };
       }).toList(),
     );
@@ -153,7 +159,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     return g.toList();
   }
 
-  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.num);
+  double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.payNum);
   int get count => cart.fold(0, (s, l) => s + l.num);
 
   // ==================== 店铺活动（v3.3.222） ====================
@@ -173,7 +179,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       lines.add(ActivityCartLine(
         goodsId: int.tryParse('${l.goods['id']}') ?? 0,
         catId: int.tryParse('${l.goods['cat_id']}') ?? 0,
-        qty: l.num.toDouble(),
+        qty: l.payNum, // 应付数量参与活动（赠送部分不再触发买赠）
         unitPrice: l.unitPrice,
         byWeight: l.byWeight,
         goods: l.goods,
@@ -404,7 +410,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             'id': l.goods['id'],
             'name': l.goods['title'],
             'price': l.unitPrice, // 单行改价后的成交价（v3.3.205）
-            'quantity': l.num, // 按件为整数，称重为重量（3 位小数）
+            'quantity': l.payNum, // 应付数量（赠送部分已扣减，v3.3.232）
             'unit': l.byWeight ? l.unit : '', // 称重必带单位，后端强校验（v3.3.214）
             'guige': '${l.goods['guige'] ?? ''}',
             'image': _img(l.goods),
@@ -493,7 +499,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             for (final g in act.gifts)
               {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
           ],
-          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
+          cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.payNum, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
         ),
         alsoCloud: hasWeigh, // 称重订单本地出票后云打印机同步一份（v3.3.214）
       ).catchError((_) => <String, dynamic>{});
@@ -862,7 +868,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
                                 _lineTag('改价', FreshColors.accent),
                               ],
                               const SizedBox(width: 6),
-                              Text('¥${Fmt.money(l.unitPrice * l.num)}', textAlign: TextAlign.right,
+                              Text('¥${Fmt.money(l.unitPrice * l.payNum)}', textAlign: TextAlign.right,
                                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                               const SizedBox(width: 4),
                               InkWell(

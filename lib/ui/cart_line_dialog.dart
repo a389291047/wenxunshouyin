@@ -94,7 +94,14 @@ class _CartLineDialogState extends State<CartLineDialog> {
 
   Color get accent => widget.accent;
   double get unitPrice => price ?? widget.listPrice;
-  double get sub => unitPrice * qty;
+
+  /// 应付数量 = 数量 - 赠送数量（赠送不计价，v3.3.232）
+  double get payNum {
+    final v = qty - giftQty;
+    return v > 0 ? v : 0;
+  }
+
+  double get sub => unitPrice * payNum;
   String get unit => widget.unit.trim();
 
   /// 数量展示：按件整数 / 称重去尾零
