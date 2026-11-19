@@ -601,7 +601,7 @@ class _SettingsPageState extends State<SettingsPage> {
         return CloudPrinter.orderTicket({
           'order_number': 'SO$now示例', 'create_time': now, 'cashier_name': Session.staffName,
           'goods_list': [
-            {'title': '示例商品 A', 'price': '18.00', 'quantity': 2},
+            {'title': '示例商品 A', 'price': '18.00', 'quantity': 2, 'gift_qty': 1},
             {'title': '示例商品 B', 'price': '22.00', 'quantity': 1},
           ],
           'total': '58.00', 'payment_method': '微信支付',

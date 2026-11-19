@@ -95,6 +95,17 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
     return '×$s$unit';
   }
 
+  /// 单行赠送数量文本（v3.3.236）：x1 / 0.25kg，与商品行同单位的赠送口径
+  String _giftTxt(Map g) {
+    final gift = double.tryParse('${g['gift_qty'] ?? 0}') ?? 0;
+    if (gift <= 0) return '';
+    final unit = _unit(g);
+    if (unit.isEmpty) return 'x${gift.round()}';
+    var s = gift == gift.roundToDouble() ? gift.toStringAsFixed(0) : gift.toStringAsFixed(3);
+    if (s.contains('.')) s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    return '$s$unit';
+  }
+
   // ==================== 打印 ====================
 
   /// 补打小票：弹窗选择云打印机 / USB 打印机
@@ -492,34 +503,44 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         ),
         const SizedBox(width: 10),
         Expanded(
-          child: Row(children: [
-            Flexible(
-              child: Text(_name(g),
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: fully ? PosTheme.textHint : null,
-                      decoration: fully ? TextDecoration.lineThrough : null,
-                      decorationColor: PosTheme.red,
-                      decorationThickness: 2),
-                  maxLines: 1, overflow: TextOverflow.ellipsis),
-            ),
-            if (fully) ...[
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFDEEEE),
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: const Text('已退款',
-                    style: TextStyle(fontSize: 11, color: PosTheme.red)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Flexible(
+                child: Text(_name(g),
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: fully ? PosTheme.textHint : null,
+                        decoration: fully ? TextDecoration.lineThrough : null,
+                        decorationColor: PosTheme.red,
+                        decorationThickness: 2),
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
-            ] else if (partly) ...[
-              const SizedBox(width: 6),
-              Text('已退$refundedQty件',
-                  style: const TextStyle(fontSize: 11.5, color: PosTheme.red)),
-            ],
+              if (fully) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFDEEEE),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: const Text('已退款',
+                      style: TextStyle(fontSize: 11, color: PosTheme.red)),
+                ),
+              ] else if (partly) ...[
+                const SizedBox(width: 6),
+                Text('已退$refundedQty件',
+                    style: const TextStyle(fontSize: 11.5, color: PosTheme.red)),
+              ],
+            ]),
+            // 单行赠送数量（v3.3.236）：与收银小票口径一致，0 元
+            if (!fully && _giftTxt(g).isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('赠送 ${_giftTxt(g)} · ¥0.00',
+                    style: const TextStyle(
+                        fontSize: 12, color: Colors.green, fontWeight: FontWeight.w600)),
+              ),
           ]),
         ),
         const SizedBox(width: 8),

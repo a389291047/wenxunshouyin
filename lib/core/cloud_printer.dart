@@ -298,7 +298,8 @@ class CloudPrinter {
       goodsTotal: f('goods_total'),
       finalTotal: f('final_total'),
       cart: cart,
-      extraLines: extra,
+      extraLines: ['补打时间: ${DateTime.now().toString().substring(0, 19)}', ...extra],
+      title: '补打小票', // 与首次打印「结账单」区分（v3.3.236）
     );
   }
 
@@ -432,11 +433,12 @@ class CloudPrinter {
     required double finalTotal,
     required List<Map<String, dynamic>> cart,
     List<String> extraLines = const [], // 费用/优惠/发票/备注明细（v3.3.71）
+    String title = '结账单', // 补打时传「补打小票」区分（v3.3.236）
   }) {
     final sb = StringBuffer();
-    // 店铺名一行居中，「结账单」单独一行居中（v3.3.156）
+    // 店铺名一行居中，标题单独一行居中（v3.3.156）
     sb.writeln('<FS2><center>$shopTitle</center></FS2>');
-    sb.writeln('<FS2><center>结账单</center></FS2>');
+    sb.writeln('<FS2><center>$title</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('单号: $orderSn');
     sb.writeln('桌台: $tableTitle   人数: $peopleNum');
@@ -523,12 +525,13 @@ class CloudPrinter {
   static String orderTicket(Map o, {bool isRefund = false}) {
     final goods = parseGoods(o);
     final sb = StringBuffer();
-    sb.writeln('<FS2><center>${isRefund ? '退款单' : '订单小票'}</center></FS2>');
+    sb.writeln('<FS2><center>${isRefund ? '退款单' : '补打小票'}</center></FS2>');
     sb.writeln('--------------------------------');
     sb.writeln('商户: ${Session.shopName}');
     sb.writeln('单号: ${o['order_number'] ?? ''}');
     sb.writeln('时间: ${Fmt.date(o['create_time'])}');
     sb.writeln('收银: ${o['cashier_name'] ?? Session.staffName}');
+    if (!isRefund) sb.writeln('补打时间: ${DateTime.now().toString().substring(0, 19)}');
     if (isRefund) {
       sb.writeln('操作: ${Session.staffName}');
       sb.writeln('原因: ${o['refund_reason'] ?? '-'}');
