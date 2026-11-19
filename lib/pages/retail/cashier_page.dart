@@ -79,6 +79,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
+  bool couponOn = false; // 5元优惠券（v3.3.219）：收银页点标签启用，落单/小票生效
 
   @override
   void initState() {
@@ -106,7 +107,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     CustomerDisplay.publish(
       shop: Session.shopName,
       vipId: Session.wenxunId,
-      total: double.parse(total.toStringAsFixed(2)),
+      total: double.parse(payable.toStringAsFixed(2)), // 券后应收（v3.3.219）
       items: cart.map((l) => <String, dynamic>{
             'n': '${l.goods['title'] ?? ''}',
             'q': l.byWeight ? l.num.toStringAsFixed(3) : '${l.num.round()}',
@@ -315,6 +316,13 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // 件数：按件商品累加数量，称重行按 1 笔计
   int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
 
+  /// 5元优惠券面额（v3.3.219）
+  static const double couponValue = 5.0;
+  /// 优惠券实际抵扣：启用且合计 > 5 元时抵 5 元（合计不足 5 元不生效，避免 0 元单）
+  double get couponApplied => couponOn && total > couponValue ? couponValue : 0;
+  /// 应收金额 = 合计 - 优惠券抵扣
+  double get payable => (total - couponApplied) < 0 ? 0 : total - couponApplied;
+
   /// 是否称重商品（商品资料 sell_type=1）
   bool _isWeighted(Map g) => '${g['sell_type'] ?? 0}' == '1';
 
@@ -518,7 +526,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       );
       if (ok != true || !mounted) return;
     }
-    setState(() { cart.clear(); vip = null; });
+    setState(() { cart.clear(); vip = null; couponOn = false; }); // 优惠券随清空重置（v3.3.219）
   }
 
   // ==================== 挂单 / 取单（v3.3.191） ====================
@@ -621,6 +629,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ..addAll(items);
       vip = v;
       holds.remove(h);
+      couponOn = false; // 取单重置优惠券（v3.3.219）
     });
     await _saveHolds();
     if (!mounted) return;
@@ -648,7 +657,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // ==================== 结算收款 ====================
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
-    final t = total;
+    final t = payable; // 应收（含优惠券抵扣，v3.3.219）
+    final coupon = couponApplied; // 本次抵扣金额（小票打印用）
     final order = await PayMethods.load();
 
     // ===== 快捷通道（v3.3.177 复用餐饮 v3.3.164）：默认支付方式是微信/支付宝时，
@@ -662,7 +672,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           orderNo: quickNo, moreLabel: '其他方式 → 完整收款');
       if (!mounted) return;
       if (pay != null && pay['more'] != true) {
-        return _finishOrder(quick, t,
+        return _finishOrder(quick, t, coupon: coupon,
             xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
             xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
       }
@@ -702,13 +712,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       xyfOrderNo = '${pay['orderNo'] ?? preNo}';
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
-    await _finishOrder(pickedMethod, t,
+    await _finishOrder(pickedMethod, t, coupon: coupon,
         xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
   }
 
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
+  /// [coupon] 优惠券抵扣金额（v3.3.219），t 为抵扣后的应收
   Future<void> _finishOrder(String picked, double t,
-      {String xyfOrderNo = '', int xyfChannel = 0}) async {
+      {double coupon = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
     final cartPayload = cart.map((l) => {
       'id': l.goods['id'],
       'name': l.goods['title'],
@@ -734,7 +745,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           vipId: int.tryParse('${vip!['id']}') ?? 0,
           phone: '${vip!['phone'] ?? ''}',
           total: t,
-          originalTotal: t,
+          originalTotal: total, // 商品原价合计（t 为券后应收，v3.3.219）
           cart: cartPayload,
           totalCount: count,
         );
@@ -749,7 +760,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.printRetail(
             CloudPrinter.retailReceipt(
-              orderNo: orderNo, payMethod: picked, total: t,
+              orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
               cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
             ),
             alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
@@ -788,7 +799,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (await PrintPrefs.on('retail')) {
         CloudPrinter.printRetail(
           CloudPrinter.retailReceipt(
-            orderNo: orderNo, payMethod: picked, total: t,
+            orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
             cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.num, 'unit': l.byWeight ? l.unit : '', 'note': l.note}).toList(),
           ),
           alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
@@ -1419,9 +1430,16 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             child: Column(children: [
               Row(children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
+                const SizedBox(width: 10),
+                _couponChip(), // 5元优惠券（v3.3.219）
                 const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-                Text('¥${Fmt.money(total)}', style: TextStyle(fontSize: 30, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
+                if (couponApplied > 0) ...[
+                  Text('¥${Fmt.money(total)}',
+                      style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
+                  const SizedBox(width: 8),
+                ],
+                Text('¥${Fmt.money(payable)}', style: TextStyle(fontSize: 30, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
               ]),
               const SizedBox(height: 14),
               Row(children: [
@@ -1448,12 +1466,37 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 const SizedBox(width: 10),
                 Expanded(
                   flex: 2,
-                  child: BigButton('收款 ¥${Fmt.money(total)}', onTap: cart.isEmpty ? null : _checkout, height: 62),
+                  child: BigButton('收款 ¥${Fmt.money(payable)}', onTap: cart.isEmpty ? null : _checkout, height: 62),
                 ),
               ]),
             ]),
           ),
         ],
+      ),
+    );
+  }
+
+  // 5元优惠券标签（v3.3.219）：点按启用/停用，合计不足5元不生效
+  Widget _couponChip() {
+    final applied = couponApplied > 0;
+    final on = couponOn;
+    final c = applied ? const Color(0xFFE5484D) : (on ? PosTheme.textHint : PosTheme.accentLive);
+    return InkWell(
+      onTap: cart.isEmpty ? null : () => setState(() => couponOn = !couponOn),
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: applied ? c.withValues(alpha: 0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: applied ? c : (on ? PosTheme.line : PosTheme.accentLive.withValues(alpha: 0.5))),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(applied ? Icons.check_circle : Icons.local_offer_outlined, size: 16, color: c),
+          const SizedBox(width: 5),
+          Text(applied ? '优惠券已减¥5' : '5元优惠券',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c)),
+        ]),
       ),
     );
   }

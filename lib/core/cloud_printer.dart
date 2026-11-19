@@ -320,8 +320,9 @@ class CloudPrinter {
   static String retailReceipt({
     required String orderNo,
     required String payMethod,
-    required double total,
+    required double total, // 应收合计（优惠券抵扣后）
     required List<Map<String, dynamic>> cart,
+    double coupon = 0, // 优惠券抵扣金额（v3.3.219，>0 时小票打优惠券行）
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>$shopTitle</center></FS2>');
@@ -345,7 +346,14 @@ class CloudPrinter {
       if (note.isNotEmpty) sb.writeln('  * $note');
     }
     sb.writeln('--------------------------------');
-    sb.writeln('合计: ¥${Fmt.money(total)}');
+    if (coupon > 0) {
+      // 优惠券单：商品合计 → 优惠券抵扣 → 实收合计（v3.3.219）
+      sb.writeln('商品合计: ¥${Fmt.money(total + coupon)}');
+      sb.writeln('优惠券: -¥${Fmt.money(coupon)}');
+      sb.writeln('<B>合计: ¥${Fmt.money(total)}</B>');
+    } else {
+      sb.writeln('合计: ¥${Fmt.money(total)}');
+    }
     sb.writeln('支付方式: $payMethod');
     sb.writeln('谢谢惠顾，欢迎下次光临');
     return sb.toString();
