@@ -174,15 +174,14 @@ class _MemberPageState extends State<MemberPage> {
         phone: '${r['phone'] ?? ''}',
         amount: ('${r['amount'] ?? ''}'.trim().isEmpty) ? '0' : '${r['amount']}'.trim(),
         score: ('${r['score'] ?? ''}'.trim().isEmpty) ? '0' : '${r['score']}'.trim(),
-        shika: '${r['shika'] ?? ''}',
-        chepai: '${r['chepai'] ?? ''}',
       );
       if (!mounted) return;
       Navigator.pop(context);
       final code = int.tryParse('${resp['code']}') ?? 0;
       final msg = '${resp['msg'] ?? ''}';
       if (code == 200) {
-        toast(context, '添加成功');
+        // 显示后端文案：「添加会员成功」或「该手机号已是本店会员…」（不误导）
+        toast(context, msg.isEmpty ? '添加成功' : msg);
         _load();
       } else {
         toast(context, msg.isEmpty ? '添加失败' : msg, error: true);
@@ -555,10 +554,9 @@ class _VipAvatarState extends State<_VipAvatar> {
 }
 
 // ==================== 添加会员弹窗（v3.3.231 改版二） ====================
-/// - 键盘：无码商品弹窗同款纯数字键盘（1-9 / 清空 0 ⌫，无小数点），内置弹窗底部
-/// - 移除姓名、会员等级选择（自动10折）、车牌；实体卡号不折叠直接展示
-/// - 初始金额 / 初始积分保留
-enum _VipField { phone, amount, score, card }
+/// - 键盘：无码商品弹窗同款纯数字键盘（1-9 / 清空 0 ⌫，无小数点），内置弹窗底部，无标题栏
+/// - 移除姓名、会员等级选择（自动10折）、车牌、实体卡号；保留初始金额 / 初始积分
+enum _VipField { phone, amount, score }
 
 class _AddVipDialog extends StatefulWidget {
   final int lvId;      // 自动匹配到的 10 折等级 ID（仅展示用，提交由后端自动取）
@@ -570,7 +568,7 @@ class _AddVipDialog extends StatefulWidget {
 
 class _AddVipDialogState extends State<_AddVipDialog> {
   _VipField active = _VipField.phone; // 默认手机号，弹窗打开即输
-  String phone = '', amount = '', score = '', card = '';
+  String phone = '', amount = '', score = '';
   String? err;
 
   // ---------- 数字键盘写入（只数字；无小数点） ----------
@@ -593,22 +591,12 @@ class _AddVipDialogState extends State<_AddVipDialog> {
         case _VipField.score:
           if (score.length < 7) score += k;
           break;
-        case _VipField.card:
-          if (card.length < 18) card += k;
-          break;
       }
     });
   }
 
-  String _activeVal() => switch (active) { _VipField.phone => phone, _VipField.amount => amount, _VipField.score => score, _VipField.card => card };
-  void _setActive(String v) => switch (active) { _VipField.phone => phone = v, _VipField.amount => amount = v, _VipField.score => score = v, _VipField.card => card = v };
-
-  String get _activeLabel => switch (active) {
-    _VipField.phone => '手机号码',
-    _VipField.amount => '初始金额',
-    _VipField.score => '初始积分',
-    _VipField.card => '实体卡号',
-  };
+  String _activeVal() => switch (active) { _VipField.phone => phone, _VipField.amount => amount, _VipField.score => score };
+  void _setActive(String v) => switch (active) { _VipField.phone => phone = v, _VipField.amount => amount = v, _VipField.score => score = v };
 
   // ---------- 触控数字框 ----------
   Widget _numBox(_VipField f, String label, String value, {String hint = ''}) {
@@ -673,7 +661,6 @@ class _AddVipDialogState extends State<_AddVipDialog> {
       'phone': phone,
       'amount': amount.trim(),
       'score': score.trim(),
-      'shika': card.trim(),
     });
   }
 
@@ -725,31 +712,16 @@ class _AddVipDialogState extends State<_AddVipDialog> {
             const SizedBox(width: 14),
             Expanded(child: _numBox(_VipField.score, '初始积分', score, hint: '0')),
           ]),
-          const SizedBox(height: 14),
-          // ---- 表单：实体卡号（不折叠，直接展示） ----
-          _numBox(_VipField.card, '实体卡号（可选）', card, hint: '点击后输入'),
           const SizedBox(height: 16),
-          // ---- 无码弹窗同款数字键盘：1-9 / 清空 0 ⌫（无小数点） ----
+          // ---- 无码弹窗同款数字键盘：1-9 / 清空 0 ⌫（无小数点，无标题栏） ----
           _keypad(),
           const SizedBox(height: 16),
           if (err != null) Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Text(err!, style: const TextStyle(fontSize: 13, color: PosTheme.red)),
           ),
-          // ---- 底部按钮 ----
-          Row(children: [
-            SizedBox(
-              width: 120, height: 52,
-              child: OutlinedButton(
-                onPressed: () => Navigator.pop(context),
-                style: OutlinedButton.styleFrom(
-                    foregroundColor: PosTheme.textSub, side: const BorderSide(color: PosTheme.line)),
-                child: const Text('取消', style: TextStyle(fontSize: 15.5)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: BigButton('保存', onTap: _save, height: 52)),
-          ]),
+          // ---- 底部按钮（仅保存） ----
+          BigButton('保存', onTap: _save, height: 52),
         ]),
       ),
     );
@@ -764,22 +736,13 @@ class _AddVipDialogState extends State<_AddVipDialog> {
       ['C', '0', '⌫'],
     ];
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFC),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: PosTheme.line),
       ),
       child: Column(children: [
-        Row(children: [
-          Icon(Icons.dialpad_outlined, size: 15, color: PosTheme.textHint),
-          const SizedBox(width: 6),
-          Text('数字键盘', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: PosTheme.textHint)),
-          const Spacer(),
-          Text('正在输入：$_activeLabel',
-              style: const TextStyle(fontSize: 11.5, color: PosTheme.accent, fontWeight: FontWeight.w700)),
-        ]),
-        const SizedBox(height: 10),
         for (final row in rows)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
