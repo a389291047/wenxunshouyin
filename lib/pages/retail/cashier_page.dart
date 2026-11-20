@@ -1665,13 +1665,21 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
             child: Column(children: [
               _activityBar(), // 命中的活动与赠品（v3.3.222）
-              Row(children: [
+              // 券标签放 Flexible+Wrap：窄屏（购物车 440px）放不下自动换行，合计不再溢出（v3.3.245）
+              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
                 const SizedBox(width: 10),
-                _couponChip(1), // 5元优惠券（v3.3.219）
+                Flexible(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _couponChip(1), // 5元优惠券（v3.3.219）
+                      _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
+                    ],
+                  ),
+                ),
                 const SizedBox(width: 8),
-                _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
-                const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
                 if (couponApplied > 0 || actDiscount > 0) ...[
                   Text('¥${Fmt.money(total)}',
