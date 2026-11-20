@@ -105,6 +105,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Map? vip; // 选中的会员
   int couponSel = 0; // 优惠券档位（v3.3.242）：0未选 1=5元券 2=8.4元券(满16.8)，互斥单选
   bool get couponOn => couponSel > 0; // 兼容旧引用（v3.3.219 语义：有券在用）
+  double wholeRate = 0; // 整单折扣（v3.3.246）：8.5 = 8.5折，0 无；与整单改价互斥
+  double wholePrice = 0; // 整单改价（v3.3.246）：>0 时直接按此价收款（禁止 0 元购）
 
   @override
   void initState() {
@@ -369,18 +371,40 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   static const double couponValue = 5.0;
   static const double coupon2Value = 8.4;
   static const double coupon2Threshold = 16.8;
-  /// 券的门槛基数：活动优惠后的金额（v3.3.222）
-  double get couponBase => total - actDiscount;
+  /// 整单优惠基数（v3.3.246）：活动优惠后的金额
+  double get wholeBase => total - actDiscount;
+  /// 折扣文本：8.5 → '8.5'，8 → '8'
+  String _rateText(double r) {
+    var s = r.toStringAsFixed(1);
+    if (s.endsWith('.0')) s = s.substring(0, s.length - 2);
+    return s;
+  }
+  /// 整单折扣优惠金额（v3.3.246）：基数 × (10-折扣)/10
+  double get wholeCut {
+    if (wholeRate <= 0 || wholeRate >= 10) return 0;
+    final c = wholeBase * (10 - wholeRate) / 10;
+    return c > 0 ? double.parse(c.toStringAsFixed(2)) : 0;
+  }
+  /// 整单改价优惠金额（v3.3.246）：活动后合计 - 改价
+  double get wholeRepriceCut {
+    if (wholePrice <= 0) return 0;
+    final c = wholeBase - wholePrice;
+    return c > 0 ? double.parse(c.toStringAsFixed(2)) : 0;
+  }
+  /// 券的门槛基数：活动/整单折扣后的金额（v3.3.222）
+  double get couponBase => wholeBase - wholeCut;
   /// 优惠券实际抵扣：按所选档位核算；不达门槛/不足面额不生效（避免 0 元单）
   double get couponApplied {
     if (couponSel == 1) return couponBase > couponValue ? couponValue : 0;
     if (couponSel == 2) return couponBase >= coupon2Threshold ? coupon2Value : 0;
     return 0;
   }
-  /// 应收金额 = 合计 - 活动优惠 - 优惠券抵扣（v3.3.222 活动接入）
-  /// 最低 0.01 元：满减配置过大时不产生 0 元单
+  /// 应收金额 = 合计 - 活动优惠 - 整单折扣 - 优惠券抵扣（v3.3.246 整单折扣/改价接入）
+  /// 整单改价时直接按改价收款；最低 0.01 元，不产生 0 元单
   double get payable {
-    final v = total - actDiscount - couponApplied;
+    final v = wholePrice > 0
+        ? wholePrice
+        : total - actDiscount - wholeCut - couponApplied;
     if (v >= 0.01) return v;
     return total > 0 ? 0.01 : 0;
   }
@@ -631,7 +655,73 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       );
       if (ok != true || !mounted) return;
     }
-    setState(() { cart.clear(); vip = null; couponSel = 0; }); // 优惠券随清空重置（v3.3.219）
+    setState(() {
+      cart.clear();
+      vip = null;
+      couponSel = 0; // 优惠券随清空重置（v3.3.219）
+      wholeRate = 0; // 整单折扣随清空重置（v3.3.246）
+      wholePrice = 0; // 整单改价随清空重置（v3.3.246）
+    });
+  }
+
+  // ==================== 整单折扣 / 整单改价（v3.3.246） ====================
+
+  /// 整单折扣：数字键盘输入折扣数，最低 5 折，5 折以上自定义（8.5 = 8.5折）
+  /// 输 0 清除已设折扣；与整单改价互斥
+  Future<void> _editWholeRate() async {
+    if (cart.isEmpty) return;
+    final v = await showNumberPad(
+      context,
+      title: '整单折扣',
+      hint: '输入折扣数（最低 5 折），如 8.5 = 8.5折；输 0 清除折扣',
+      initial: wholeRate > 0 ? _rateText(wholeRate) : '',
+      decimal: true,
+      allowZero: true,
+    );
+    if (v == null || !mounted) return;
+    if (v <= 0) {
+      setState(() => wholeRate = 0);
+      return;
+    }
+    if (v < 5 || v > 9.9) {
+      toast(context, '折扣只能在 5折 ~ 9.9折 之间', error: true);
+      return;
+    }
+    setState(() {
+      wholeRate = v;
+      wholePrice = 0; // 折扣与改价互斥
+    });
+  }
+
+  /// 整单改价：直接输入整单应收价（需权限密码，与单行改价一致）
+  /// 禁止 0 元购（最低 0.01）、不能高于活动后合计；输 0 清除改价
+  Future<void> _editWholePrice() async {
+    if (cart.isEmpty) return;
+    if (!await _authPrice()) return; // 改价需权限密码（设置里开启时）
+    final maxP = wholeBase; // 活动优惠后的合计（改价上限，防乱改多收）
+    final v = await showNumberPad(
+      context,
+      title: '整单改价',
+      hint: '直接输入整单应收价（¥0.01 ~ ¥${Fmt.money(maxP)}），输 0 清除改价',
+      initial: wholePrice > 0 ? Fmt.money(wholePrice) : '',
+      decimal: true,
+      prefix: '¥',
+      allowZero: true,
+    );
+    if (v == null || !mounted) return;
+    if (v <= 0) {
+      setState(() => wholePrice = 0);
+      return;
+    }
+    if (v > maxP + 0.001) {
+      toast(context, '改价不能高于活动后合计 ¥${Fmt.money(maxP)}', error: true);
+      return;
+    }
+    setState(() {
+      wholePrice = double.parse(v.toStringAsFixed(2));
+      wholeRate = 0; // 折扣与改价互斥
+      couponSel = 0; // 改价即最终价，优惠券一并清除
+    });
   }
 
   // ==================== 挂单 / 取单（v3.3.191） ====================
@@ -673,6 +763,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (holds.length > 20) holds.removeLast(); // 最多 20 单，超出丢最旧
       cart.clear();
       vip = null;
+      wholeRate = 0; // 挂单不携带整单折扣（v3.3.246）
+      wholePrice = 0;
     });
     await _saveHolds();
     if (!mounted) return;
@@ -735,6 +827,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       vip = v;
       holds.remove(h);
       couponSel = 0; // 取单重置优惠券（v3.3.219）
+      wholeRate = 0; // 取单重置整单折扣/改价（v3.3.246）
+      wholePrice = 0;
     });
     await _saveHolds();
     if (!mounted) return;
@@ -762,8 +856,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // ==================== 结算收款 ====================
   Future<void> _checkout() async {
     if (cart.isEmpty) return;
-    double t = payable; // 应收（含优惠券抵扣，v3.3.219；现金抹零后可减）
+    double t = payable; // 应收（含优惠券/整单折扣抵扣，v3.3.246；现金抹零后可减）
     final coupon = couponApplied; // 本次抵扣金额（小票打印用）
+    final wRate = wholeRate; // 整单折扣快照（v3.3.246，清空购物车前取）
+    final wCut = wholePrice > 0 ? wholeRepriceCut : wholeCut; // 整单优惠总额
+    final wReprice = wholePrice > 0; // 是否整单改价
     final order = await PayMethods.load();
 
     // ===== 快捷通道（v3.3.177 复用餐饮 v3.3.164）：默认支付方式是微信/支付宝时，
@@ -778,6 +875,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (!mounted) return;
       if (pay != null && pay['more'] != true) {
         return _finishOrder(quick, t, coupon: coupon,
+            wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice,
             xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
             xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
       }
@@ -825,13 +923,18 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
     await _finishOrder(pickedMethod, t, coupon: coupon, mollen: mollen,
+        wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice,
         xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);
   }
 
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
   /// [coupon] 优惠券抵扣金额（v3.3.219），[mollen] 现金抹零（v3.3.238），t 为抵扣后的应收
+  /// [wholeRate] 整单折扣（8.5 = 8.5折，v3.3.246），[wholeCutAmt] 整单优惠总额，
+  /// [wholeReprice] 是否整单改价（true 时 wholeCutAmt = 改价差额）
   Future<void> _finishOrder(String picked, double t,
-      {double coupon = 0, double mollen = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
+      {double coupon = 0, double mollen = 0,
+       double wholeRate = 0, double wholeCutAmt = 0, bool wholeReprice = false,
+       String xyfOrderNo = '', int xyfChannel = 0}) async {
     final act = activityResult; // 活动快照：清空购物车前取，小票与赠品行共用
     final cartPayload = <Map<String, dynamic>>[
       ...cart.map((l) => {
@@ -877,6 +980,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           totalCount: count,
           renyuanId: Session.staffId, // 会员单归属收银员（v3.3.240，交班统计）
           cashierName: Session.staffName,
+          wholeRate: wholeRate, // 整单折扣/改价落库（v3.3.246）
+          wholeAmount: wholeCutAmt,
         );
         if (!mounted) return;
         Navigator.pop(context); // loading
@@ -890,6 +995,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
             CloudPrinter.retailReceipt(
               orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
               activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
+              wholeDiscount: wholeCutAmt, // 整单折扣/改价小票行（v3.3.246）
+              wholeLabel: wholeReprice ? '整单改价' : (wholeRate > 0 ? '整单折扣 ${_rateText(wholeRate)}折' : ''),
               gifts: [
                 for (final g in act.gifts)
                   {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
@@ -921,6 +1028,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         payOrderNo: xyfOrderNo,
         payChannel: xyfChannel,
         mollen: mollen, // 现金抹零落库（v3.3.239，交班统计/补打小票共用）
+        wholeRate: wholeRate, // 整单折扣/改价落库（v3.3.246）
+        wholeAmount: wholeCutAmt,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -935,6 +1044,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           CloudPrinter.retailReceipt(
             orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
             activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
+            wholeDiscount: wholeCutAmt, // 整单折扣/改价小票行（v3.3.246）
+            wholeLabel: wholeReprice ? '整单改价' : (wholeRate > 0 ? '整单折扣 ${_rateText(wholeRate)}折' : ''),
             gifts: [
               for (final g in act.gifts)
                 {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
@@ -1659,40 +1770,62 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                     },
                   ),
           ),
-          // 底部结算（大按钮）
+          // 底部结算（v3.3.246 重排：金额行 / 券标签行 / 清空+挂单行 / 整单折扣+改价行 / 收款行）
           Container(
             padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
             decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
             child: Column(children: [
               _activityBar(), // 命中的活动与赠品（v3.3.222）
-              // 券标签放 Flexible+Wrap：窄屏（购物车 440px）放不下自动换行，合计不再溢出（v3.3.245）
-              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              // 金额行：共 N 件左、合计右；合计段 FittedBox 缩放，窄屏不再溢出/重叠（v3.3.246 修复全屏显示异常）
+              Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
-                const SizedBox(width: 10),
+                const Spacer(),
                 Flexible(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      _couponChip(1), // 5元优惠券（v3.3.219）
-                      _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
-                    ],
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
+                      if (couponApplied > 0 || actDiscount > 0 || wholeCut > 0 || wholeRepriceCut > 0) ...[
+                        Text('¥${Fmt.money(total)}',
+                            style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
+                        const SizedBox(width: 8),
+                      ],
+                      Text('¥${Fmt.money(payable)}', style: TextStyle(fontSize: 30, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
+                    ]),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-                if (couponApplied > 0 || actDiscount > 0) ...[
-                  Text('¥${Fmt.money(total)}',
-                      style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
-                  const SizedBox(width: 8),
-                ],
-                Text('¥${Fmt.money(payable)}', style: TextStyle(fontSize: 30, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
               ]),
+              // 券标签 / 整单优惠标签行：自动换行，不再与合计挤在同一行
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _couponChip(1), // 5元优惠券（v3.3.219）
+                    _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
+                    if (wholeRate > 0)
+                      _wholeTag('整单 ${_rateText(wholeRate)}折 -¥${Fmt.money(wholeCut)}',
+                          () => setState(() => wholeRate = 0)),
+                    if (wholePrice > 0)
+                      _wholeTag('整单改价 ¥${Fmt.money(wholePrice)}',
+                          () => setState(() => wholePrice = 0)),
+                  ],
+                ),
+              ),
               const SizedBox(height: 14),
+              // 清空 + 挂单（v3.3.246 换位：清空在左、挂单在右），单独一行
               Row(children: [
                 Expanded(
                   child: SizedBox(
-                    height: 62,
+                    height: 54,
+                    child: BigButton('清空', onTap: cart.isEmpty ? null : _clearCart, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 54),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 54,
                     child: BigButton(
                       holds.isEmpty
                           ? '挂单'
@@ -1700,22 +1833,47 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                       onTap: (cart.isEmpty && holds.isEmpty) ? null : _holdTap,
                       color: PosTheme.tint,
                       textColor: PosTheme.accentLive,
-                      height: 62),
+                      height: 54),
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 10),
+              // 整单折扣 / 整单改价（v3.3.246 新增）
+              Row(children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 50,
+                    child: BigButton(
+                      wholeRate > 0 ? '整单折扣 ${_rateText(wholeRate)}折' : '整单折扣',
+                      onTap: _editWholeRate,
+                      color: PosTheme.tint,
+                      textColor: PosTheme.accentLive,
+                      height: 50),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: SizedBox(
-                    height: 62,
-                    child: BigButton('清空', onTap: cart.isEmpty ? null : _clearCart, color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 62),
+                    height: 50,
+                    child: BigButton(
+                      wholePrice > 0 ? '整单改价 ¥${Fmt.money(wholePrice)}' : '整单改价',
+                      onTap: _editWholePrice,
+                      color: PosTheme.tint,
+                      textColor: PosTheme.accentLive,
+                      height: 50),
                   ),
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  flex: 2,
+              ]),
+              const SizedBox(height: 10),
+              // 收款按钮：单独一行，左右留间距、中间撑满（v3.3.246）
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 62,
                   child: BigButton('收款 ¥${Fmt.money(payable)}', onTap: cart.isEmpty ? null : _checkout, height: 62),
                 ),
-              ]),
+              ),
             ]),
           ),
         ],
@@ -1792,6 +1950,30 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c)),
         ]),
       ),
+    );
+  }
+
+  // 整单折扣/改价 生效标签（v3.3.246）：点 × 清除
+  Widget _wholeTag(String label, VoidCallback onClear) {
+    const c = Color(0xFFE5484D);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: c),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.percent, size: 16, color: c),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c)),
+        const SizedBox(width: 6),
+        InkWell(
+          onTap: onClear,
+          borderRadius: BorderRadius.circular(20),
+          child: const Icon(Icons.close, size: 15, color: c),
+        ),
+      ]),
     );
   }
 

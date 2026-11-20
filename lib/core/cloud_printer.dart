@@ -326,6 +326,8 @@ class CloudPrinter {
     double coupon = 0, // 优惠券抵扣金额（v3.3.219，>0 时小票打优惠券行）
     double activityDiscount = 0, // 活动优惠金额（满减/折扣，v3.3.222）
     double mollen = 0, // 现金抹零金额（v3.3.238，>0 时打「抹零优惠」行）
+    double wholeDiscount = 0, // 整单优惠总额（折扣优惠额或改价差额，v3.3.246）
+    String wholeLabel = '', // 整单优惠标签（「整单折扣 8.5折」/「整单改价」，v3.3.246）
     List<String> activityLines = const [], // 活动说明（含赠品），首条为金额活动
     List<Map<String, dynamic>> gifts = const [], // 赠品行（0 元，v3.3.222）
   }) {
@@ -367,15 +369,18 @@ class CloudPrinter {
       }
     }
     sb.writeln('--------------------------------');
-    final hasCut = coupon > 0 || activityDiscount > 0 || mollen > 0;
+    final hasCut = coupon > 0 || activityDiscount > 0 || mollen > 0 || wholeDiscount > 0;
     if (hasCut) {
-      // 商品合计 → 活动优惠 → 优惠券 → 抹零 → 实收合计
-      sb.writeln('商品合计: ¥${Fmt.money(total + coupon + activityDiscount + mollen)}');
+      // 商品合计 → 活动优惠 → 整单折扣/改价 → 优惠券 → 抹零 → 实收合计
+      sb.writeln('商品合计: ¥${Fmt.money(total + coupon + activityDiscount + wholeDiscount + mollen)}');
       if (activityDiscount > 0) {
         final label = activityLines.isNotEmpty
             ? activityLines.first.split(' -¥').first
             : '活动优惠';
         sb.writeln('$label: -¥${Fmt.money(activityDiscount)}');
+      }
+      if (wholeDiscount > 0 && wholeLabel.isNotEmpty) {
+        sb.writeln('$wholeLabel: -¥${Fmt.money(wholeDiscount)}');
       }
       if (coupon > 0) sb.writeln('优惠券: -¥${Fmt.money(coupon)}');
       if (mollen > 0) sb.writeln('抹零优惠: -¥${Fmt.money(mollen)}');
@@ -485,6 +490,11 @@ class CloudPrinter {
     // 当天现金抹零 / 钱箱（v3.3.239）
     double mollenTotal = 0,
     int mollenCount = 0,
+    // 当天整单折扣 / 整单改价（v3.3.246）：当天没有就不打印
+    double wholeRateTotal = 0,
+    int wholeRateCount = 0,
+    double repriceTotal = 0,
+    int repriceCount = 0,
     double pettyCash = 0,
     double drawerCash = 0,
   }) {
@@ -502,6 +512,13 @@ class CloudPrinter {
     sb.writeln('扫码收款: ¥${Fmt.money(saoma)}');
     if (mollenTotal > 0) {
       sb.writeln('现金抹零: -¥${Fmt.money(mollenTotal)} ($mollenCount 笔)');
+    }
+    // 整单折扣 / 整单改价（v3.3.246）：当天有才打印
+    if (wholeRateCount > 0) {
+      sb.writeln('整单折扣: -¥${Fmt.money(wholeRateTotal)} ($wholeRateCount 笔)');
+    }
+    if (repriceCount > 0) {
+      sb.writeln('整单改价: -¥${Fmt.money(repriceTotal)} ($repriceCount 笔)');
     }
     if (refundCount > 0) {
       sb.writeln('退款笔数: $refundCount');
@@ -577,17 +594,32 @@ class CloudPrinter {
     final totalV = double.tryParse('${isRefund ? (o['refund_amount'] ?? o['total']) : o['total']}') ?? 0;
     final origV = double.tryParse('${o['original_total'] ?? 0}') ?? 0;
     final molV = double.tryParse('${o['quiling'] ?? 0}') ?? 0; // 现金抹零（v3.3.239 落库）
+    // 整单折扣/改价（v3.3.246）：rate>0 折扣，rate=0 且 amount>0 改价；无则不打印
+    final wAmt = double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0;
+    final wRate = double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0;
+    String? wLabel;
+    if (!isRefund && wAmt > 0.001) {
+      if (wRate > 0) {
+        var r = wRate.toStringAsFixed(1);
+        if (r.endsWith('.0')) r = r.substring(0, r.length - 2);
+        wLabel = '整单折扣 ${r}折';
+      } else {
+        wLabel = '整单改价';
+      }
+    }
     if (!isRefund && origV > totalV + 0.001) {
-      // 有活动/优惠券/抹零：商品合计 → 优惠 → 抹零 → 实收（口径与首次打印一致）
+      // 有活动/整单/优惠券/抹零：商品合计 → 优惠 → 抹零 → 实收（口径与首次打印一致）
       sb.writeln('商品合计: ¥${Fmt.money(origV)}');
-      final actCut = origV - totalV - molV; // 活动/优惠券部分（抹零单独一行）
+      final actCut = origV - totalV - molV - (wLabel != null ? wAmt : 0); // 活动/优惠券部分（整单/抹零单独一行）
+      if (wLabel != null) sb.writeln('$wLabel: -¥${Fmt.money(wAmt)}');
       if (actCut > 0.001) sb.writeln('优惠: -¥${Fmt.money(actCut)}');
       if (molV > 0.001) sb.writeln('抹零优惠: -¥${Fmt.money(molV)}');
       sb.writeln('<B>合计: ¥${Fmt.money(totalV)}</B>');
-    } else if (!isRefund && molV > 0.001) {
-      // 仅抹零：商品合计 → 抹零 → 实收
-      sb.writeln('商品合计: ¥${Fmt.money(totalV + molV)}');
-      sb.writeln('抹零优惠: -¥${Fmt.money(molV)}');
+    } else if (!isRefund && (molV > 0.001 || wLabel != null)) {
+      // 仅抹零/整单优惠：商品合计 → 折扣行 → 抹零 → 实收
+      sb.writeln('商品合计: ¥${Fmt.money(totalV + molV + (wLabel != null ? wAmt : 0))}');
+      if (wLabel != null) sb.writeln('$wLabel: -¥${Fmt.money(wAmt)}');
+      if (molV > 0.001) sb.writeln('抹零优惠: -¥${Fmt.money(molV)}');
       sb.writeln('<B>合计: ¥${Fmt.money(totalV)}</B>');
     } else {
       sb.writeln('${isRefund ? '退款金额' : '合计'}: ¥${Fmt.money(totalV)}');

@@ -79,6 +79,19 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   /// 现金抹零金额（v3.3.239，wx_order.quiling 落库后订单详情可显示）
   double get mollen => double.tryParse('${o['quiling'] ?? 0}') ?? 0;
 
+  /// 整单折扣/改价（v3.3.246）：rate>0 折扣，rate=0 且 amount>0 改价；无则不显示
+  double get wholeAmount => double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0;
+  double get wholeRate => double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0;
+  String? get wholeLabel {
+    if (wholeAmount <= 0.001) return null;
+    if (wholeRate > 0) {
+      var r = wholeRate.toStringAsFixed(1);
+      if (r.endsWith('.0')) r = r.substring(0, r.length - 2);
+      return '整单折扣 ${r}折';
+    }
+    return '整单改价';
+  }
+
   List<Map<String, dynamic>> get goods => CloudPrinter.parseGoods(o);
   int get goodsCount => goods.fold(0, (s, g) => s + _qty(g));
 
@@ -364,6 +377,10 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         if (mollen > 0) ...[
           const SizedBox(height: 5),
           _kvRow(Icons.savings_outlined, '现金抹零 -¥${Fmt.money(mollen)}', color: Colors.green),
+        ],
+        if (wholeLabel != null) ...[
+          const SizedBox(height: 5),
+          _kvRow(Icons.percent, '$wholeLabel -¥${Fmt.money(wholeAmount)}', color: Colors.green),
         ],
         if (refunded > 0) ...[
           const SizedBox(height: 5),

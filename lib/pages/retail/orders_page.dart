@@ -380,6 +380,19 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                   TextStyle(
                       fontSize: 13,
                       color: st.isEmpty ? PosTheme.textSub : (st == '未支付' ? PosTheme.amber : PosTheme.red))),
+              // 整单折扣/改价标记（v3.3.246）：没有就正常显示，不加
+              if ((double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0) > 0.001) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text((double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0) > 0 ? '整单折扣' : '整单改价',
+                      style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w700)),
+                ),
+              ],
               const SizedBox(width: 10),
               SizedBox(
                 width: 88,

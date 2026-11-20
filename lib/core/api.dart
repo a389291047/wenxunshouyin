@@ -276,6 +276,8 @@ class Api {
     int payChannel = 0, // 星驿付渠道：1支付宝 2微信 9银联 12数币
     double originalTotal = 0, // 商品原价合计（活动/优惠券前，v3.3.222 供补打小票显示优惠）
     double mollen = 0, // 现金抹零金额（v3.3.239，落 wx_order.quiling 供交班统计/补打小票）
+    double wholeRate = 0, // 整单折扣（8.5 = 8.5折，0 无；v3.3.246）
+    double wholeAmount = 0, // 整单优惠总额（折扣优惠额或改价差额，v3.3.246）
   }) async {
     return post('/shouyin/order/add', {
       'id': wenxunId,
@@ -288,6 +290,8 @@ class Api {
       if (payChannel > 0) 'payment_channel': payChannel,
       if (originalTotal > 0) 'original_total': originalTotal,
       if (mollen > 0) 'mollen': mollen,
+      if (wholeRate > 0) 'whole_rate': wholeRate,
+      if (wholeAmount > 0) 'whole_amount': wholeAmount,
     });
   }
 
@@ -304,6 +308,8 @@ class Api {
     double vipDiscount = 1.0,
     int renyuanId = 0, // 收银员归属（v3.3.240，交班统计会员支付依赖此字段）
     String cashierName = '',
+    double wholeRate = 0, // 整单折扣（8.5 = 8.5折，0 无；v3.3.246）
+    double wholeAmount = 0, // 整单优惠总额（折扣优惠额或改价差额，v3.3.246）
   }) async {
     return post('/api/order/huiyuanzhifu', {
       'id': wenxunId,
@@ -317,6 +323,8 @@ class Api {
       'cart': cart,
       if (renyuanId > 0) 'renyuan_id': renyuanId,
       if (cashierName.isNotEmpty) 'cashier_name': cashierName,
+      if (wholeRate > 0) 'whole_rate': wholeRate,
+      if (wholeAmount > 0) 'whole_amount': wholeAmount,
     });
   }
 

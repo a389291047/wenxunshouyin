@@ -36,6 +36,10 @@ class _ShiftPageState extends State<ShiftPage> {
   double czScan = 0;
   // 当天现金抹零统计（v3.3.239）：wx_order.quiling 当天累计
   double mollenTotal = 0;
+  int wholeRateCount = 0; // 当天整单折扣笔数（v3.3.246）
+  double wholeRateTotal = 0; // 当天整单折扣优惠累计
+  int repriceCount = 0; // 当天整单改价笔数（v3.3.246）
+  double repriceTotal = 0; // 当天整单改价差额累计
   int mollenCount = 0;
   // 备付金（v3.3.239）：放在钱箱的起始现金，本机可改，交班小票打印
   double pettyCash = 0;
@@ -76,6 +80,10 @@ class _ShiftPageState extends State<ShiftPage> {
       var rc = 0;
       var molT = 0.0; // 当天抹零累计（v3.3.239）
       var molC = 0;
+      var wRateT = 0.0; // 当天整单折扣累计（v3.3.246）
+      var wRateC = 0;
+      var wRepT = 0.0; // 当天整单改价累计（v3.3.246）
+      var wRepC = 0;
       final ro = <Map>[];
       try {
         final now = DateTime.now();
@@ -99,6 +107,17 @@ class _ShiftPageState extends State<ShiftPage> {
             if (m > 0 && '${o['create_time'] ?? ''}'.startsWith(today)) {
               molT += m;
               molC++;
+            }
+            // 当天整单折扣/改价累计（wx_order.whole_discount_*，v3.3.246 落库）
+            final w = double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0;
+            if (w > 0 && '${o['create_time'] ?? ''}'.startsWith(today)) {
+              if ((double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0) > 0) {
+                wRateT += w;
+                wRateC++;
+              } else {
+                wRepT += w;
+                wRepC++;
+              }
             }
             if ('${o['refund_status']}' != '2') continue;
             addIfToday(o, '${o['refund_time'] ?? o['update_time'] ?? ''}', 'refund_amount');
@@ -175,6 +194,10 @@ class _ShiftPageState extends State<ShiftPage> {
         czScan = czSc;
         mollenTotal = molT;
         mollenCount = molC;
+        wholeRateTotal = wRateT;
+        wholeRateCount = wRateC;
+        repriceTotal = wRepT;
+        repriceCount = wRepC;
         pettyCash = petty;
         cloudOn = cOn;
         usbOn = uOn;
@@ -203,6 +226,10 @@ class _ShiftPageState extends State<ShiftPage> {
         czScan: czScan,
         mollenTotal: mollenTotal,
         mollenCount: mollenCount,
+        wholeRateTotal: wholeRateTotal,
+        wholeRateCount: wholeRateCount,
+        repriceTotal: repriceTotal,
+        repriceCount: repriceCount,
         pettyCash: pettyCash,
         drawerCash: drawerCash,
       );
@@ -365,6 +392,18 @@ class _ShiftPageState extends State<ShiftPage> {
                                   value: '¥${Fmt.money(mollenTotal)}',
                                   icon: Icons.savings_outlined, color: PosTheme.green)),
                               const SizedBox(width: 10),
+                              // 整单折扣 / 整单改价（v3.3.246）：当天有才显示，没有不占位
+                              if (wholeRateCount > 0 || repriceCount > 0) ...[
+                                Expanded(child: StatTile(
+                                    label: wholeRateCount > 0 && repriceCount > 0
+                                        ? '整单优惠（${wholeRateCount + repriceCount} 笔）'
+                                        : (wholeRateCount > 0
+                                            ? '整单折扣（$wholeRateCount 笔）'
+                                            : '整单改价（$repriceCount 笔）'),
+                                    value: '¥${Fmt.money(wholeRateTotal + repriceTotal)}',
+                                    icon: Icons.percent, color: const Color(0xFFE5484D))),
+                                const SizedBox(width: 10),
+                              ],
                               Expanded(
                                 child: InkWell(
                                   onTap: _editPetty,
