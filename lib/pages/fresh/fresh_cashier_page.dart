@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../core/customer_display.dart';
+import '../../core/display_prefs.dart';
 import '../../core/api.dart';
 import '../../core/cart_prefs.dart';
 import '../../core/cash_drawer.dart';
@@ -802,6 +803,35 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   }
 
   // ===== 购物车 =====
+  /// 购物车排序切换（v3.3.243）：顺序（先点的在前）/ 倒序（最后点的在最上），本机记忆
+  Widget _cartOrderToggle() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: DisplayPrefs.cartNewestFirst,
+      builder: (_, newest, __) => InkWell(
+        onTap: () async {
+          await DisplayPrefs.setCartNewestFirst(!newest);
+          if (mounted) setState(() {});
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: newest ? FreshColors.accent.withValues(alpha: 0.1) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: newest ? FreshColors.accent.withValues(alpha: 0.5) : PosTheme.line),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(newest ? Icons.south : Icons.north, size: 13, color: newest ? FreshColors.accent : PosTheme.textHint),
+            const SizedBox(width: 3),
+            Text(newest ? '倒序' : '顺序', style: TextStyle(
+                fontSize: 11.5, fontWeight: FontWeight.w700,
+                color: newest ? FreshColors.accent : PosTheme.textHint)),
+          ]),
+        ),
+      ),
+    );
+  }
+
   Widget _cartPanel() {
     return Container(
       width: 420,
@@ -854,16 +884,21 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
               ]),
             ),
           ),
-          // 操作提示（v3.3.205：购物车支持单行改数量/改价/备注/删除）
+          // 操作提示 + 排序切换（v3.3.243）
           if (cart.isNotEmpty)
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+              padding: const EdgeInsets.fromLTRB(18, 8, 10, 8),
               color: const Color(0xFFFBFCFD),
-              child: const Text('点商品行可改数量 / 改价 / 备注，点 × 删除单个商品',
-                  style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              child: Row(children: [
+                const Expanded(
+                  child: Text('点商品行可改数量 / 改价 / 赠送，点 × 删除单个商品',
+                      style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                ),
+                _cartOrderToggle(),
+              ]),
             ),
-          // 明细
+          // 明细；倒序开关只影响显示顺序，落单/小票/挂单保持原顺序（v3.3.243）
           Expanded(
             child: cart.isEmpty
                 ? const EmptyView('点击左侧生鲜商品加入购物车', icon: Icons.shopping_basket_outlined)
@@ -872,7 +907,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
                     itemCount: cart.length,
                     separatorBuilder: (_, __) => const Divider(height: 1, indent: 18, endIndent: 18, color: PosTheme.line),
                     itemBuilder: (_, i) {
-                      final l = cart[i];
+                      final l = DisplayPrefs.cartNewestFirst.value ? cart[cart.length - 1 - i] : cart[i];
                       final guige = '${l.goods['guige'] ?? ''}'.trim();
                       return InkWell(
                         onTap: () => _lineEdit(l), // 点行 = 改数量/改价/备注/删除（v3.3.205）

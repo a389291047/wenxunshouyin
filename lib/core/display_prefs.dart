@@ -28,6 +28,7 @@ class DisplayPrefs {
     goodsFont.value = sp.getString(prefGoodsFont) ?? '';
     goodsCols.value = sp.getInt(prefGoodsCols) ?? 0;
     goodsImage.value = sp.getBool(prefGoodsImage) ?? true;
+    cartNewestFirst.value = sp.getBool(prefCartNewestFirst) ?? false;
   }
 
   static Future<void> setFontScale(double v) async {
@@ -63,12 +64,24 @@ class DisplayPrefs {
     await sp.setBool(prefGoodsImage, v);
   }
 
+  // ===== 购物车排序（v3.3.243）：false=顺序（先点的在前），true=倒序（最后点的在最上） =====
+  static const prefCartNewestFirst = 'cart_newest_first';
+  static final ValueNotifier<bool> cartNewestFirst = ValueNotifier(false);
+
+  /// 购物车显示排序开关（仅影响列表显示顺序，落单/小票/挂单保持原顺序）
+  static Future<void> setCartNewestFirst(bool v) async {
+    cartNewestFirst.value = v;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(prefCartNewestFirst, v);
+  }
+
   static Future<void> resetAll() async {
     await setFontScale(1.0);
     await setFontWeight('normal');
     await setGoodsFont('');
     await setGoodsCols(0);
     await setGoodsImage(true);
+    await setCartNewestFirst(false);
   }
 
   /// 主题用的字重（正常返回 null = 不改主题）
