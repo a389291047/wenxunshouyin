@@ -2194,6 +2194,7 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
   List list = [];
   bool loading = true;
   String kw = '';
+  Timer? _debounce; // 键盘连续输入防抖（v3.3.243）
 
   @override
   void initState() {
@@ -2201,12 +2202,18 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
     _load('');
   }
 
-  Future<void> _load(String kw) async {
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load(String k) async {
     setState(() => loading = true);
     try {
-      final r = kw.isEmpty
+      final r = k.isEmpty
           ? await Api.vipList(Session.wenxunId)
-          : await Api.vipSearch(Session.wenxunId, kw);
+          : await Api.vipSearch(Session.wenxunId, k);
       if (!mounted) return;
       setState(() { list = r; loading = false; });
     } on ApiError {
@@ -2215,16 +2222,73 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
     }
   }
 
+  /// 数字键盘输入（v3.3.243）：实时按手机号搜索，C 清空 / B 退格
+  void _key(String k) {
+    setState(() {
+      if (k == 'C') {
+        kw = '';
+      } else if (k == 'B') {
+        if (kw.isNotEmpty) kw = kw.substring(0, kw.length - 1);
+      } else if (kw.length < 11) {
+        kw += k;
+      }
+    });
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 250), () => _load(kw));
+  }
+
+  /// 数字键盘（无码商品同款样式）：4行×3列，键高随弹窗自适应
+  Widget _keypad(double keyH, {double gap = 8}) {
+    const keys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', 'B'];
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      for (var r = 0; r < 4; r++)
+        Padding(
+          padding: EdgeInsets.only(bottom: r == 3 ? 0 : gap),
+          child: Row(children: [
+            for (var c = 0; c < 3; c++) ...[
+              if (c > 0) SizedBox(width: gap),
+              Expanded(child: _keyBtn(keys[r * 3 + c], keyH)),
+            ],
+          ]),
+        ),
+    ]);
+  }
+
+  Widget _keyBtn(String k, double h) {
+    final isFn = k == 'C' || k == 'B';
+    return InkWell(
+      onTap: () => _key(k),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: h,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: k == 'B'
+            ? const Icon(Icons.backspace_outlined, size: 20, color: PosTheme.textSub)
+            : Text(k,
+                style: TextStyle(
+                    fontSize: isFn ? 15 : 20,
+                    fontWeight: FontWeight.w700,
+                    color: k == 'C' ? PosTheme.red : PosTheme.textMain)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 弹窗尺寸随屏幕收缩（v3.3.243）：小屏收银机不超出可用区
+    final screen = MediaQuery.of(context).size;
+    final dw = (screen.width * 0.92).clamp(360.0, 660.0);
+    final dh = (screen.height * 0.88).clamp(480.0, 660.0);
+    final kwView = kw.isEmpty ? '输入手机号实时搜索' : kw;
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: SizedBox(
-        width: 560, height: 600,
+        width: dw, height: dh,
         child: Column(children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
             child: Row(children: [
               const Text('选择会员', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const Spacer(),
@@ -2235,42 +2299,81 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
               ),
             ]),
           ),
+          // 搜索框（只读展示，键盘输入实时搜索）
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
-            child: TextField(
-              autofocus: true,
-              style: const TextStyle(fontSize: 16),
-              decoration: InputDecoration(
-                hintText: '手机号 / 姓名 搜索后回车',
-                prefixIcon: const Icon(Icons.search, size: 22),
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF7F8FA),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: PosTheme.line),
               ),
-              onSubmitted: (v) => _load(v.trim()),
+              child: Row(children: [
+                const Icon(Icons.search, size: 20, color: PosTheme.textHint),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(kwView,
+                      style: TextStyle(
+                          fontSize: kw.isEmpty ? 14 : 18,
+                          fontWeight: kw.isEmpty ? FontWeight.w400 : FontWeight.w700,
+                          color: kw.isEmpty ? PosTheme.textHint : PosTheme.textMain)),
+                ),
+                if (kw.isNotEmpty)
+                  InkWell(
+                    onTap: () => _key('C'),
+                    borderRadius: BorderRadius.circular(12),
+                    child: const Icon(Icons.highlight_off, size: 20, color: PosTheme.textHint),
+                  ),
+              ]),
             ),
           ),
           const SizedBox(height: 10),
+          // 宽屏（≥760）：列表在左、键盘在右；窄屏：键盘在列表下方（v3.3.243 屏幕自适应）
           Expanded(
-            child: loading
-                ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
-                : list.isEmpty
-                    ? const EmptyView('未找到会员')
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                        itemCount: list.length,
-                        itemBuilder: (_, i) {
-                          final v = list[i];
-                          final nm = '${v['name'] ?? ''}'.trim();
-                          final ph = '${v['phone'] ?? ''}'.trim();
-                          return ListTile(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                            leading: CircleAvatar(radius: 22, backgroundColor: PosTheme.accent.withOpacity(0.12), child: const Icon(Icons.person, color: PosTheme.accent)),
-                            title: Text(nm.isEmpty ? (ph.isEmpty ? '未命名会员' : ph) : '$nm  $ph', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                            subtitle: Text('余额 ¥${Fmt.money(v['amount'])}  积分 ${v['score'] ?? 0}', style: const TextStyle(fontSize: 13)),
-                            onTap: () => Navigator.pop(context, v),
-                          );
-                        },
-                      ),
+            child: LayoutBuilder(builder: (ctx, box) {
+              final wide = box.maxWidth >= 760;
+              final keyH = wide ? 52.0 : 44.0;
+              final listView = loading
+                  ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
+                  : list.isEmpty
+                      ? const EmptyView('未找到会员')
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                          itemCount: list.length,
+                          itemBuilder: (_, i) {
+                            final v = list[i];
+                            final nm = '${v['name'] ?? ''}'.trim();
+                            final ph = '${v['phone'] ?? ''}'.trim();
+                            return ListTile(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                              visualDensity: VisualDensity.compact,
+                              leading: CircleAvatar(radius: 20, backgroundColor: PosTheme.accent.withOpacity(0.12), child: const Icon(Icons.person, color: PosTheme.accent)),
+                              title: Text(nm.isEmpty ? (ph.isEmpty ? '未命名会员' : ph) : '$nm  $ph', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
+                              subtitle: Text('余额 ¥${Fmt.money(v['amount'])}  积分 ${v['score'] ?? 0}', style: const TextStyle(fontSize: 12.5)),
+                              onTap: () => Navigator.pop(context, v),
+                            );
+                          },
+                        );
+              if (wide) {
+                return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Expanded(child: Padding(padding: const EdgeInsets.only(left: 8), child: listView)),
+                  Container(
+                    width: 200,
+                    padding: const EdgeInsets.fromLTRB(14, 4, 20, 18),
+                    child: _keypad(keyH, gap: 10),
+                  ),
+                ]);
+              }
+              return Column(children: [
+                Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: listView)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                  child: _keypad(keyH),
+                ),
+              ]);
+            }),
           ),
         ]),
       ),
