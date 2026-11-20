@@ -8,6 +8,7 @@ import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../core/usb_printer.dart';
+import '../../ui/cart_line_dialog.dart';
 import '../../ui/widgets.dart';
 
 /// 交班页（零售/餐饮共用，主从布局）：
@@ -206,41 +207,16 @@ class _ShiftPageState extends State<ShiftPage> {
         drawerCash: drawerCash,
       );
 
-  /// 修改备付金（v3.3.239）：数字输入，本机保存，交班小票打印
+  /// 修改备付金（v3.3.239）：复用无码商品数字键盘（v3.3.240），本机保存，交班小票打印
   Future<void> _editPetty() async {
-    final ctrl = TextEditingController(text: pettyCash > 0 ? Fmt.money(pettyCash) : '');
-    final v = await showDialog<double>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('修改备付金', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('放在钱箱里的起始现金（如早上放的 ¥200 找零金）',
-              style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              prefixText: '¥ ',
-              hintText: '0.00',
-              isDense: true,
-            ),
-          ),
-        ]),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, 0.0),
-            child: const Text('清零', style: TextStyle(color: PosTheme.red)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, double.tryParse(ctrl.text.trim()) ?? 0),
-            child: const Text('保存', style: TextStyle(color: PosTheme.accent, fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
+    final v = await showNumberPad(
+      context,
+      title: '修改备付金',
+      hint: '放在钱箱里的起始现金（如早上放的 ¥200 找零金），清空后确定即清零',
+      initial: pettyCash > 0 ? Fmt.money(pettyCash) : '',
+      decimal: true,
+      prefix: '¥',
+      allowZero: true,
     );
     if (v == null || !mounted) return;
     final prefs = await SharedPreferences.getInstance();

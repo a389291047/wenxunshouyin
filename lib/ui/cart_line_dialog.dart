@@ -461,6 +461,7 @@ Future<double?> showNumberPad(
   String prefix = '',
   String unit = '',
   String hint = '',
+  bool allowZero = false, // 允许确定时值为0（备付金清零等场景，v3.3.240）
 }) {
   return showDialog<double>(
     context: context,
@@ -471,6 +472,7 @@ Future<double?> showNumberPad(
       prefix: prefix,
       unit: unit,
       hint: hint,
+      allowZero: allowZero,
     ),
   );
 }
@@ -482,6 +484,7 @@ class _NumberPadDialog extends StatefulWidget {
   final String prefix;
   final String unit;
   final String hint;
+  final bool allowZero;
 
   const _NumberPadDialog({
     required this.title,
@@ -490,6 +493,7 @@ class _NumberPadDialog extends StatefulWidget {
     this.prefix = '',
     this.unit = '',
     this.hint = '',
+    this.allowZero = false,
   });
 
   @override
@@ -600,7 +604,7 @@ class _NumberPadDialogState extends State<_NumberPadDialog> {
               flex: 2,
               child: SizedBox(
                 height: 52,
-                child: BigButton('确定', onTap: value > 0 ? () => Navigator.pop(context, value) : null, height: 52),
+                child: BigButton('确定', onTap: (value > 0 || widget.allowZero) ? () => Navigator.pop(context, value) : null, height: 52),
               ),
             ),
           ]),
