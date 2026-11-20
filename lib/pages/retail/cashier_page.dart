@@ -103,7 +103,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   final List<_CartLine> cart = [];
   Map? vip; // 选中的会员
-  bool couponOn = false; // 5元优惠券（v3.3.219）：收银页点标签启用，落单/小票生效
+  int couponSel = 0; // 优惠券档位（v3.3.242）：0未选 1=5元券 2=8.4元券(满16.8)，互斥单选
+  bool get couponOn => couponSel > 0; // 兼容旧引用（v3.3.219 语义：有券在用）
 
   @override
   void initState() {
@@ -364,12 +365,18 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // 件数：按件商品累加数量，称重行按 1 笔计
   int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
 
-  /// 5元优惠券面额（v3.3.219）
+  /// 优惠券档位（v3.3.242）：5元券（合计>5可用）/ 8.4元券（必须满16.8才能用）
   static const double couponValue = 5.0;
+  static const double coupon2Value = 8.4;
+  static const double coupon2Threshold = 16.8;
   /// 券的门槛基数：活动优惠后的金额（v3.3.222）
   double get couponBase => total - actDiscount;
-  /// 优惠券实际抵扣：启用且活动后仍 > 5 元时抵 5 元（不足不生效，避免 0 元单）
-  double get couponApplied => couponOn && couponBase > couponValue ? couponValue : 0;
+  /// 优惠券实际抵扣：按所选档位核算；不达门槛/不足面额不生效（避免 0 元单）
+  double get couponApplied {
+    if (couponSel == 1) return couponBase > couponValue ? couponValue : 0;
+    if (couponSel == 2) return couponBase >= coupon2Threshold ? coupon2Value : 0;
+    return 0;
+  }
   /// 应收金额 = 合计 - 活动优惠 - 优惠券抵扣（v3.3.222 活动接入）
   /// 最低 0.01 元：满减配置过大时不产生 0 元单
   double get payable {
@@ -624,7 +631,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       );
       if (ok != true || !mounted) return;
     }
-    setState(() { cart.clear(); vip = null; couponOn = false; }); // 优惠券随清空重置（v3.3.219）
+    setState(() { cart.clear(); vip = null; couponSel = 0; }); // 优惠券随清空重置（v3.3.219）
   }
 
   // ==================== 挂单 / 取单（v3.3.191） ====================
@@ -727,7 +734,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ..addAll(items);
       vip = v;
       holds.remove(h);
-      couponOn = false; // 取单重置优惠券（v3.3.219）
+      couponSel = 0; // 取单重置优惠券（v3.3.219）
     });
     await _saveHolds();
     if (!mounted) return;
@@ -1627,7 +1634,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               Row(children: [
                 Text('共 $count 件', style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
                 const SizedBox(width: 10),
-                _couponChip(), // 5元优惠券（v3.3.219）
+                _couponChip(1), // 5元优惠券（v3.3.219）
+                const SizedBox(width: 8),
+                _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
                 const Spacer(),
                 Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
                 if (couponApplied > 0 || actDiscount > 0) ...[
@@ -1707,26 +1716,38 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
   }
 
-  // 5元优惠券标签（v3.3.219）：点按启用/停用，合计不足5元不生效
-  Widget _couponChip() {
-    final applied = couponApplied > 0;
-    final on = couponOn;
-    final c = applied ? const Color(0xFFE5484D) : (on ? PosTheme.textHint : PosTheme.accentLive);
+  // 优惠券标签（v3.3.242 双档）：5元券（合计>5可用）/ 8.4元券（必须满16.8），点按切换、互斥单选
+  Widget _couponChip(int tier) {
+    final value = tier == 1 ? couponValue : coupon2Value;
+    final applied = couponSel == tier && couponApplied > 0;
+    final selected = couponSel == tier;
+    final notEnough = tier == 2 && couponBase < coupon2Threshold; // 8.4元券未达门槛
+    final c = applied
+        ? const Color(0xFFE5484D)
+        : notEnough
+            ? PosTheme.textHint
+            : (selected ? PosTheme.textHint : PosTheme.accentLive);
+    final label = applied
+        ? '优惠券已减¥${Fmt.money(value)}'
+        : tier == 1
+            ? '5元优惠券'
+            : notEnough
+                ? '8.4元券·满¥16.8可用'
+                : '8.4元优惠券';
     return InkWell(
-      onTap: cart.isEmpty ? null : () => setState(() => couponOn = !couponOn),
+      onTap: cart.isEmpty ? null : () => setState(() => couponSel = couponSel == tier ? 0 : tier),
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: applied ? c.withValues(alpha: 0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: applied ? c : (on ? PosTheme.line : PosTheme.accentLive.withValues(alpha: 0.5))),
+          border: Border.all(color: applied ? c : (selected ? PosTheme.line : c.withValues(alpha: notEnough ? 0.35 : 0.5))),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(applied ? Icons.check_circle : Icons.local_offer_outlined, size: 16, color: c),
           const SizedBox(width: 5),
-          Text(applied ? '优惠券已减¥5' : '5元优惠券',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c)),
+          Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: c)),
         ]),
       ),
     );
