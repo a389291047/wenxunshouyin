@@ -873,24 +873,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     final wReprice = wholePrice > 0; // 是否整单改价
     final order = await PayMethods.load();
 
-    // ===== 快捷通道（v3.3.177 复用餐饮 v3.3.164）：默认支付方式是微信/支付宝时，
-    // 点「收款」直接弹付款码，扫码成功自动落单，全程零确认 =====
-    final quick = order.isNotEmpty ? order.first : '';
-    if ((quick == '微信支付' || quick == '支付宝') && t > 0) {
-      final quickNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
-          '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
-      final pay = await showXyfScanPayDialog(context,
-          amount: t, title: '扫码收款 · $quick', bizType: 'retail',
-          orderNo: quickNo, moreLabel: '更换支付');
-      if (!mounted) return;
-      if (pay != null && pay['more'] != true) {
-        return _finishOrder(quick, t, coupon: coupon,
-            wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice,
-            xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
-            xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
-      }
-      // 取消扫码 或 点「其他方式」→ 继续走下面的完整弹窗
-    }
+    // v3.3.251：去掉旧「快捷通道」第二次弹窗（先弹扫码再换方式的流程），
+    // 点「收款」直接进统一收款弹窗，弹窗内自动选中默认支付方式并聚焦付款码，扫码即收
 
     // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
@@ -2176,6 +2160,22 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // v3.3.251：进入弹窗自动选中商户排序第一的支付方式（默认方式），
+    // 扫码类直接聚焦付款码输入框，收银员扫码即收，少点一步
+    if (widget.methods.isNotEmpty) {
+      method = widget.methods.first;
+      if (method != '现金') mollenType = 0;
+      if (_isScan) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) codeFocus.requestFocus();
+        });
+      }
+    }
+  }
+
+  @override
   void dispose() {
     codeCtrl.dispose();
     codeFocus.dispose();
@@ -2347,22 +2347,33 @@ class _PayDialogState extends State<RetailPayDialog> {
     final quickH = compact ? 42.0 : 52.0;
     final btnH = compact ? 52.0 : 62.0;
     final bigFont = compact ? 24.0 : 30.0;
+    // 右侧操作面板固定高度（按现金面板满配高度预留，含抹零提示占位），
+    // 未选方式/扫码/现金/会员/支付中/成功/失败 各状态切换时弹窗宽高保持一致
+    final panelH = compact ? 380.0 : 484.0;
 
     // 右侧操作面板
     Widget panel() {
-      if (phase == 'paying') return _payingPanel();
-      if (phase == 'success') return _successPanel();
-      if (phase == 'fail') return _failPanel();
-      if (method == '现金') {
-        return _cashPanel(compact: compact, gap: gap, quickH: quickH, keyH: keyH, bigFont: bigFont);
+      Widget inner;
+      if (phase == 'paying') {
+        inner = _payingPanel();
+      } else if (phase == 'success') {
+        inner = _successPanel();
+      } else if (phase == 'fail') {
+        inner = _failPanel();
+      } else if (method == '现金') {
+        inner = _cashPanel(compact: compact, gap: gap, quickH: quickH, keyH: keyH, bigFont: bigFont);
+      } else if (method == '会员支付') {
+        inner = _memberPanel(compact: compact);
+      } else if (method != null) {
+        inner = _scanPanel(compact: compact);
+      } else {
+        inner = Container(
+          padding: EdgeInsets.symmetric(vertical: compact ? 14 : 40),
+          alignment: Alignment.center,
+          child: const Text('请先在左侧选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
+        );
       }
-      if (method == '会员支付') return _memberPanel(compact: compact);
-      if (method != null) return _scanPanel(compact: compact);
-      return Container(
-        padding: EdgeInsets.symmetric(vertical: compact ? 14 : 40),
-        alignment: Alignment.center,
-        child: const Text('请先在左侧选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
-      );
+      return SizedBox(height: panelH, child: Center(child: inner));
     }
 
     // 底部按钮（取消 + 确认收款）
@@ -2435,13 +2446,20 @@ class _PayDialogState extends State<RetailPayDialog> {
       );
     }
 
-    return Dialog(
+    return GestureDetector(
+      // v3.3.251：点弹窗空白处不再丢焦点——扫码类自动把焦点还给付款码输入框，
+      // 否则扫码枪失去焦点收不到码（点按钮/输入框等有自己手势的控件不受影响）
+      onTap: () {
+        if (_isScan && phase == 'input') codeFocus.requestFocus();
+      },
+      child: Dialog(
       backgroundColor: Colors.white,
       insetPadding: EdgeInsets.symmetric(horizontal: 16, vertical: size.height * 0.04),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxHeight: size.height * 0.92),
         child: SingleChildScrollView(child: body),
+      ),
       ),
     );
   }
@@ -2488,8 +2506,12 @@ class _PayDialogState extends State<RetailPayDialog> {
     final c = _channelColor;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        TextField(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center, // 固定高度面板内垂直居中
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
           controller: codeCtrl,
           focusNode: codeFocus,
           autofocus: true,
@@ -2530,7 +2552,8 @@ class _PayDialogState extends State<RetailPayDialog> {
             Expanded(child: Text(errorMsg, style: const TextStyle(fontSize: 13, color: PosTheme.red))),
           ]),
         ],
-      ]),
+        ],
+      ),
     );
   }
 
@@ -2560,14 +2583,19 @@ class _PayDialogState extends State<RetailPayDialog> {
         )),
       ]),
       SizedBox(height: gap),
-      if (mollen > 0) ...[
-        Row(children: [
-          const Spacer(),
-          Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
-              style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
-        ]),
-        SizedBox(height: gap),
-      ],
+      // 抹零提示占位（固定高度，出现/消失不影响面板高度，弹窗尺寸保持一致）
+      SizedBox(
+        height: compact ? 28 : 32,
+        child: mollen > 0
+            ? Row(children: [
+                const Spacer(),
+                Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
+                    style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
+                const Spacer(),
+              ])
+            : null,
+      ),
+      SizedBox(height: gap),
       Row(children: [
         for (final v in [50.0, 100.0, 200.0, payable]) ...[
           Expanded(child: InkWell(
