@@ -1003,6 +1003,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           return;
         }
         final orderNo = '${r['order_number'] ?? r['order_id'] ?? ''}';
+        // 会员支付后剩余金额（v3.3.249）：优先后端返回的 balance，未返回时按本机余额扣减兜底
+        final balAfter = double.tryParse('${r['balance'] ?? ''}') ??
+            double.parse((_vipBalance() - t).toStringAsFixed(2));
         if (await PrintPrefs.on('retail')) {
           CloudPrinter.printRetail(
             CloudPrinter.retailReceipt(
@@ -1015,6 +1018,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                   {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
               ],
               cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.payNum, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
+              vipName: '${vip!['name'] ?? vip!['xm'] ?? ''}', // 会员昵称/手机号（v3.3.249）
+              vipPhone: '${vip!['phone'] ?? ''}',
+              vipBalance: balAfter, // 卡内余额（会员支付专用）
             ),
             alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
           ).catchError((_) => <String, dynamic>{});
@@ -1064,6 +1070,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 {'name': g.title, 'quantity': g.qty, 'unit': g.byWeight ? g.unit : '', 'byWeight': g.byWeight},
             ],
             cart: cart.map((l) => {'name': l.goods['title'], 'price': l.unitPrice, 'quantity': l.payNum, 'unit': l.byWeight ? l.unit : '', 'gift_qty': l.giftQty}).toList(),
+            // 选中会员时打「会员」行（v3.3.249）；余额只在会员支付分支打
+            vipName: vip == null ? '' : '${vip!['name'] ?? vip!['xm'] ?? ''}',
+            vipPhone: vip == null ? '' : '${vip!['phone'] ?? ''}',
           ),
           alsoCloud: cart.any((l) => l.byWeight), // 称重订单云打印机同步一份（v3.3.214）
         ).catchError((_) => <String, dynamic>{});

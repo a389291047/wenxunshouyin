@@ -374,6 +374,17 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         _kvRow(Icons.schedule, Fmt.date(o['create_time'])),
         const SizedBox(height: 5),
         _kvRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}'),
+        // 会员信息（v3.3.249）：vip_name 后端列表接口回填；phone 会员支付单落库
+        if (('${o['vip_name'] ?? ''}'.trim()).isNotEmpty ||
+            ('${o['phone'] ?? ''}'.trim()).isNotEmpty) ...[
+          const SizedBox(height: 5),
+          Builder(builder: (_) {
+            final vn = '${o['vip_name'] ?? ''}'.trim();
+            final vp = '${o['phone'] ?? ''}'.trim();
+            return _kvRow(Icons.person_outline,
+                '会员 ${vn.isEmpty ? vp : vn}${(vn.isNotEmpty && vp.isNotEmpty) ? ' · $vp' : ''}');
+          }),
+        ],
         if (mollen > 0) ...[
           const SizedBox(height: 5),
           _kvRow(Icons.savings_outlined, '现金抹零 -¥${Fmt.money(mollen)}', color: Colors.green),

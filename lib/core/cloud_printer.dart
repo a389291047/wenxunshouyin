@@ -330,6 +330,9 @@ class CloudPrinter {
     String wholeLabel = '', // 整单优惠标签（「整单折扣 8.5折」/「整单改价」，v3.3.246）
     List<String> activityLines = const [], // 活动说明（含赠品），首条为金额活动
     List<Map<String, dynamic>> gifts = const [], // 赠品行（0 元，v3.3.222）
+    String vipName = '', // 会员昵称（v3.3.249，选中会员时打「会员」行）
+    String vipPhone = '', // 会员手机号
+    double? vipBalance, // 会员支付后剩余金额（v3.3.249，仅会员支付传，后端 balance）
   }) {
     final sb = StringBuffer();
     sb.writeln('<FS2><center>$shopTitle</center></FS2>');
@@ -389,6 +392,13 @@ class CloudPrinter {
       sb.writeln('合计: ¥${Fmt.money(total)}');
     }
     sb.writeln('支付方式: $payMethod');
+    // 会员信息（v3.3.249）：昵称 + 手机号；会员支付时再打扣款后剩余金额
+    final vName = vipName.trim();
+    final vPhone = vipPhone.trim();
+    if (vName.isNotEmpty || vPhone.isNotEmpty) {
+      sb.writeln('会员: ${vName.isEmpty ? vPhone : vName}${(vName.isNotEmpty && vPhone.isNotEmpty) ? ' ($vPhone)' : ''}');
+    }
+    if (vipBalance != null) sb.writeln('卡内余额: ¥${Fmt.money(vipBalance)}');
     sb.writeln('谢谢惠顾，欢迎下次光临');
     return sb.toString();
   }
@@ -562,6 +572,12 @@ class CloudPrinter {
     sb.writeln('单号: ${o['order_number'] ?? ''}');
     sb.writeln('时间: ${Fmt.date(o['create_time'])}');
     sb.writeln('收银: ${o['cashier_name'] ?? Session.staffName}');
+    // 会员信息（v3.3.249）：vip_name 为后端列表接口回填的会员昵称；phone 会员支付单落库
+    final rkVipName = '${o['vip_name'] ?? ''}'.trim();
+    final rkVipPhone = '${o['phone'] ?? ''}'.trim();
+    if (rkVipName.isNotEmpty || rkVipPhone.isNotEmpty) {
+      sb.writeln('会员: ${rkVipName.isEmpty ? rkVipPhone : rkVipName}${(rkVipName.isNotEmpty && rkVipPhone.isNotEmpty) ? ' ($rkVipPhone)' : ''}');
+    }
     if (!isRefund) sb.writeln('补打时间: ${DateTime.now().toString().substring(0, 19)}');
     if (isRefund) {
       sb.writeln('操作: ${Session.staffName}');
