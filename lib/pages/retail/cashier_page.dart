@@ -2483,6 +2483,14 @@ class _PayDialogState extends State<RetailPayDialog> {
         mainAxisAlignment: MainAxisAlignment.center, // 固定高度面板内垂直居中
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 四大渠道品牌图标展示行（大图标，星驿付自动识别渠道）
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (int i = 0; i < _payBrandAssets.length; i++) ...[
+              if (i > 0) const SizedBox(width: 18),
+              _brandIcon(_payBrandAssets[i], compact ? 32 : 38),
+            ],
+          ]),
+          SizedBox(height: compact ? 14 : 18),
           TextField(
           controller: codeCtrl,
           focusNode: codeFocus,
@@ -2490,7 +2498,7 @@ class _PayDialogState extends State<RetailPayDialog> {
           enabled: !_busy,
           keyboardType: TextInputType.number,
           maxLength: 32,
-          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700, letterSpacing: 2),
           onChanged: (v) {
             // 清除扫码枪带回的换行/制表符等脏字符
             final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
@@ -2505,23 +2513,24 @@ class _PayDialogState extends State<RetailPayDialog> {
           decoration: InputDecoration(
             labelText: '顾客付款码',
             counterText: '',
-            prefixIcon: Icon(Icons.qr_code, size: 24, color: c),
-            contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            prefixIcon: Icon(Icons.qr_code, size: 26, color: c),
+            contentPadding: EdgeInsets.symmetric(vertical: compact ? 24 : 28, horizontal: 16),
             suffixIcon: codeCtrl.text.isEmpty
                 ? null
-                : IconButton(icon: const Icon(Icons.clear, size: 20), onPressed: () => setState(() => codeCtrl.clear())),
+                : IconButton(icon: const Icon(Icons.clear, size: 22), onPressed: () => setState(() => codeCtrl.clear())),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Text('扫码枪对准顾客付款码，扫完自动收款（微信/支付宝/云闪付/抖音自动识别）',
-            style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: compact ? 14 : 15, color: PosTheme.textSub)),
         if (errorMsg.isNotEmpty) ...[
           const SizedBox(height: 10),
           Row(children: [
             const Icon(Icons.error_outline, size: 16, color: PosTheme.red),
             const SizedBox(width: 5),
-            Expanded(child: Text(errorMsg, style: const TextStyle(fontSize: 13, color: PosTheme.red))),
+            Expanded(child: Text(errorMsg, style: const TextStyle(fontSize: 14, color: PosTheme.red))),
           ]),
         ],
         ],
@@ -2702,12 +2711,13 @@ class _PayDialogState extends State<RetailPayDialog> {
           child: m == '扫码收款'
               ? LayoutBuilder(builder: (context, box) {
                   if (box.maxWidth < 200) {
-                    // 紧凑格：图标一行 + 文字一行
+                    // 紧凑格：图标一行 + 文字一行（图标按格宽自适应，最窄 14px 不溢出）
+                    final isz = ((box.maxWidth - 36) / 4).clamp(14.0, 26.0);
                     return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                         for (final p in _payBrandAssets) ...[
-                          _brandIcon(p, 20),
-                          const SizedBox(width: 2),
+                          _brandIcon(p, isz),
+                          const SizedBox(width: 3),
                         ],
                       ]),
                       const SizedBox(height: 4),
@@ -2716,8 +2726,8 @@ class _PayDialogState extends State<RetailPayDialog> {
                   }
                   return Row(children: [
                     for (final p in _payBrandAssets) ...[
-                      _brandIcon(p, 20),
-                      const SizedBox(width: 3),
+                      _brandIcon(p, 22),
+                      const SizedBox(width: 2),
                     ],
                     const SizedBox(width: 5),
                     Expanded(child: Text('扫码收款', maxLines: 1, overflow: TextOverflow.ellipsis,
