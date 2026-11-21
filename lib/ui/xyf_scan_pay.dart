@@ -8,7 +8,7 @@ import 'widgets.dart';
 /// 星驿付 · 扫码收款弹窗（v3.3.165，收银机接扫码枪）
 ///
 /// 流程：扫码枪扫顾客付款码（或手动输入）→ 星驿付付款码下单（B扫C）
-/// → 待输密码自动轮询 25 秒 → 成功返回 {'payNo': 渠道单号, 'orderNo': 我方单号, 'order': 订单行}
+/// → 待输密码自动轮询（先快后慢，最长 60 秒，v3.3.248）→ 成功返回 {'payNo': 渠道单号, 'orderNo': 我方单号, 'order': 订单行}
 /// 取消/失败返回 null。
 ///
 /// 视觉：弹窗近正方形（触屏友好）、微信支付/支付宝官方品牌色 + 官方 logo，
@@ -529,7 +529,7 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
         Text(_payStatusText,
             style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
         const SizedBox(height: 6),
-        Text('已等待 $elapsedSec 秒 · 最长 25 秒',
+        Text('已等待 $elapsedSec 秒 · 最长 60 秒',
             style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
         const SizedBox(height: 18),
         // 三步进度条

@@ -101,8 +101,10 @@ class Api {
   }
 
   /// 付款码支付一体流程：下单 → （待输密码则轮询）→ 成功返回订单行 / 失败抛 ApiError
-  /// 轮询上限 25 次 × 1 秒（与小程序一致）
-  /// [onStatus] 进度回调：scanned=付款码已识别 / accepted=星驿付已受理 / waiting=顾客输入密码中（每秒回调）
+  /// 轮询节奏先快后慢（v3.3.248）：前 15 秒每秒一查（顾客输密码大多很快），
+  /// 之后每 3 秒一查，总时长约 60 秒 —— 旧版 25 次×(查询RTT约3s+1s)≈100 秒太久，
+  /// 收银员观感是「卡死/失败」。
+  /// [onStatus] 进度回调：scanned=付款码已识别 / accepted=星驿付已受理 / waiting=顾客输入密码中
   static Future<Map<String, dynamic>> xyfScanPay({
     required double amount,
     required String authCode,
@@ -136,10 +138,14 @@ class Api {
         if (st == 4) throw ApiError('${o['error_msg'] ?? '支付失败'}');
       }
     }
-    // 处理中（顾客输密码）：轮询
+    // 处理中（顾客输密码）：先快后慢轮询，总时长约 60 秒（v3.3.248）
     onStatus?.call('waiting');
-    for (var i = 0; i < 25; i++) {
-      await Future.delayed(const Duration(seconds: 1));
+    final sw = Stopwatch()..start();
+    while (true) {
+      // 前 15 秒每秒一查（多数顾客 10 秒内完成支付），之后每 3 秒一查
+      final waitSec = sw.elapsedMilliseconds < 15000 ? 1 : 3;
+      await Future.delayed(Duration(seconds: waitSec));
+      if (sw.elapsedMilliseconds >= 60000) break; // 60 秒总预算
       onStatus?.call('waiting');
       final o = await queryOnce();
       if (o == null) continue;
@@ -147,7 +153,7 @@ class Api {
       if (st == 3) return o;
       if (st == 4) throw ApiError('${o['error_msg'] ?? '顾客取消支付'}');
     }
-    throw ApiError('支付超时（25 秒未确认）：顾客可能仍在输入密码，点「重新扫码」会先核对上一笔结果');
+    throw ApiError('支付超时（60 秒未确认）：顾客可能仍在输入密码，点「重新扫码」会先核对上一笔结果');
   }
 
   /// 退款状态轮询（零售）：refundStatus = none无退款中记录 | processing | success | fail
