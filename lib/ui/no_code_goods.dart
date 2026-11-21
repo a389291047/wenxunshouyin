@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../core/theme.dart';
+import 'num_keypad.dart';
 import 'widgets.dart';
 
 /// 无码商品/无码菜品弹窗（零售 + 餐饮共用）
@@ -195,46 +196,8 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
     );
   }
 
-  /// 12 宫格：1-9 / 清空 0 .
+  /// 12 宫格：1-9 / 清空 0 .（v3.3.251 抽公用 NumKeypad，样式不变）
   Widget _keypad() {
-    const rows = [
-      ['1', '2', '3'],
-      ['4', '5', '6'],
-      ['7', '8', '9'],
-      ['C', '0', '.'],
-    ];
-    return Column(children: [
-      for (final row in rows)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(children: [
-            for (int i = 0; i < row.length; i++) ...[
-              if (i > 0) const SizedBox(width: 10),
-              Expanded(child: _keyBtn(row[i])),
-            ],
-          ]),
-        ),
-    ]);
-  }
-
-  Widget _keyBtn(String k) {
-    final isClear = k == 'C';
-    final dim = k == '.' && !priceActive; // 数量模式下小数点不可用
-    return InkWell(
-      onTap: dim ? null : () => _key(k),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: dim ? const Color(0xFFF2F3F7) : (isClear ? const Color(0xFFFFF0EF) : const Color(0xFFF7F8FA)),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: isClear
-              ? const Text('清空', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.red))
-              : Text(k, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: dim ? PosTheme.textHint : PosTheme.textMain)),
-        ),
-      ),
-    );
+    return NumKeypad(onKey: _key, dotActive: priceActive);
   }
 }

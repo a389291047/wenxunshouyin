@@ -23,6 +23,7 @@ import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
 import '../../ui/cart_line_dialog.dart';
 import '../../ui/no_code_goods.dart';
+import '../../ui/num_keypad.dart';
 import '../../ui/touch_keyboard.dart';
 import '../../ui/vip_avatar.dart';
 import '../../ui/vip_recharge.dart';
@@ -2495,41 +2496,9 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
     _debounce = Timer(const Duration(milliseconds: 250), () => _load(kw));
   }
 
-  /// 数字键盘（无码商品同款样式）：4行×3列，键高随弹窗自适应
+  /// 数字键盘（v3.3.251）：复用无码商品弹窗的公用 NumKeypad（键高 56 触屏一致），退格代替小数点
   Widget _keypad(double keyH, {double gap = 8}) {
-    const keys = ['7', '8', '9', '4', '5', '6', '1', '2', '3', 'C', '0', 'B'];
-    return Column(mainAxisSize: MainAxisSize.min, children: [
-      for (var r = 0; r < 4; r++)
-        Padding(
-          padding: EdgeInsets.only(bottom: r == 3 ? 0 : gap),
-          child: Row(children: [
-            for (var c = 0; c < 3; c++) ...[
-              if (c > 0) SizedBox(width: gap),
-              Expanded(child: _keyBtn(keys[r * 3 + c], keyH)),
-            ],
-          ]),
-        ),
-    ]);
-  }
-
-  Widget _keyBtn(String k, double h) {
-    final isFn = k == 'C' || k == 'B';
-    return InkWell(
-      onTap: () => _key(k),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: h,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-        child: k == 'B'
-            ? const Icon(Icons.backspace_outlined, size: 20, color: PosTheme.textSub)
-            : Text(k,
-                style: TextStyle(
-                    fontSize: isFn ? 15 : 20,
-                    fontWeight: FontWeight.w700,
-                    color: k == 'C' ? PosTheme.red : PosTheme.textMain)),
-      ),
-    );
+    return NumKeypad(onKey: _key, showDot: false, keyHeight: 56, gap: 10);
   }
 
   /// 会员行卡（v3.3.251）：触屏高度 + 墨水纹按压；一行平铺 微信昵称/手机号/余额/积分
