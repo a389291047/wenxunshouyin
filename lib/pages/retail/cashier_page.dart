@@ -877,16 +877,23 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     // 点「收款」直接进统一收款弹窗，弹窗内自动选中默认支付方式并聚焦付款码，扫码即收
 
     // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
-    final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
+    // v3.3.251：去掉「微信支付」「支付宝」独立选项——走星驿付付款码自动识别渠道，
+    // 扫码收款一项即可（弹窗内用四个品牌图标标识）
+    final methods = ['现金', '扫码收款', if (vip != null) '会员支付']
       ..sort((a, b) => order.indexOf(a).compareTo(order.indexOf(b)));
     // 0元购（v3.3.247 40元券直接扣完）：免支付方式选择，按现金落单（0 元单不弹钱箱）
     if (t <= 0) {
       return _finishOrder('现金', t, coupon: coupon,
           wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice);
     }
+    // 默认选中方式：商户排序第一在可用列表里就选它；商户原配的是微信/支付宝
+    // （现已合并进扫码收款）则落到扫码收款，保证扫码枪商户进弹窗即可扫
+    final defMethod = (order.isNotEmpty && methods.contains(order.first))
+        ? order.first
+        : (methods.contains('扫码收款') ? '扫码收款' : methods.first);
     final picked = await showDialog<dynamic>(
       context: context,
-      builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
+      builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods, defaultMethod: defMethod),
     );
     if (picked == null || !mounted) return;
     // 微信/支付宝免确认直通（弹窗内点卡片直接扫码成功）会带回 Map（含支付流水），直接落单
@@ -2066,7 +2073,8 @@ class RetailPayDialog extends StatefulWidget {
   final double total;
   final Map? vip;
   final List<String> methods;
-  const RetailPayDialog({required this.total, required this.methods, this.vip});
+  final String? defaultMethod; // 进弹窗自动选中的方式（商户排序第一，v3.3.251）
+  const RetailPayDialog({required this.total, required this.methods, this.vip, this.defaultMethod});
   @override
   State<RetailPayDialog> createState() => _PayDialogState();
 }
@@ -2162,16 +2170,15 @@ class _PayDialogState extends State<RetailPayDialog> {
   @override
   void initState() {
     super.initState();
-    // v3.3.251：进入弹窗自动选中商户排序第一的支付方式（默认方式），
+    // v3.3.251：进入弹窗自动选中传入的默认方式（商户排序第一），
     // 扫码类直接聚焦付款码输入框，收银员扫码即收，少点一步
-    if (widget.methods.isNotEmpty) {
-      method = widget.methods.first;
-      if (method != '现金') mollenType = 0;
-      if (_isScan) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) codeFocus.requestFocus();
-        });
-      }
+    method = widget.defaultMethod ??
+        (widget.methods.isNotEmpty ? widget.methods.first : null);
+    if (method != null && method != '现金') mollenType = 0;
+    if (_isScan) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) codeFocus.requestFocus();
+      });
     }
   }
 
@@ -2542,7 +2549,7 @@ class _PayDialogState extends State<RetailPayDialog> {
           ),
         ),
         const SizedBox(height: 10),
-        Text('扫码枪对准顾客付款码，扫完自动收款（微信/支付宝/云闪付自动识别）',
+        Text('扫码枪对准顾客付款码，扫完自动收款（微信/支付宝/云闪付/抖音自动识别）',
             style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
         if (errorMsg.isNotEmpty) ...[
           const SizedBox(height: 10),
@@ -2696,6 +2703,20 @@ class _PayDialogState extends State<RetailPayDialog> {
     if (_isScan) codeFocus.requestFocus();
   }
 
+  /// 扫码收款品牌图标（v3.3.251）：微信/支付宝/云闪付/抖音，星驿付付款码自动识别渠道
+  static const _payBrandAssets = [
+    'assets/brand/wxpay.png',
+    'assets/brand/zhifubao.png',
+    'assets/brand/yunshanfu.png',
+    'assets/brand/douyin.png',
+  ];
+
+  Widget _brandIcon(String path, double size) {
+    return Image.asset(path, width: size, height: size,
+        errorBuilder: (_, __, ___) =>
+            Icon(Icons.qr_code, size: size, color: PosTheme.blue));
+  }
+
   Widget _methodTile(String m) {
     final on = method == m;
     final disabled = m == '会员支付' && widget.vip == null;
@@ -2711,7 +2732,34 @@ class _PayDialogState extends State<RetailPayDialog> {
             border: Border.all(color: on ? _colorOf(m) : Colors.transparent, width: 2),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Row(children: [
+          // 扫码收款：四个品牌图标排一起 + 文字（星驿付自动识别渠道）
+          child: m == '扫码收款'
+              ? LayoutBuilder(builder: (context, box) {
+                  if (box.maxWidth < 150) {
+                    // 紧凑格：图标一行 + 文字一行
+                    return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        for (final p in _payBrandAssets) ...[
+                          _brandIcon(p, 16),
+                          const SizedBox(width: 2),
+                        ],
+                      ]),
+                      const SizedBox(height: 3),
+                      Text('扫码收款', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+                    ]);
+                  }
+                  return Row(children: [
+                    for (final p in _payBrandAssets) ...[
+                      _brandIcon(p, 18),
+                      const SizedBox(width: 3),
+                    ],
+                    const SizedBox(width: 5),
+                    Expanded(child: Text('扫码收款', maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.textMain))),
+                    if (on) const Icon(Icons.check_circle, size: 18, color: PosTheme.green),
+                  ]);
+                })
+              : Row(children: [
             _methodIcon(m, size: 26, color: disabled ? PosTheme.textHint : _colorOf(m)),
             const SizedBox(width: 8),
             Expanded(child: Text(m + (disabled ? '（未选会员）' : ''),

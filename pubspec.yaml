@@ -38,6 +38,10 @@ flutter:
     - assets/app_icon.png  # 你的图标
     - assets/avatar_default.png  # 会员默认头像
     - assets/kefu_qr.png  # 微信客服二维码（企业微信客服）
+    - assets/brand/wxpay.png  # 扫码收款：微信支付图标
+    - assets/brand/zhifubao.png  # 扫码收款：支付宝图标
+    - assets/brand/yunshanfu.png  # 扫码收款：云闪付图标
+    - assets/brand/douyin.png  # 扫码收款：抖音支付图标
 
 # ==========================================
 # ✅  flutter_launcher_icons 自动圆角图标
