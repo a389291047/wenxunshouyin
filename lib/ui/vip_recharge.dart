@@ -67,6 +67,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
     if (submitting) return;
     if (tier == null) {
       toast(context, '请选择充值档次', error: true);
+      if (!cashMode) codeFocus.requestFocus();
       return;
     }
     final amount = double.tryParse('${tier!['amount']}') ?? 0;
@@ -84,6 +85,8 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         if (!RegExp(r'^\d{16,32}$').hasMatch(code)) {
           setState(() => submitting = false);
           toast(context, '请输入有效的付款码（16-32位数字）', error: true);
+          // v3.3.251：焦点必须还给付款码框，否则点过确认后扫码枪再扫数字落不进来
+          codeFocus.requestFocus();
           return;
         }
         final myNo = 'XYFC${DateTime.now().millisecondsSinceEpoch}'
