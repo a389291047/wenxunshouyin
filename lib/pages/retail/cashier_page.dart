@@ -2151,7 +2151,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     setState(() {
       if (k == 'C') {
         received = '';
-      } else if (k == '<') {
+      } else if (k == '<' || k == 'B') {
         if (received.isNotEmpty) received = received.substring(0, received.length - 1);
       } else if (k == '.') {
         if (!received.contains('.')) received += '.';
@@ -2350,13 +2350,12 @@ class _PayDialogState extends State<RetailPayDialog> {
     final pad = compact ? 16.0 : 24.0;
     final gap = compact ? 10.0 : 14.0;
     final tileH = compact ? 70.0 : 78.0; // 方式卡加高，触屏更好点（v3.3.251）
-    final keyH = compact ? 44.0 : 56.0;
     final quickH = compact ? 42.0 : 52.0;
     final btnH = compact ? 52.0 : 62.0;
     final bigFont = compact ? 24.0 : 30.0;
-    // 右侧操作面板固定高度（按现金面板满配高度预留，含抹零提示占位），
-    // 未选方式/扫码/现金/会员/支付中/成功/失败 各状态切换时弹窗宽高保持一致
-    final panelH = compact ? 380.0 : 484.0;
+    // 操作面板固定高度（按现金面板满配高度预留：实收行+快捷键+NumKeypad 56×4），
+    // 各支付方式/各状态切换时弹窗宽高保持一致
+    final panelH = compact ? 392.0 : 440.0;
 
     // 操作面板
     Widget panel() {
@@ -2368,7 +2367,7 @@ class _PayDialogState extends State<RetailPayDialog> {
       } else if (phase == 'fail') {
         inner = _failPanel();
       } else if (method == '现金') {
-        inner = _cashPanel(compact: compact, gap: gap, quickH: quickH, keyH: keyH, bigFont: bigFont);
+        inner = _cashPanel(compact: compact, gap: gap, quickH: quickH, bigFont: bigFont);
       } else if (method == '会员支付') {
         inner = _memberPanel(compact: compact);
       } else if (method != null) {
@@ -2438,11 +2437,16 @@ class _PayDialogState extends State<RetailPayDialog> {
 
   Widget _titleRow() {
     final compact = _compact;
+    final cashMollen = method == '现金' && mollen > 0;
     return Row(children: [
       Text('收款', style: TextStyle(fontSize: compact ? 20 : 24, fontWeight: FontWeight.w800)),
+      if (cashMollen) ...[
+        const SizedBox(width: 10),
+        Text('已优惠 ¥${Fmt.money(mollen)}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.green)),
+      ],
       const Spacer(),
       const Text('应收 ', style: TextStyle(fontSize: 15, color: PosTheme.textSub)),
-      Text('¥${Fmt.money(widget.total)}',
+      Text('¥${Fmt.money(cashMollen ? payable : widget.total)}',
           style: TextStyle(fontSize: compact ? 24 : 34, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
     ]);
   }
@@ -2483,14 +2487,6 @@ class _PayDialogState extends State<RetailPayDialog> {
         mainAxisAlignment: MainAxisAlignment.center, // 固定高度面板内垂直居中
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 四大渠道品牌图标展示行（大图标，星驿付自动识别渠道）
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            for (int i = 0; i < _payBrandAssets.length; i++) ...[
-              if (i > 0) const SizedBox(width: 18),
-              _brandIcon(_payBrandAssets[i], compact ? 32 : 38),
-            ],
-          ]),
-          SizedBox(height: compact ? 14 : 18),
           TextField(
           controller: codeCtrl,
           focusNode: codeFocus,
@@ -2539,7 +2535,7 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   // ---------- 右侧面板：现金 ----------
-  Widget _cashPanel({required bool compact, required double gap, required double quickH, required double keyH, required double bigFont}) {
+  Widget _cashPanel({required bool compact, required double gap, required double quickH, required double bigFont}) {
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         Expanded(child: Container(
@@ -2564,52 +2560,71 @@ class _PayDialogState extends State<RetailPayDialog> {
         )),
       ]),
       SizedBox(height: gap),
-      // 抹零提示占位（固定高度，出现/消失不影响面板高度，弹窗尺寸保持一致）
-      SizedBox(
-        height: compact ? 28 : 32,
-        child: mollen > 0
-            ? Row(children: [
-                const Spacer(),
-                Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
-                    style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
-                const Spacer(),
-              ])
-            : null,
-      ),
-      SizedBox(height: gap),
+      // 快捷金额 + 抹零开关：一行 6 键（触屏等宽）
       Row(children: [
-        for (final v in [50.0, 100.0, 200.0, payable]) ...[
-          Expanded(child: InkWell(
-            onTap: () => setState(() => received = Fmt.money(v)),
-            borderRadius: BorderRadius.circular(10),
-            child: Container(
-              height: quickH, alignment: Alignment.center,
-              decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
-              child: Text(v == payable ? '刚好' : '¥${v.toInt()}',
-                  style: TextStyle(fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
-            ),
-          )),
-          SizedBox(width: compact ? 6 : 10),
-        ]
+        Expanded(child: _cashKey('抹分', compact: compact, quickH: quickH,
+            on: mollenType == 1, onTap: () => setState(() => mollenType = mollenType == 1 ? 0 : 1))),
+        SizedBox(width: compact ? 6 : 10),
+        Expanded(child: _cashKey('抹角', compact: compact, quickH: quickH,
+            on: mollenType == 2, onTap: () => setState(() => mollenType = mollenType == 2 ? 0 : 2))),
+        SizedBox(width: compact ? 6 : 10),
+        Expanded(child: _cashKey('¥50', compact: compact, quickH: quickH,
+            onTap: () => setState(() => received = Fmt.money(50.0)))),
+        SizedBox(width: compact ? 6 : 10),
+        Expanded(child: _cashKey('¥100', compact: compact, quickH: quickH,
+            onTap: () => setState(() => received = Fmt.money(100.0)))),
+        SizedBox(width: compact ? 6 : 10),
+        Expanded(child: _cashKey('¥200', compact: compact, quickH: quickH,
+            onTap: () => setState(() => received = Fmt.money(200.0)))),
+        SizedBox(width: compact ? 6 : 10),
+        Expanded(child: _cashKey('刚好', compact: compact, quickH: quickH,
+            onTap: () => setState(() => received = Fmt.money(payable)))),
       ]),
       SizedBox(height: gap),
-      _keypad(keyH),
+      // 数字键盘：复用无码商品弹窗 NumKeypad（键高 56 / 字号 22 / 间距 10）
+      NumKeypad(
+        onKey: _key,
+        showDot: true,
+        dotActive: !received.contains('.'),
+        keyHeight: 56,
+        gap: 10,
+      ),
     ]);
+  }
+
+  /// 现金面板小按键（快捷金额 / 抹零开关），选中态绿色高亮
+  Widget _cashKey(String label, {required VoidCallback onTap, bool on = false, required bool compact, required double quickH}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        height: quickH,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: on ? PosTheme.green.withOpacity(0.12) : const Color(0xFFF7F8FA),
+          border: Border.all(color: on ? PosTheme.green : Colors.transparent, width: 1.5),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(label, style: TextStyle(
+            fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700,
+            color: on ? PosTheme.green : PosTheme.textMain)),
+      ),
+    );
   }
 
   // ---------- 右侧面板：会员支付 ----------
   Widget _memberPanel({required bool compact}) {
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: compact ? 14 : 30),
-      alignment: Alignment.center,
-      child: Column(children: [
-        _methodIcon('会员支付', size: compact ? 42 : 56),
+    return Center(
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Text('将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: compact ? 17 : 19, color: PosTheme.textSub)),
         SizedBox(height: compact ? 8 : 12),
-        Text('将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}',
-            textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-        const SizedBox(height: 6),
+        Text('¥${Fmt.money(widget.total)}',
+            style: TextStyle(fontSize: compact ? 36 : 44, fontWeight: FontWeight.w800, color: PosTheme.accentLive)),
+        SizedBox(height: compact ? 8 : 12),
         Text('当前余额 ¥${Fmt.money((double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0) + (double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0))}',
-            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+            style: TextStyle(fontSize: compact ? 14 : 15, color: PosTheme.textHint)),
       ]),
     );
   }
@@ -2743,75 +2758,6 @@ class _PayDialogState extends State<RetailPayDialog> {
                 style: TextStyle(fontSize: compact ? 16 : 17, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain))),
             if (on) const Icon(Icons.check_circle, size: 20, color: PosTheme.green),
           ]),
-        ),
-      ),
-    );
-  }
-
-  Widget _keypad(double keyH) {
-    const keys = [
-      ['1', '2', '3', '<'],
-      ['4', '5', '6', 'C'],
-      ['7', '8', '9', '.'],
-    ];
-    return Column(children: [
-      for (int r = 0; r < 3; r++)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Row(children: [
-            for (int c = 0; c < 4; c++) ...[
-              Expanded(child: _keyBtn(keys[r][c], keyH)),
-              if (c < 3) const SizedBox(width: 8),
-            ]
-          ]),
-        ),
-      // 底行：0 占两格，后面是抹零键（v3.3.239 移入）
-      Row(children: [
-        Expanded(flex: 2, child: _keyBtn('0', keyH)),
-        const SizedBox(width: 8),
-        Expanded(child: _mollenKey(1, '抹分', mollenType == 1, keyH)),
-        const SizedBox(width: 8),
-        Expanded(child: _mollenKey(2, '抹角', mollenType == 2, keyH)),
-      ]),
-    ]);
-  }
-
-  /// 抹零键位（v3.3.239）：样式对齐数字键，选中态绿色高亮
-  Widget _mollenKey(int type, String label, bool on, double keyH) {
-    return InkWell(
-      onTap: () => setState(() => mollenType = mollenType == type ? 0 : type),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: keyH,
-        decoration: BoxDecoration(
-          color: on ? Colors.green.withOpacity(0.14) : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: on ? Colors.green : Colors.transparent, width: 1.5),
-        ),
-        child: Center(child: Text(label, style: TextStyle(
-            fontSize: 17, fontWeight: FontWeight.w700,
-            color: on ? Colors.green : PosTheme.textSub))),
-      ),
-    );
-  }
-
-  Widget _keyBtn(String k, double keyH) {
-    final isClear = k == 'C';
-    return InkWell(
-      onTap: () => _key(k),
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        height: keyH,
-        decoration: BoxDecoration(
-          color: isClear ? const Color(0xFFFFF0EF) : const Color(0xFFF7F8FA),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: k == '<'
-              ? const Icon(Icons.backspace_outlined, size: 22, color: PosTheme.textSub)
-              : k == 'C'
-                  ? const Text('清空', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.red))
-                  : Text(k, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
         ),
       ),
     );
