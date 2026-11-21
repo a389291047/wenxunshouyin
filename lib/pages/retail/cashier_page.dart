@@ -879,7 +879,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
           amount: t, title: '扫码收款 · $quick', bizType: 'retail',
-          orderNo: quickNo, moreLabel: '其他方式 → 完整收款');
+          orderNo: quickNo, moreLabel: '更换支付');
       if (!mounted) return;
       if (pay != null && pay['more'] != true) {
         return _finishOrder(quick, t, coupon: coupon,
@@ -1686,10 +1686,16 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 Expanded(
                   child: vip == null
                       ? const Text('点击选择会员（可选）', style: TextStyle(fontSize: 15, color: PosTheme.textSub))
-                      : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text('${vip!['name'] ?? vip!['phone']}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                          Text('余额 ¥${Fmt.money(vip!['amount'])}  积分 ${vip!['score'] ?? 0}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
-                        ]),
+                      : Builder(builder: (_) {
+                          // v3.3.250：显示手机号，收银员能核对是不是本人（姓名为空时手机号已在标题，不重复）
+                          final phone = '${vip!['phone'] ?? ''}';
+                          final name = '${vip!['name'] ?? ''}';
+                          final hasName = name.trim().isNotEmpty;
+                          return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(hasName ? name : phone, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                            Text('${hasName ? '$phone  ' : ''}余额 ¥${Fmt.money(vip!['amount'])}  积分 ${vip!['score'] ?? 0}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+                          ]);
+                        }),
                 ),
                 if (vip != null) ...[
                   InkWell(

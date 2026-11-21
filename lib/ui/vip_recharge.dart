@@ -32,6 +32,7 @@ class _VipRechargeDialog extends StatefulWidget {
 class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   late final Future<List> tiersFuture; // 只创建一次，避免 rebuild 重复请求
   final codeCtrl = TextEditingController();
+  final codeFocus = FocusNode(); // v3.3.250：点档次/切方式后把焦点还给付款码框（否则扫码枪输不进）
   Map? tier;
   bool cashMode = false; // false=付款码充值（默认，免密） true=现金充值
   String pwd = ''; // 权限密码（6位数字，现金充值用）
@@ -46,6 +47,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   @override
   void dispose() {
     codeCtrl.dispose();
+    codeFocus.dispose();
     super.dispose();
   }
 
@@ -209,7 +211,13 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                     WechatPayLogo(size: 19,
                         color: !cashMode ? PosTheme.accent : PosTheme.textSub),
                     !cashMode,
-                    () => setState(() => cashMode = false))),
+                    () {
+                      setState(() => cashMode = false);
+                      // v3.3.250：切回扫码支付时输入框刚重建，下一帧再要焦点
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) codeFocus.requestFocus();
+                      });
+                    })),
                 const SizedBox(width: 12),
                 Expanded(child: _modeChip('现金充值（权限码）',
                     Icon(Icons.payments_outlined, size: 18,
@@ -225,16 +233,20 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
               ] else
                 TextField(
                   controller: codeCtrl,
+                  focusNode: codeFocus,
                   autofocus: true,
                   keyboardType: TextInputType.number,
                   maxLength: 30,
                   enabled: !submitting,
                   onSubmitted: (_) => _submit(),
+                  // v3.3.250：加高适合触屏 + 粗体大字号，扫码进来的码一眼可见
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 1.2),
                   decoration: const InputDecoration(
                     labelText: '顾客付款码',
                     hintText: '扫码枪扫描顾客付款码，或手动输入',
                     counterText: '',
-                    prefixIcon: Icon(Icons.qr_code_scanner, size: 20),
+                    prefixIcon: Icon(Icons.qr_code_scanner, size: 22),
+                    contentPadding: EdgeInsets.symmetric(vertical: 19, horizontal: 14),
                   ),
                 ),
             ]);
@@ -352,7 +364,11 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
     final on = '${tier?['id']}' == '${t['id']}';
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: submitting ? null : () => setState(() => tier = t),
+      onTap: submitting ? null : () {
+        setState(() => tier = t);
+        // v3.3.250：点档次会把焦点抢走，付款码光标消失 → 扫码枪再扫输不进；还回去
+        if (!cashMode) codeFocus.requestFocus();
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         width: 150,

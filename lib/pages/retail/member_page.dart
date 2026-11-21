@@ -58,7 +58,10 @@ class _MemberPageState extends State<MemberPage> {
           : await Api.vipSearch(Session.wenxunId, kw);
       if (!mounted) return;
       setState(() { list = r; loading = false; });
-      if (list.isNotEmpty && selected == null) selected = list.first;
+      if (list.isNotEmpty && selected == null) {
+        selected = list.first;
+        _loadRecords(); // 默认选中第一个会员时同步拉记录
+      }
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() => loading = false);
@@ -207,6 +210,71 @@ class _MemberPageState extends State<MemberPage> {
     super.dispose();
   }
 
+  // ==================== 近期消费/充值记录（v3.3.250 会员详情右侧记录卡） ====================
+  String recTab = '全部';
+  List recConsume = [];
+  List recRecharge = [];
+  bool recLoading = false;
+
+  Future<void> _loadRecords() async {
+    final v = selected;
+    if (v == null) return;
+    final vid = int.tryParse('${v['id']}') ?? 0;
+    if (vid <= 0) return;
+    setState(() => recLoading = true);
+    try {
+      final r = await Api.vipRecentRecords(vipId: vid, wenxunId: Session.wenxunId);
+      if (!mounted) return;
+      setState(() {
+        recConsume = r['consume']!;
+        recRecharge = r['recharge']!;
+        recLoading = false;
+      });
+    } catch (_) {
+      // 接口未部署/网络异常：记录卡显示空态，不影响详情
+      if (!mounted) return;
+      setState(() => recLoading = false);
+    }
+  }
+
+  void _select(Map v) {
+    setState(() => selected = v);
+    _loadRecords();
+  }
+
+  /// 按当前 tab 合并取最近 5 条（时间倒序）
+  List<Map<String, dynamic>> _mergedRecords() {
+    final items = <Map<String, dynamic>>[];
+    if (recTab != '充值') {
+      for (final o in recConsume) {
+        final refunded = (int.tryParse('${o['refund_status']}') ?? 0) == 2 ||
+            (double.tryParse('${o['refund_amount'] ?? 0}') ?? 0) > 0;
+        items.add({
+          'kind': '消费',
+          'time': '${o['create_time'] ?? ''}',
+          'amount': double.tryParse('${o['total']}') ?? 0,
+          'sub': '${o['payment_method'] ?? ''}${refunded ? ' · 已退款' : ''}',
+        });
+      }
+    }
+    if (recTab != '消费') {
+      for (final r in recRecharge) {
+        final refunded = int.tryParse('${r['pay_status']}') == 2;
+        final gift = double.tryParse('${r['zengsong'] ?? 0}') ?? 0;
+        items.add({
+          'kind': '充值',
+          'time': '${r['pay_time'] ?? r['create_time'] ?? ''}',
+          'amount': double.tryParse('${r['czamount']}') ?? 0,
+          'sub': '${'${r['pay_type'] ?? ''}' == 'cash' ? '现金' : '扫码'}'
+              '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
+              '${refunded ? ' · 已退款' : ''}',
+        });
+      }
+    }
+    items.sort((a, b) => '${b['time']}'.compareTo('${a['time']}'));
+    return items.take(5).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(children: [
@@ -270,7 +338,7 @@ class _MemberPageState extends State<MemberPage> {
                                   // 卡片式行（v3.3.120）：固定圆角头像 + 昵称/手机号/金额三段平分
                                   return InkWell(
                                     borderRadius: BorderRadius.circular(12),
-                                    onTap: () => setState(() => selected = v),
+                                    onTap: () => _select(v),
                                     child: Container(
                                       margin: const EdgeInsets.only(bottom: 8),
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -360,7 +428,9 @@ class _MemberPageState extends State<MemberPage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('${v['name'] ?? '未命名会员'}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
-            Text('${v['phone'] ?? ''}　${v['chepai'] ?? ''}', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+            // v3.3.250：手机号粗体加大，收银员一眼核对
+            Text('${v['phone'] ?? ''}${('${v['chepai'] ?? ''}'.trim().isNotEmpty) ? '　${v['chepai']}' : ''}',
+                style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
           ])),
         ]),
         const SizedBox(height: 18),
@@ -375,8 +445,96 @@ class _MemberPageState extends State<MemberPage> {
           const SizedBox(width: 12),
           Expanded(child: _kv('累计充值', '¥${Fmt.money(v['accumulation_recharge'])}', const Color(0xFF7C3AED))),
         ]),
-        const Spacer(),
+        const SizedBox(height: 14),
+        // v3.3.250：右侧空白区改为近期记录卡（全部/消费/充值 切换，最近5条）
+        Expanded(child: _recordsCard()),
+        const SizedBox(height: 12),
         BigButton('充值', onTap: _recharge, height: 50),
+      ]),
+    );
+  }
+
+  /// 近期记录卡（v3.3.250）：全部/消费/充值 三个切换卡边 + 最近5条（消费：时间 金额）
+  Widget _recordsCard() {
+    const tabs = ['全部', '消费', '充值'];
+    final rows = _mergedRecords();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PosTheme.line.withOpacity(0.6)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          const Text('最近记录', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+          const Spacer(),
+          for (final t in tabs) ...[
+            const SizedBox(width: 6),
+            _recChip(t),
+          ],
+        ]),
+        const SizedBox(height: 6),
+        Expanded(
+          child: recLoading
+              ? const Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.accent)))
+              : rows.isEmpty
+                  ? const Center(child: Text('暂无记录', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)))
+                  : ListView.builder(
+                      padding: EdgeInsets.zero,
+                      itemCount: rows.length,
+                      itemBuilder: (_, i) => _recRow(rows[i]),
+                    ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _recChip(String t) {
+    final on = recTab == t;
+    return InkWell(
+      onTap: () => setState(() => recTab = t),
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 5),
+        decoration: BoxDecoration(
+          color: on ? PosTheme.accent : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+        ),
+        child: Text(t, style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: on ? FontWeight.w700 : FontWeight.w400,
+            color: on ? Colors.white : PosTheme.textSub)),
+      ),
+    );
+  }
+
+  Widget _recRow(Map<String, dynamic> r) {
+    final isCz = r['kind'] == '充值';
+    final c = isCz ? PosTheme.green : PosTheme.accent;
+    final t = '${r['time']}';
+    final time = t.length >= 16 ? t.substring(0, 16) : (t.isEmpty ? '—' : t);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(color: c.withOpacity(0.10), borderRadius: BorderRadius.circular(6)),
+          child: Text('${r['kind']}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: c)),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            if ('${r['sub']}'.trim().isNotEmpty)
+              Text('${r['sub']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+          ]),
+        ),
+        const SizedBox(width: 8),
+        Text('${isCz ? '+' : '-'}¥${Fmt.money(r['amount'])}',
+            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: isCz ? PosTheme.green : PosTheme.textMain)),
       ]),
     );
   }

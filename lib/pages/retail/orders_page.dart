@@ -274,8 +274,8 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
 
   // ==================== 左侧列表行 ====================
 
-  /// 表头（v3.3.216）：与单行布局对齐——圆点+单号 / 时间 / 支付方式 / 金额，四段等分
-  /// tab==2 充值订单：充值单号/会员 · 时间 · 支付方式 · 金额
+  /// 表头（v3.3.216）：与单行布局对齐——圆点+单号 / 时间 / 支付方式 / 优惠 / 金额
+  /// tab==2 充值订单：充值单号/会员 · 时间 · 支付方式 · 金额（无优惠列，v3.3.250）
   Widget _listHeader() {
     const segStyle = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub);
     final first = tab == 2 ? '充值单号 / 会员' : '订单号 / 状态';
@@ -300,6 +300,13 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
           flex: 2,
           child: Text('支付方式', style: segStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
         ),
+        if (tab != 2) ...[
+          const SizedBox(width: 10),
+          const SizedBox(
+            width: 76,
+            child: Text('优惠', textAlign: TextAlign.right, style: segStyle),
+          ),
+        ],
         const SizedBox(width: 10),
         SizedBox(
           width: 88,
@@ -391,6 +398,27 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                   ),
                   child: Text((double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0) > 0 ? '整单折扣' : '整单改价',
                       style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w700)),
+                ),
+              ],
+              // 优惠列（v3.3.250）：preferential_amount = 商品合计 − 实收（活动/券/整单折扣/抹零全含）
+              if (tab != 2) ...[
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 76,
+                  child: Builder(builder: (_) {
+                    final pref = double.tryParse('${o['preferential_amount'] ?? 0}') ??
+                        ((double.tryParse('${o['original_total'] ?? 0}') ?? 0) -
+                            (double.tryParse('${o['total'] ?? 0}') ?? 0));
+                    final has = pref > 0.001 && '${o['payment_status']}' == '1';
+                    return Text(has ? '-¥${Fmt.money(pref)}' : '—',
+                        textAlign: TextAlign.right,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: has ? Colors.green : PosTheme.textHint));
+                  }),
                 ),
               ],
               const SizedBox(width: 10),

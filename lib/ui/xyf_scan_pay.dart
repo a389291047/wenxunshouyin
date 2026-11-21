@@ -139,6 +139,8 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
     final code = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
     if (!RegExp(r'^\d{16,32}$').hasMatch(code)) {
       setState(() => errorMsg = '付款码无效（16-32位数字），请重新扫码或输入');
+      // v3.3.250：焦点必须还给输入框，否则扫码枪再扫时数字落不进来（收银员以为坏了）
+      focusNode.requestFocus();
       return;
     }
     setState(() {
@@ -487,19 +489,21 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
             Expanded(child: Text(errorMsg, style: const TextStyle(fontSize: 13, color: PosTheme.red))),
           ]),
         ],
-        const SizedBox(height: 12),
-        const Text('也可手动输入付款码后按回车 / 点「确认收款」',
-            style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
         if ((widget.moreLabel ?? '').isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Center(
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
+          const SizedBox(height: 12),
+          // v3.3.250：由文字链改为触屏大按钮「更换支付」（收银员点完确认收款没反应时的出口）
+          SizedBox(
+            height: 48,
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                side: const BorderSide(color: PosTheme.line),
+                backgroundColor: const Color(0xFFF7F8FA),
+              ),
               onPressed: () => Navigator.pop(context, {'more': true}),
-              icon: const Icon(Icons.tune, size: 16),
+              icon: const Icon(Icons.swap_horiz, size: 20),
               label: Text(widget.moreLabel!,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                  style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
             ),
           ),
         ],

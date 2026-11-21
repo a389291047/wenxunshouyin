@@ -367,7 +367,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
           amount: t, title: '扫码收款 · $quick', bizType: 'retail',
-          orderNo: quickNo, moreLabel: '其他方式 → 完整收款');
+          orderNo: quickNo, moreLabel: '更换支付');
       if (!mounted) return;
       if (pay != null && pay['more'] != true) {
         return _createPaidOrder(quick, t,

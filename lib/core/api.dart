@@ -552,6 +552,19 @@ class Api {
     return (r['dingdan'] ?? []) as List;
   }
 
+  /// 会员近期消费/充值记录（v3.3.250 会员详情右侧记录卡）
+  /// 返回 {'consume': 近5笔消费, 'recharge': 近5笔充值}
+  static Future<Map<String, List>> vipRecentRecords({required int vipId, required int wenxunId}) async {
+    final r = await post('/shouyin/vip/recentRecords', {'id': vipId, 'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') {
+      return {
+        'consume': (r['consume'] ?? []) as List,
+        'recharge': (r['recharge'] ?? []) as List,
+      };
+    }
+    throw ApiError('${r['msg'] ?? '获取会员记录失败'}');
+  }
+
   // ==================== 订单配送（美团/京东秒送/淘宝闪购） ====================
 
   /// 平台配置列表
