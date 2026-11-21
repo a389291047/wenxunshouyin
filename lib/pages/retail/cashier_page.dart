@@ -367,10 +367,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   // 件数：按件商品累加数量，称重行按 1 笔计
   int get count => cart.fold(0, (s, l) => s + (l.byWeight ? 1 : l.num.round()));
 
-  /// 优惠券档位（v3.3.242）：5元券（合计>5可用）/ 8.4元券（必须满16.8才能用）
+  /// 优惠券档位（v3.3.247 三档）：5元券（合计>5可用）/ 8.4元券（必须满16.8）/ 40元券（无门槛直接扣，可0元购）
   static const double couponValue = 5.0;
   static const double coupon2Value = 8.4;
   static const double coupon2Threshold = 16.8;
+  static const double coupon3Value = 40.0;
   /// 整单优惠基数（v3.3.246）：活动优惠后的金额
   double get wholeBase => total - actDiscount;
   /// 折扣文本：8.5 → '8.5'，8 → '8'
@@ -394,17 +395,24 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 券的门槛基数：活动/整单折扣后的金额（v3.3.222）
   double get couponBase => wholeBase - wholeCut;
   /// 优惠券实际抵扣：按所选档位核算；不达门槛/不足面额不生效（避免 0 元单）
+  /// 40元券（v3.3.247）：无门槛、直接扣除 40，允许 0 元购
   double get couponApplied {
     if (couponSel == 1) return couponBase > couponValue ? couponValue : 0;
     if (couponSel == 2) return couponBase >= coupon2Threshold ? coupon2Value : 0;
+    if (couponSel == 3) return coupon3Value;
     return 0;
   }
   /// 应收金额 = 合计 - 活动优惠 - 整单折扣 - 优惠券抵扣（v3.3.246 整单折扣/改价接入）
   /// 整单改价时直接按改价收款；最低 0.01 元，不产生 0 元单
+  /// 例外：40元券（v3.3.247）直接扣除、允许 0 元购，扣完为负按 0 收
   double get payable {
     final v = wholePrice > 0
         ? wholePrice
         : total - actDiscount - wholeCut - couponApplied;
+    if (couponSel == 3) {
+      final r = double.parse(v.toStringAsFixed(2));
+      return r > 0 ? r : 0;
+    }
     if (v >= 0.01) return v;
     return total > 0 ? 0.01 : 0;
   }
@@ -866,7 +874,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     // ===== 快捷通道（v3.3.177 复用餐饮 v3.3.164）：默认支付方式是微信/支付宝时，
     // 点「收款」直接弹付款码，扫码成功自动落单，全程零确认 =====
     final quick = order.isNotEmpty ? order.first : '';
-    if (quick == '微信支付' || quick == '支付宝') {
+    if ((quick == '微信支付' || quick == '支付宝') && t > 0) {
       final quickNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
           '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
       final pay = await showXyfScanPayDialog(context,
@@ -885,6 +893,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     // 未选会员时不出现「会员支付」，避免误点；按商户「支付方式排序」展示（v3.3.176 全场景复用）
     final methods = ['现金', '扫码收款', '微信支付', '支付宝', if (vip != null) '会员支付']
       ..sort((a, b) => order.indexOf(a).compareTo(order.indexOf(b)));
+    // 0元购（v3.3.247 40元券直接扣完）：免支付方式选择，按现金落单（0 元单不弹钱箱）
+    if (t <= 0) {
+      return _finishOrder('现金', t, coupon: coupon,
+          wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice);
+    }
     final picked = await showDialog<dynamic>(
       context: context,
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods),
@@ -1035,8 +1048,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
 
-      // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
-      CashDrawer.autoOpen(picked);
+      // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银；0 元单不弹，v3.3.247）
+      if (t > 0) CashDrawer.autoOpen(picked);
 
       // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
       if (await PrintPrefs.on('retail')) {
@@ -1804,6 +1817,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                   children: [
                     _couponChip(1), // 5元优惠券（v3.3.219）
                     _couponChip(2), // 8.4元券·满16.8可用（v3.3.242）
+                    _couponChip(3), // 40元优惠券·无门槛直接扣可0元购（v3.3.247）
                     if (wholeRate > 0)
                       _wholeTag('整单 ${_rateText(wholeRate)}折 -¥${Fmt.money(wholeCut)}',
                           () => setState(() => wholeRate = 0)),
@@ -1916,9 +1930,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
   }
 
-  // 优惠券标签（v3.3.242 双档）：5元券（合计>5可用）/ 8.4元券（必须满16.8），点按切换、互斥单选
+  // 优惠券标签（v3.3.247 三档）：5元券（合计>5可用）/ 8.4元券（必须满16.8）/ 40元券（无门槛直接扣，可0元购）
   Widget _couponChip(int tier) {
-    final value = tier == 1 ? couponValue : coupon2Value;
+    final value = tier == 1 ? couponValue : (tier == 2 ? coupon2Value : coupon3Value);
     final applied = couponSel == tier && couponApplied > 0;
     final selected = couponSel == tier;
     final notEnough = tier == 2 && couponBase < coupon2Threshold; // 8.4元券未达门槛
@@ -1931,9 +1945,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ? '优惠券已减¥${Fmt.money(value)}'
         : tier == 1
             ? '5元优惠券'
-            : notEnough
-                ? '8.4元券·满¥16.8可用'
-                : '8.4元优惠券';
+            : tier == 2
+                ? (notEnough ? '8.4元券·满¥16.8可用' : '8.4元优惠券')
+                : '40元优惠券';
     return InkWell(
       onTap: cart.isEmpty ? null : () => setState(() => couponSel = couponSel == tier ? 0 : tier),
       borderRadius: BorderRadius.circular(8),
