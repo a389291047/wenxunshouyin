@@ -893,6 +893,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         : (methods.contains('扫码收款') ? '扫码收款' : methods.first);
     final picked = await showDialog<dynamic>(
       context: context,
+      barrierDismissible: false, // 防误触：点遮罩不关弹窗，避免支付中弹窗被意外关闭
       builder: (_) => RetailPayDialog(total: t, vip: vip, methods: methods, defaultMethod: defMethod),
     );
     if (picked == null || !mounted) return;
@@ -2334,6 +2335,48 @@ class _PayDialogState extends State<RetailPayDialog> {
     codeFocus.requestFocus();
   }
 
+  /// 取消收款（v3.3.251 防重复扣款加固）：
+  /// 本次弹窗内已向上发起过支付（payNo 非空）时，关闭前先回查星驿付订单状态——
+  /// 已付款则按成功落单；仍在等待支付结果则阻止关闭并提示，防止旧单挂着顾客又扫新单造成双重收款；
+  /// 确认未支付（关单/失败）才允许取消。纯输入阶段（payNo 为空）直接关闭，无资金风险。
+  Future<void> _cancel() async {
+    if (payNo.isNotEmpty) {
+      try {
+        final q = await Api.xyfQueryOrder(payNo);
+        final d = q['data'];
+        if ('${q['code']}' == '0' && d is Map) {
+          final m = Map<String, dynamic>.from(d);
+          final st = int.tryParse('${m['status'] ?? 0}') ?? 0;
+          if (st == 3) {
+            // 其实已付款：按成功处理，正常落单，不让顾客白付
+            if (!mounted) return;
+            VoiceService.instance.pay('扫码', widget.total);
+            setState(() {
+              payOrder = m;
+              phase = 'success';
+              errorMsg = '';
+            });
+            Future.delayed(const Duration(milliseconds: 1200), () {
+              if (!mounted) return;
+              Navigator.pop(context, {
+                'method': method,
+                'xyf_order_no': '${m['order_no'] ?? payNo}',
+                'xyf_channel': int.tryParse('${m['pay_channel'] ?? 0}') ?? 0,
+              });
+            });
+            return;
+          }
+          if (st == 1 || st == 2) {
+            if (!mounted) return;
+            setState(() => errorMsg = '上一笔仍在等待支付结果，已阻止取消，请勿重复向顾客收款；可点「重新收款」或稍后再试');
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+    if (mounted) Navigator.pop(context);
+  }
+
   // ==================== 布局 ====================
   // v3.3.210 小屏/竖屏自适应；v3.3.251 宽屏改左右卡片布局
   bool get _compact {
@@ -2386,7 +2429,7 @@ class _PayDialogState extends State<RetailPayDialog> {
       return Row(children: [
         Expanded(child: SizedBox(
           height: btnH,
-          child: BigButton('取消', onTap: _busy ? null : () => Navigator.pop(context),
+          child: BigButton('取消', onTap: _busy ? null : _cancel,
               color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: btnH),
         )),
         SizedBox(width: compact ? 8 : 14),
