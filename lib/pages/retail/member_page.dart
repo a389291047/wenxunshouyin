@@ -416,7 +416,7 @@ class _MemberPageState extends State<MemberPage> {
             const SizedBox(height: 2),
             // v3.3.250：手机号粗体加大，收银员一眼核对
             Text('${v['phone'] ?? ''}${('${v['chepai'] ?? ''}'.trim().isNotEmpty) ? '　${v['chepai']}' : ''}',
-                style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
           ])),
         ]),
         const SizedBox(height: 18),
