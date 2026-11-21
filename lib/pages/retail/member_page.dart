@@ -3,6 +3,7 @@ import '../../core/api.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/touch_keyboard.dart';
+import '../../ui/vip_avatar.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
@@ -112,22 +113,7 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
-  /// 头像字符：姓名 → 手机号 → '?'，空串不能取 first（会抛 Bad state）
-  String _avatarChar(Map v) {
-    final n = '${v['name'] ?? ''}'.trim();
-    if (n.isNotEmpty) return n.characters.first;
-    final p = '${v['phone'] ?? ''}'.trim();
-    if (p.isNotEmpty) return p.characters.first;
-    return '?';
-  }
-
-  /// 会员头像地址：微信头像（wx_vip.avatar），空/相对路径归一化
-  String _avatarUrl(Map v) {
-    final raw = '${v['avatar'] ?? ''}'.trim();
-    if (raw.isEmpty) return '';
-    if (raw.startsWith('http')) return raw;
-    return Api.base + (raw.startsWith('/') ? '' : '/') + raw;
-  }
+  /// 头像字符/地址：v3.3.251 抽到 lib/ui/vip_avatar.dart 共用（收银页也显示微信头像）
 
   // ==================== 添加会员（触屏版，v3.3.231 改版） ====================
   /// v3.3.231：等级不再手选——自动取「10折」等级，没有则提示无法添加会员；
@@ -357,7 +343,7 @@ class _MemberPageState extends State<MemberPage> {
                                             : null,
                                       ),
                                       child: Row(children: [
-                                        _VipAvatar(avatarUrl: _avatarUrl(v), radius: 19, rounded: true, fallbackText: _avatarChar(v), highlight: on),
+                                        VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 19, rounded: true, fallbackText: vipAvatarChar(v), highlight: on),
                                         const SizedBox(width: 12),
                                         // 昵称 / 手机号 / 金额 三段平分（超出省略号）
                                         Expanded(
@@ -423,7 +409,7 @@ class _MemberPageState extends State<MemberPage> {
     return AppCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
-          _VipAvatar(avatarUrl: _avatarUrl(v), radius: 28, rounded: true, fallbackText: _avatarChar(v), showRing: true),
+          VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 28, rounded: true, fallbackText: vipAvatarChar(v), showRing: true),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('${v['name'] ?? '未命名会员'}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
@@ -643,122 +629,6 @@ class _MemberPageState extends State<MemberPage> {
         const SizedBox(height: 4),
         Text(v, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: c)),
       ]),
-    );
-  }
-}
-
-// ==================== 会员头像（微信头像 → 默认头像图） ====================
-/// 优先显示微信头像（wx_vip.avatar），加载中显示姓名首字占位，
-/// 无头像 / 加载失败回退到 assets/avatar_default.png 默认头像图
-/// rounded=true 时为固定圆角方形（微信样式），否则圆形
-class _VipAvatar extends StatefulWidget {
-  final String avatarUrl;
-  final double radius;
-  final String fallbackText;
-  final bool highlight; // 列表选中态：默认头像底色带主题色
-  final bool showRing;  // 详情面板：外圈描边
-  final bool rounded;   // 圆角方形（v3.3.120），false=圆形
-  const _VipAvatar({
-    required this.avatarUrl,
-    required this.radius,
-    required this.fallbackText,
-    this.highlight = false,
-    this.showRing = false,
-    this.rounded = false,
-  });
-  @override
-  State<_VipAvatar> createState() => _VipAvatarState();
-}
-
-class _VipAvatarState extends State<_VipAvatar> {
-  bool failed = false;
-
-  /// 圆角半径：圆角方形 = 边长 × 0.28（微信头像比例）
-  double get _cornerRadius => widget.radius * 2 * 0.28;
-
-  /// 按形状裁切
-  Widget _clip(Widget child) {
-    if (!widget.rounded) return ClipOval(child: child);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(_cornerRadius),
-      child: child,
-    );
-  }
-
-  /// 默认头像图（裁切 + 选中态淡主题描边）
-  Widget _defaultAvatar() {
-    final img = _clip(
-      Image.asset('assets/avatar_default.png', fit: BoxFit.cover,
-          width: widget.radius * 2, height: widget.radius * 2),
-    );
-    if (!widget.showRing) return img;
-    return Container(
-      padding: const EdgeInsets.all(2.5),
-      decoration: BoxDecoration(
-        shape: widget.rounded ? BoxShape.rectangle : BoxShape.circle,
-        borderRadius: widget.rounded ? BorderRadius.circular(_cornerRadius + 2.5) : null,
-        border: Border.all(color: PosTheme.accent.withOpacity(0.35), width: 1.6),
-      ),
-      child: img,
-    );
-  }
-
-  /// 姓名首字占位（加载中 / 微信头像为空前的兜底）
-  Widget _charAvatar() {
-    final box = Container(
-      width: widget.radius * 2,
-      height: widget.radius * 2,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: (widget.highlight ? PosTheme.accent : PosTheme.blue).withOpacity(0.14),
-        shape: widget.rounded ? BoxShape.rectangle : BoxShape.circle,
-        borderRadius: widget.rounded ? BorderRadius.circular(_cornerRadius) : null,
-      ),
-      child: Text(
-        widget.fallbackText,
-        style: TextStyle(
-          fontSize: widget.radius * 0.82,
-          color: widget.highlight ? PosTheme.accent : PosTheme.blue,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-    return widget.rounded ? box : CircleAvatar(
-      radius: widget.radius,
-      backgroundColor: (widget.highlight ? PosTheme.accent : PosTheme.blue).withOpacity(0.14),
-      child: Text(
-        widget.fallbackText,
-        style: TextStyle(
-          fontSize: widget.radius * 0.82,
-          color: widget.highlight ? PosTheme.accent : PosTheme.blue,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final url = widget.avatarUrl;
-    if (url.isEmpty || failed) return _defaultAvatar();
-    return _clip(
-      SizedBox(
-        width: widget.radius * 2,
-        height: widget.radius * 2,
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          loadingBuilder: (_, child, progress) =>
-              progress == null ? child : _charAvatar(),
-          errorBuilder: (_, __, ___) {
-            // 加载失败 → 下一帧切到默认头像图
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => failed = true);
-            });
-            return _defaultAvatar();
-          },
-        ),
-      ),
     );
   }
 }

@@ -24,6 +24,7 @@ import '../../ui/brand_logos.dart';
 import '../../ui/cart_line_dialog.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/touch_keyboard.dart';
+import '../../ui/vip_avatar.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/weigh_dialog.dart';
 import '../../ui/widgets.dart';
@@ -1680,7 +1681,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 Container(
                   width: 40, height: 40,
                   decoration: BoxDecoration(color: PosTheme.tint, borderRadius: BorderRadius.circular(20)),
-                  child: Icon(vip == null ? Icons.person_add_alt : Icons.person, size: 22, color: PosTheme.accentLive),
+                  clipBehavior: Clip.antiAlias,
+                  child: vip == null
+                      ? Icon(Icons.person_add_alt, size: 22, color: PosTheme.accentLive)
+                      // v3.3.251：有微信头像就显示微信头像（默认头像图兜底）
+                      : VipAvatar(avatarUrl: vipAvatarUrl(vip), radius: 20, rounded: false, fallbackText: vipAvatarChar(vip)),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -2602,7 +2607,7 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
                               visualDensity: VisualDensity.compact,
-                              leading: CircleAvatar(radius: 20, backgroundColor: PosTheme.accent.withOpacity(0.12), child: const Icon(Icons.person, color: PosTheme.accent)),
+                              leading: VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 20, rounded: false, fallbackText: vipAvatarChar(v)),
                               title: Text(nm.isEmpty ? (ph.isEmpty ? '未命名会员' : ph) : '$nm  $ph', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
                               subtitle: Text('余额 ¥${Fmt.money(v['amount'])}  积分 ${v['score'] ?? 0}', style: const TextStyle(fontSize: 12.5)),
                               onTap: () => Navigator.pop(context, v),
