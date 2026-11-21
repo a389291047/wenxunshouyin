@@ -1554,15 +1554,39 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }).toList();
   }
 
-  Future<void> _addDish(Map g, {String note = ''}) => _pushDishes([{
-    'goods_id': g['id'],
-    'goods_name': g['title'],
-    'goods_image': g['goods_image'] ?? '',
-    'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
-    'quantity': 1,
-    'cat_id': g['cat_id'] ?? '', // 后厨分单路由用（v3.3.82）
-    if (note.isNotEmpty) 'remark': note,
-  }], label: note.isEmpty ? '${g['title']}' : '${g['title']}($note)');
+  /// 商品是否有规格（specs 来自 /shouyin/goods/canyin，1122 起餐饮接口补多规格数据）
+  bool _hasSpecs(Map g) => g['specs'] is List && (g['specs'] as List).isNotEmpty;
+
+  Future<void> _addDish(Map g, {String note = ''}) async {
+    // 多规格菜品：先弹规格选择（零售同款交互），选中后按规格行加菜
+    if (_hasSpecs(g)) {
+      final sku = await showDialog<Map>(
+        context: context,
+        builder: (_) => DiningSkuPickerDialog(goods: g, imgs: _dishImgUrls(g)),
+      );
+      if (sku == null || !mounted) return;
+      final name = '${g['title']}·${sku['name']}';
+      await _pushDishes([{
+        'goods_id': g['id'],
+        'goods_name': name, // 带 ·规格后缀，账单/后厨票/结算按规格行区分（v3.3.74 合并键含名称+价格）
+        'goods_image': g['goods_image'] ?? '',
+        'unit_price': double.tryParse('${sku['amount'] ?? g['amount'] ?? g['price']}') ?? 0,
+        'quantity': 1,
+        'cat_id': g['cat_id'] ?? '', // 后厨分单路由用（v3.3.82）
+        if (note.isNotEmpty) 'remark': note,
+      }], label: note.isEmpty ? name : '$name($note)');
+      return;
+    }
+    await _pushDishes([{
+      'goods_id': g['id'],
+      'goods_name': g['title'],
+      'goods_image': g['goods_image'] ?? '',
+      'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
+      'quantity': 1,
+      'cat_id': g['cat_id'] ?? '', // 后厨分单路由用（v3.3.82）
+      if (note.isNotEmpty) 'remark': note,
+    }], label: note.isEmpty ? '${g['title']}' : '${g['title']}($note)');
+  }
 
   /// 做法备注点菜：长按商品 → 选常用做法（免辣/少辣等）+ 自定义 → 带备注加入（v3.3.71）
   Future<void> _addDishWithNote(Map g) async {
@@ -2570,10 +2594,25 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: PosTheme.line)),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      Expanded(child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: RetailGoodsImage(urls: _dishImgUrls(g)),
-                      )),
+                      Expanded(child: Stack(children: [
+                        Positioned.fill(child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: RetailGoodsImage(urls: _dishImgUrls(g)),
+                        )),
+                        // 多规格角标（1122）：提示需弹规格选择
+                        if (_hasSpecs(g))
+                          Positioned(
+                            left: 0, top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: PosTheme.accentLive,
+                                borderRadius: BorderRadius.only(topLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+                              ),
+                              child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                      ])),
                       const SizedBox(height: 5),
                       Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 2),
@@ -2866,18 +2905,32 @@ class _PreorderDialogState extends State<_PreorderDialog> {
     }
   }
 
-  // 点菜：已有则数量+1，否则加入
-  void _pick(Map g) {
+  // 商品是否有规格（1122 起餐饮接口返回 specs，预点餐同样弹规格选择）
+  bool _hasSpecs(Map g) => g['specs'] is List && (g['specs'] as List).isNotEmpty;
+
+  // 点菜：已有则数量+1，否则加入（多规格行按 goods_id+规格名 区分，1122）
+  Future<void> _pick(Map g) async {
+    String title = '${g['title']}';
+    double price = double.tryParse('${g['amount'] ?? g['price']}') ?? 0;
+    if (_hasSpecs(g)) {
+      final sku = await showDialog<Map>(
+        context: context,
+        builder: (_) => DiningSkuPickerDialog(goods: g, imgs: _dishImgUrls(g)),
+      );
+      if (sku == null || !mounted) return;
+      title = '${g['title']}·${sku['name']}';
+      price = double.tryParse('${sku['amount'] ?? g['amount'] ?? g['price']}') ?? 0;
+    }
     final id = '${g['id']}';
-    final idx = bill.indexWhere((b) => '${b['goods_id']}' == id);
+    final idx = bill.indexWhere((b) => '${b['goods_id']}' == id && '${b['goods_title']}' == title);
     setState(() {
       if (idx >= 0) {
         bill[idx]['quantity'] = (int.tryParse('${bill[idx]['quantity']}') ?? 0) + 1;
       } else {
         bill.add({
           'goods_id': g['id'],
-          'goods_title': g['title'],
-          'unit_price': double.tryParse('${g['amount'] ?? g['price']}') ?? 0,
+          'goods_title': title,
+          'unit_price': price,
           'quantity': 1,
         });
       }
@@ -3082,10 +3135,25 @@ class _PreorderDialogState extends State<_PreorderDialog> {
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: PosTheme.line)),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      Expanded(child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: RetailGoodsImage(urls: _dishImgUrls(g)),
-                      )),
+                      Expanded(child: Stack(children: [
+                        Positioned.fill(child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: RetailGoodsImage(urls: _dishImgUrls(g)),
+                        )),
+                        // 多规格角标（1122）：提示需弹规格选择
+                        if (_hasSpecs(g))
+                          Positioned(
+                            left: 0, top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: PosTheme.accentLive,
+                                borderRadius: BorderRadius.only(topLeft: Radius.circular(8), bottomRight: Radius.circular(8)),
+                              ),
+                              child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                      ])),
                       const SizedBox(height: 5),
                       Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 2),
@@ -3979,6 +4047,88 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
           border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
         ),
         child: Text(label, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: on ? Colors.white : PosTheme.textSub)),
+      ),
+    );
+  }
+}
+
+// ==================== 餐饮多规格 SKU 选择弹窗（1122，零售同款交互） ====================
+/// 平铺 SKU 列表：一行一个规格（名称 + 价格），点击即选中加菜；
+/// 餐饮不做库存判定（wx_goods_sku.stock 对餐饮商品通常未维护，0 不代表售罄）
+class DiningSkuPickerDialog extends StatelessWidget {
+  final Map goods;
+  final List<String> imgs;
+  const DiningSkuPickerDialog({required this.goods, required this.imgs});
+
+  @override
+  Widget build(BuildContext context) {
+    final specs = (goods['specs'] as List?) ?? [];
+    return Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Container(
+        width: 560,
+        constraints: const BoxConstraints(maxHeight: 640),
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // 标题行：商品图 + 名称
+          Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(width: 64, height: 64, child: RetailGoodsImage(urls: imgs, iconSize: 28)),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              const Text('请选择规格', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+            ])),
+            InkWell(
+              onTap: () => Navigator.pop(context),
+              borderRadius: BorderRadius.circular(20),
+              child: const SizedBox(width: 36, height: 36, child: Icon(Icons.close, size: 24, color: PosTheme.textHint)),
+            ),
+          ]),
+          const SizedBox(height: 18),
+          // 规格列表：点击直接回传该 SKU
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: specs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) {
+                final s = specs[i] as Map;
+                return InkWell(
+                  onTap: () => Navigator.pop(context, s),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F8FA),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: PosTheme.line),
+                    ),
+                    child: Row(children: [
+                      Expanded(child: Text(
+                        '${s['name'] ?? '默认规格'}'.isEmpty ? '默认规格' : '${s['name']}',
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.textMain),
+                      )),
+                      Text('¥${Fmt.money(s['amount'])}',
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                      const SizedBox(width: 14),
+                      Container(
+                        width: 46, height: 46,
+                        decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(10)),
+                        child: const Icon(Icons.add, size: 24, color: Colors.white),
+                      ),
+                    ]),
+                  ),
+                );
+              },
+            ),
+          ),
+        ]),
       ),
     );
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dining_page.dart';
 import '../../core/api.dart';
 import '../../core/cloud_printer.dart';
 import '../../core/pay_methods.dart';
@@ -69,7 +70,27 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
     }
   }
 
-  void _add(Map g) {
+  // 商品是否有规格（1122 起餐饮接口返回 specs，堂食快餐同样弹规格选择）
+  bool _hasSpecs(Map g) => g['specs'] is List && (g['specs'] as List).isNotEmpty;
+
+  Future<void> _add(Map g) async {
+    // 多规格菜品：先弹规格选择，按规格行加购（goods_name 带 ·规格后缀）
+    if (_hasSpecs(g)) {
+      final sku = await showDialog<Map>(
+        context: context,
+        builder: (_) => DiningSkuPickerDialog(goods: g, imgs: const []),
+      );
+      if (sku == null || !mounted) return;
+      final name = '${g['title']}·${sku['name']}';
+      setState(() => cart.add({
+            'goods_id': g['id'],
+            'goods_name': name,
+            'goods_image': g['goods_image'] ?? '',
+            'unit_price': double.tryParse('${sku['amount'] ?? g['amount'] ?? g['price']}') ?? 0,
+            'quantity': 1,
+          }));
+      return;
+    }
     final id = '${g['id']}';
     for (final c in cart) {
       if ('${c['goods_id']}' == id) {
