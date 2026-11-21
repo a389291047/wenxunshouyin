@@ -454,7 +454,8 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
-  /// 近期记录卡（v3.3.250）：全部/消费/充值 三个切换卡边 + 最近5条（消费：时间 金额）
+  /// 近期记录卡（v3.3.250）：全部/消费/充值 三个切换卡边 + 最近5条
+  /// v3.3.250 优化：每条一张白卡、触屏按压效果、平均撑满下方空白区域
   Widget _recordsCard() {
     const tabs = ['全部', '消费', '充值'];
     final rows = _mergedRecords();
@@ -474,16 +475,17 @@ class _MemberPageState extends State<MemberPage> {
             _recChip(t),
           ],
         ]),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Expanded(
           child: recLoading
               ? const Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.accent)))
               : rows.isEmpty
                   ? const Center(child: Text('暂无记录', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)))
-                  : ListView.builder(
-                      padding: EdgeInsets.zero,
-                      itemCount: rows.length,
-                      itemBuilder: (_, i) => _recRow(rows[i]),
+                  : Column(
+                      children: [
+                        for (int i = 0; i < rows.length; i++)
+                          _recRow(rows[i], last: i == rows.length - 1),
+                      ],
                     ),
         ),
       ]),
@@ -510,32 +512,82 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
-  Widget _recRow(Map<String, dynamic> r) {
+  /// 单条记录卡片（v3.3.250）：左色条 + 时间/说明 + 类型标签 + 金额，
+  /// Material+InkWell 触屏按压墨水纹，Expanded 平均分摊剩余高度
+  Widget _recRow(Map<String, dynamic> r, {bool last = false}) {
     final isCz = r['kind'] == '充值';
     final c = isCz ? PosTheme.green : PosTheme.accent;
     final t = '${r['time']}';
     final time = t.length >= 16 ? t.substring(0, 16) : (t.isEmpty ? '—' : t);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-          decoration: BoxDecoration(color: c.withOpacity(0.10), borderRadius: BorderRadius.circular(6)),
-          child: Text('${r['kind']}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: c)),
+    final sub = '${r['sub']}'.trim();
+    return Expanded(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: last ? 0 : 8),
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {}, // 占位：保留触屏按压反馈
+            splashColor: c.withOpacity(0.10),
+            highlightColor: c.withOpacity(0.05),
+            hoverColor: c.withOpacity(0.04),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: PosTheme.line.withOpacity(0.55)),
+              ),
+              child: Row(children: [
+                // 左侧类型色条
+                Container(
+                  width: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color: c,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 11),
+                // 时间 + 说明
+                Expanded(
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(time, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    if (sub.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(sub, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                      ),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                // 类型标签 + 金额
+                Column(mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                  Text('${isCz ? '+' : '-'}¥${Fmt.money(r['amount'])}',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: c)),
+                  const SizedBox(height: 3),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: c.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                    child: Text('${r['kind']}',
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: c)),
+                  ),
+                ]),
+              ]),
+            ),
+          ),
         ),
-        const SizedBox(width: 9),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-            if ('${r['sub']}'.trim().isNotEmpty)
-              Text('${r['sub']}', maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
-          ]),
-        ),
-        const SizedBox(width: 8),
-        Text('${isCz ? '+' : '-'}¥${Fmt.money(r['amount'])}',
-            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800, color: isCz ? PosTheme.green : PosTheme.textMain)),
-      ]),
+      ),
     );
   }
 
