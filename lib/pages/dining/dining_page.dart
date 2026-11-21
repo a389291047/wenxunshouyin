@@ -1520,6 +1520,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
       setState(() => dishes = g);
+      // 多规格兜底预取（角标显示用；canyin 老版无 specs 时查 /api/goods/sku）
+      prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
     } on ApiError {
       if (!mounted) return;
       setState(() => dishes = []);
@@ -1535,6 +1537,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         final r = await Api.goodsAll(Session.wenxunId);
         if (!mounted) return;
         setState(() => allGoods = (r['goods'] ?? []) as List);
+        prefetchDiningSpecs(allGoods, onUpdated: () { if (mounted) setState(() {}); });
       } on ApiError {
         // 拉取失败则搜索只作用于当前分类商品
       }
@@ -1559,7 +1562,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
 
   Future<void> _addDish(Map g, {String note = ''}) async {
     // 多规格菜品：先弹规格选择（零售同款交互），选中后按规格行加菜
-    if (_hasSpecs(g)) {
+    // canyin 老版后端不带 specs：先查 /api/goods/sku 兜底（v3.3.252），新版直通零开销
+    if (await ensureDiningSpecs(g)) {
       final sku = await showDialog<Map>(
         context: context,
         builder: (_) => DiningSkuPickerDialog(goods: g, imgs: _dishImgUrls(g)),
@@ -2899,6 +2903,8 @@ class _PreorderDialogState extends State<_PreorderDialog> {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
       setState(() => dishes = g);
+      // 多规格兜底预取（角标显示用；canyin 老版无 specs 时查 /api/goods/sku）
+      prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
     } on ApiError {
       if (!mounted) return;
       setState(() => dishes = []);
@@ -2909,10 +2915,11 @@ class _PreorderDialogState extends State<_PreorderDialog> {
   bool _hasSpecs(Map g) => g['specs'] is List && (g['specs'] as List).isNotEmpty;
 
   // 点菜：已有则数量+1，否则加入（多规格行按 goods_id+规格名 区分，1122）
+  // canyin 老版后端不带 specs：先查 /api/goods/sku 兜底（v3.3.252），新版直通零开销
   Future<void> _pick(Map g) async {
     String title = '${g['title']}';
     double price = double.tryParse('${g['amount'] ?? g['price']}') ?? 0;
-    if (_hasSpecs(g)) {
+    if (await ensureDiningSpecs(g)) {
       final sku = await showDialog<Map>(
         context: context,
         builder: (_) => DiningSkuPickerDialog(goods: g, imgs: _dishImgUrls(g)),
@@ -4055,7 +4062,70 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
 // ==================== 餐饮多规格 SKU 选择弹窗（1122，零售同款交互） ====================
 /// 平铺 SKU 列表：一行一个规格（名称 + 价格），点击即选中加菜；
 /// 餐饮不做库存判定（wx_goods_sku.stock 对餐饮商品通常未维护，0 不代表售罄）
-/// 多规格选择弹窗：按维度自由组合（份量/口味…），点选实时匹配 SKU 显示价格/库存。
+// ==================== 餐饮多规格兜底（v3.3.252） ====================
+// canyin 老版后端不带 specs（tp8-sku-1122v1 补丁未部署时），点菜前查 /api/goods/sku
+// （零售/小程序长期在用的接口）补齐；补丁部署后 canyin 自带 specs，这里零开销直通。
+final _diningSkuCache = <int, bool>{}; // goods_id -> 是否查过（true=多规格已回填）
+
+/// 回填 g 的 specs/spec_groups；返回 true=多规格商品（应弹选择窗）
+Future<bool> ensureDiningSpecs(Map g) async {
+  final specs = g['specs'];
+  if (specs is List && specs.isNotEmpty) return true;
+  final gid = int.tryParse('${g['id']}') ?? 0;
+  if (gid <= 0) return false;
+  if (_diningSkuCache[gid] == false) return false; // 查过且非多规格
+  try {
+    final r = await Api.goodsSku(Session.wenxunId, gid);
+    final data = r['data'];
+    final list = (data is Map ? data['sku_list'] : null) as List? ?? const [];
+    if (list.isEmpty) {
+      _diningSkuCache[gid] = false;
+      return false;
+    }
+    g['specs'] = list.map((s) => <String, dynamic>{
+          'id': s['id'],
+          'name': '${s['sku_name'] ?? ''}',
+          'amount': s['amount'] ?? 0,
+          'stock': s['stock'] ?? 0,
+          'code': '${s['code'] ?? ''}',
+          'value_ids': '${s['duoguige_value_ids'] ?? ''}',
+        }).toList();
+    final dims = (data is Map ? data['spec_dims'] : null) as List? ?? const [];
+    g['spec_groups'] = dims.map((d) => <String, dynamic>{
+          'id': d['dim_id'],
+          'title': '${d['dim_name'] ?? '规格'}',
+          'values': ((d['values'] as List?) ?? const [])
+              .map((v) => <String, dynamic>{'id': v['id'], 'name': '${v['name'] ?? ''}'})
+              .toList(),
+        }).toList();
+    _diningSkuCache[gid] = true;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// 分类商品加载后预取缺 specs 的规格数据（多规格角标显示用，静默失败不阻塞）。
+/// 补丁已部署时 canyin 自带 is_duoguige（0/1），单规格商品直接跳过零请求；
+/// 老版后端无该字段才逐个查询（每次并发 6 个）。
+Future<void> prefetchDiningSpecs(List dishes, {void Function()? onUpdated}) async {
+  final todo = <Map>[];
+  for (final x in dishes) {
+    if (x is! Map) continue;
+    if (x['specs'] is List && (x['specs'] as List).isNotEmpty) continue;
+    if ('${x['is_duoguige'] ?? ''}' == '0') continue; // 新版后端明确单规格
+    final gid = int.tryParse('${x['id']}') ?? 0;
+    if (gid <= 0 || _diningSkuCache[gid] != null) continue;
+    todo.add(x);
+  }
+  for (var i = 0; i < todo.length; i += 6) {
+    final end = (i + 6) > todo.length ? todo.length : i + 6;
+    await Future.wait(todo.sublist(i, end).map(ensureDiningSpecs));
+    if (onUpdated != null) onUpdated();
+  }
+}
+
+/// 多规格选择弹窗：按维度自由组合（份量/口味…），点选实时匹配 SKU 显示价格。
 /// 数据口径（shouyin/Goods.php canyin 下发）：
 ///   specs  [{id, name, amount, stock, code, value_ids}]  SKU 组合明细
 ///   groups [{id, title, values:[{id, name}]}]            规格维度分组
@@ -4237,14 +4307,14 @@ class _DiningSkuPickerDialogState extends State<DiningSkuPickerDialog> {
   }
 
   // ---- 底栏：组合摘要 + 价格 + 加购按钮 ----
+  // 餐饮不做库存判定（wx_goods_sku.stock 对餐饮商品通常未维护，0 不代表售罄）：
+  // 库存>0 才显示「库存 X」，否则不显示，永不置灰
   List<Widget> _buildFooter() {
     final sku = _matched;
     final stock = sku == null ? 0 : ((sku['stock'] as num?)?.toInt() ?? 0);
-    final soldOut = sku != null && stock <= 0;
-    final ok = sku != null && !soldOut;
     final summary = sku == null
         ? '${_selNames()} · 无此组合'
-        : (soldOut ? '${_selNames()} · 已售罄' : '${_selNames()} · 库存 $stock');
+        : (stock > 0 ? '${_selNames()} · 库存 $stock' : _selNames());
     return [
       const SizedBox(height: 4),
       Container(height: 1, color: PosTheme.line),
@@ -4259,18 +4329,18 @@ class _DiningSkuPickerDialogState extends State<DiningSkuPickerDialog> {
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
         ])),
         InkWell(
-          onTap: ok ? () => Navigator.pop(context, sku) : () {
-            toast(context, sku == null ? '该组合暂不支持，请换个规格' : '该规格已售罄');
-          },
+          onTap: sku == null
+              ? () => toast(context, '该组合暂不支持，请换个规格')
+              : () => Navigator.pop(context, sku),
           borderRadius: BorderRadius.circular(24),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 13),
             decoration: BoxDecoration(
-              color: ok ? PosTheme.accent : const Color(0xFFD8D8D8),
+              color: sku == null ? const Color(0xFFD8D8D8) : PosTheme.accent,
               borderRadius: BorderRadius.circular(24),
             ),
-            child: Text(sku == null ? '加入购物车' : (soldOut ? '已售罄' : '加入购物车'),
-                style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700, color: Colors.white)),
+            child: const Text('加入购物车',
+                style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700, color: Colors.white)),
           ),
         ),
       ]),

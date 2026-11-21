@@ -268,6 +268,15 @@ class Api {
     return (r['goods'] ?? []) as List;
   }
 
+  /// 商品多规格数据（零售/餐饮通用，/api 根命名空间，v3.3.252 餐饮开台兜底用）
+  /// 返回 data:{spec_dims:[{dim_id,dim_name,values:[{id,name}]}], sku_list:[{id,sku_name,amount,stock,duoguige_value_ids,code}]}
+  static Future<Map<String, dynamic>> goodsSku(int wenxunId, int goodsId) async {
+    return post('/api/goods/sku', {
+      'wenxun_id': wenxunId,
+      'goods_id': goodsId,
+    });
+  }
+
   // ==================== 零售订单 ====================
 
   /// 创建店内零售单（POS）

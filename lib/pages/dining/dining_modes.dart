@@ -64,6 +64,8 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
       setState(() => dishes = g);
+      // 多规格兜底预取（角标显示用；canyin 老版无 specs 时查 /api/goods/sku）
+      prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
     } on ApiError {
       if (!mounted) return;
       setState(() => dishes = []);
@@ -75,7 +77,8 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
 
   Future<void> _add(Map g) async {
     // 多规格菜品：先弹规格选择，按规格行加购（goods_name 带 ·规格后缀）
-    if (_hasSpecs(g)) {
+    // canyin 老版后端不带 specs：先查 /api/goods/sku 兜底（v3.3.252），新版直通零开销
+    if (await ensureDiningSpecs(g)) {
       final sku = await showDialog<Map>(
         context: context,
         builder: (_) => DiningSkuPickerDialog(goods: g, imgs: const []),
@@ -302,11 +305,26 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(child: ('${g['goods_image'] ?? ''}').isNotEmpty
-                ? ClipRRect(borderRadius: BorderRadius.circular(6),
-                    child: Image.network(Api.base + ('${g['goods_image']}'.startsWith('/') ? '' : '/') + '${g['goods_image']}',
-                        width: double.infinity, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.restaurant, color: PosTheme.textHint)))
-                : const Icon(Icons.restaurant, color: PosTheme.textHint)),
+            Expanded(child: Stack(children: [
+              Positioned.fill(child: ('${g['goods_image'] ?? ''}').isNotEmpty
+                  ? ClipRRect(borderRadius: BorderRadius.circular(6),
+                      child: Image.network(Api.base + ('${g['goods_image']}'.startsWith('/') ? '' : '/') + '${g['goods_image']}',
+                          width: double.infinity, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.restaurant, color: PosTheme.textHint)))
+                  : const Icon(Icons.restaurant, color: PosTheme.textHint)),
+              // 多规格角标（1122）：提示需弹规格选择
+              if (_hasSpecs(g))
+                Positioned(
+                  left: 0, top: 0,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: PosTheme.accentLive,
+                      borderRadius: const BorderRadius.only(topLeft: Radius.circular(6), bottomRight: Radius.circular(8)),
+                    ),
+                    child: const Text('多规格', style: TextStyle(fontSize: 10.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+            ])),
             const SizedBox(height: 4),
             Text('${g['title'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
             Text('¥${Fmt.money(double.tryParse('${g['amount'] ?? g['price']}') ?? 0)}',
