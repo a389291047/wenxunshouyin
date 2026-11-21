@@ -2532,6 +2532,74 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
     );
   }
 
+  /// 会员行卡（v3.3.251）：触屏高度 + 墨水纹按压；一行平铺 微信昵称/手机号/余额/积分
+  Widget _pickVipRow(Map v) {
+    final nm = '${v['name'] ?? ''}'.trim();
+    final ph = '${v['phone'] ?? ''}'.trim();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => Navigator.pop(context, v),
+          splashColor: PosTheme.accent.withOpacity(0.10),
+          highlightColor: PosTheme.accent.withOpacity(0.06),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: PosTheme.line.withOpacity(0.55)),
+            ),
+            child: Row(children: [
+              VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 21, rounded: false, fallbackText: vipAvatarChar(v)),
+              const SizedBox(width: 12),
+              // 昵称 + 手机号
+              Expanded(
+                flex: 3,
+                child: Column(mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(nm.isEmpty ? (ph.isEmpty ? '未命名会员' : ph) : nm,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
+                  if (nm.isNotEmpty && ph.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(ph, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+                    ),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              // 余额
+              Expanded(
+                flex: 2,
+                child: Column(mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('余额', style: TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                  Text('¥${Fmt.money(v['amount'])}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+                ]),
+              ),
+              // 积分
+              Expanded(
+                flex: 2,
+                child: Column(mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('积分', style: TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                  Text('${v['score'] ?? 0}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: PosTheme.blue)),
+                ]),
+              ),
+              const Icon(Icons.chevron_right, size: 20, color: PosTheme.textHint),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 弹窗尺寸随屏幕收缩（v3.3.243）：小屏收银机不超出可用区
@@ -2596,24 +2664,16 @@ class _VipPickerDialogState extends State<RetailVipPickerDialog> {
                   ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
                   : list.isEmpty
                       ? const EmptyView('未找到会员')
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                          itemCount: list.length,
-                          itemBuilder: (_, i) {
-                            final v = list[i];
-                            final nm = '${v['name'] ?? ''}'.trim();
-                            final ph = '${v['phone'] ?? ''}'.trim();
-                            return ListTile(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                              visualDensity: VisualDensity.compact,
-                              leading: VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 20, rounded: false, fallbackText: vipAvatarChar(v)),
-                              title: Text(nm.isEmpty ? (ph.isEmpty ? '未命名会员' : ph) : '$nm  $ph', style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600)),
-                              subtitle: Text('余额 ¥${Fmt.money(v['amount'])}  积分 ${v['score'] ?? 0}', style: const TextStyle(fontSize: 12.5)),
-                              onTap: () => Navigator.pop(context, v),
-                            );
-                          },
-                        );
+                      // v3.3.251：触屏行卡，行高 = 可用高度平分 4 等份（72~104 之间），超 4 个可滚动
+                      : Builder(builder: (_) {
+                          final slotH = (((box.maxHeight - 12) / 4)).clamp(72.0, 104.0);
+                          return ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                            itemCount: list.length,
+                            itemExtent: slotH,
+                            itemBuilder: (_, i) => _pickVipRow(list[i]),
+                          );
+                        });
               if (wide) {
                 return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   Expanded(child: Padding(padding: const EdgeInsets.only(left: 8), child: listView)),

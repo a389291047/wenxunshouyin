@@ -441,7 +441,8 @@ class _MemberPageState extends State<MemberPage> {
   }
 
   /// 近期记录卡（v3.3.250）：全部/消费/充值 三个切换卡边 + 最近5条
-  /// v3.3.250 优化：每条一张白卡、触屏按压效果、平均撑满下方空白区域
+  /// v3.3.251：每条固定高度（按 5 条平分区域算出），2条/1条不撑满；
+  /// 类型「消费/充值」前置为圆角胶囊标签
   Widget _recordsCard() {
     const tabs = ['全部', '消费', '充值'];
     final rows = _mergedRecords();
@@ -467,12 +468,18 @@ class _MemberPageState extends State<MemberPage> {
               ? const Center(child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: PosTheme.accent)))
               : rows.isEmpty
                   ? const Center(child: Text('暂无记录', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)))
-                  : Column(
-                      children: [
-                        for (int i = 0; i < rows.length; i++)
-                          _recRow(rows[i], last: i == rows.length - 1),
-                      ],
-                    ),
+                  // 固定卡高 = 区域高度按 5 条平分（含间距），条数少时同高不撑满，多于 5 条可滚动
+                  : LayoutBuilder(builder: (ctx, box) {
+                      final cardH = ((box.maxHeight - 4 * 8) / 5).clamp(56.0, 88.0);
+                      return SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            for (int i = 0; i < rows.length; i++)
+                              _recRow(rows[i], last: i == rows.length - 1, height: cardH),
+                          ],
+                        ),
+                      );
+                    }),
         ),
       ]),
     );
@@ -498,17 +505,18 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
-  /// 单条记录卡片（v3.3.250）：左色条 + 时间/说明 + 类型标签 + 金额，
-  /// Material+InkWell 触屏按压墨水纹，Expanded 平均分摊剩余高度
-  Widget _recRow(Map<String, dynamic> r, {bool last = false}) {
+  /// 单条记录卡片（v3.3.251）：前置圆角胶囊类型标签（充值/消费）+ 时间/说明 + 金额，
+  /// Material+InkWell 触屏按压墨水纹；固定高度，不随条数撑满
+  Widget _recRow(Map<String, dynamic> r, {bool last = false, required double height}) {
     final isCz = r['kind'] == '充值';
     final c = isCz ? PosTheme.green : PosTheme.accent;
     final t = '${r['time']}';
     final time = t.length >= 16 ? t.substring(0, 16) : (t.isEmpty ? '—' : t);
     final sub = '${r['sub']}'.trim();
-    return Expanded(
-      child: Padding(
-        padding: EdgeInsets.only(bottom: last ? 0 : 8),
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 8),
+      child: SizedBox(
+        height: height,
         child: Material(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -525,16 +533,17 @@ class _MemberPageState extends State<MemberPage> {
                 border: Border.all(color: PosTheme.line.withOpacity(0.55)),
               ),
               child: Row(children: [
-                // 左侧类型色条
+                // 前置类型胶囊标签（充值/消费）
                 Container(
-                  width: 4,
-                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                   decoration: BoxDecoration(
                     color: c,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(20),
                   ),
+                  child: Text('${r['kind']}',
+                      style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
                 ),
-                const SizedBox(width: 11),
+                const SizedBox(width: 10),
                 // 时间 + 说明
                 Expanded(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center,
@@ -551,24 +560,10 @@ class _MemberPageState extends State<MemberPage> {
                   ]),
                 ),
                 const SizedBox(width: 8),
-                // 类型标签 + 金额
-                Column(mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                  Text('${isCz ? '+' : '-'}¥${Fmt.money(r['amount'])}',
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: c)),
-                  const SizedBox(height: 3),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: c.withOpacity(0.10),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    child: Text('${r['kind']}',
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: c)),
-                  ),
-                ]),
+                // 金额
+                Text('${isCz ? '+' : '-'}¥${Fmt.money(r['amount'])}',
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: c)),
               ]),
             ),
           ),
