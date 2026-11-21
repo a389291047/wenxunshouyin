@@ -358,8 +358,8 @@ class _MemberPageState extends State<MemberPage> {
                                           child: Text(
                                             '${v['phone'] ?? ''}',
                                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                                            // v3.3.251：与顶部「会员管理」标题同字体字号（24 w700）
-                                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                                            // v3.3.251：列表手机号 18 号粗体
+                                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                                           ),
                                         ),
                                         const SizedBox(width: 10),
