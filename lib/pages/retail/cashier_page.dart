@@ -2349,7 +2349,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     final dialogW = wide ? 900.0 : (size.width - 32).clamp(320.0, 660.0);
     final pad = compact ? 16.0 : 24.0;
     final gap = compact ? 10.0 : 14.0;
-    final tileH = compact ? 62.0 : 68.0;
+    final tileH = compact ? 70.0 : 78.0; // 方式卡加高，触屏更好点（v3.3.251）
     final keyH = compact ? 44.0 : 56.0;
     final quickH = compact ? 42.0 : 52.0;
     final btnH = compact ? 52.0 : 62.0;
@@ -2358,7 +2358,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     // 未选方式/扫码/现金/会员/支付中/成功/失败 各状态切换时弹窗宽高保持一致
     final panelH = compact ? 380.0 : 484.0;
 
-    // 右侧操作面板
+    // 操作面板
     Widget panel() {
       Widget inner;
       if (phase == 'paying') {
@@ -2377,7 +2377,7 @@ class _PayDialogState extends State<RetailPayDialog> {
         inner = Container(
           padding: EdgeInsets.symmetric(vertical: compact ? 14 : 40),
           alignment: Alignment.center,
-          child: const Text('请先在左侧选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
+          child: const Text('请选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
         );
       }
       return SizedBox(height: panelH, child: Center(child: inner));
@@ -2396,62 +2396,27 @@ class _PayDialogState extends State<RetailPayDialog> {
       ]);
     }
 
-    Widget body;
-    if (wide) {
-      body = Container(
-        width: dialogW,
-        padding: EdgeInsets.all(pad),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _titleRow(),
-          SizedBox(height: gap),
-          IntrinsicHeight(
-            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              // 左列：支付方式卡片竖排
-              SizedBox(
-                width: 190,
-                child: Column(children: [
-                  for (final m in widget.methods) ...[
-                    SizedBox(height: tileH, child: _methodTile(m)),
-                    const SizedBox(height: 8),
-                  ],
-                ]),
-              ),
-              const SizedBox(width: 16),
-              // 右侧：操作面板
-              Expanded(child: panel()),
-            ]),
-          ),
-          SizedBox(height: gap),
-          bottomBar(),
+    // v3.3.251：统一布局（不再分宽屏左右两栏）——支付方式一行平均分配等宽，
+    // 触屏更好点；下方操作面板固定高度
+    final body = Container(
+      width: dialogW,
+      padding: EdgeInsets.all(pad),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _titleRow(),
+        SizedBox(height: gap),
+        // 支付方式：一行 Expanded 平均分配，几项都等宽
+        Row(children: [
+          for (int i = 0; i < widget.methods.length; i++) ...[
+            if (i > 0) SizedBox(width: compact ? 8.0 : 12.0),
+            Expanded(child: SizedBox(height: tileH, child: _methodTile(widget.methods[i]))),
+          ],
         ]),
-      );
-    } else {
-      body = Container(
-        width: dialogW,
-        padding: EdgeInsets.all(pad),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _titleRow(),
-          SizedBox(height: gap),
-          // 支付方式：按弹窗宽度自动算列数（2/3/4 列）
-          LayoutBuilder(builder: (context, box) {
-            final w = box.maxWidth;
-            final cols = w >= 600 ? 4 : (w >= 440 ? 3 : 2);
-            final tileW = (w - 12 * (cols - 1)) / cols;
-            return Wrap(
-              spacing: 12,
-              runSpacing: gap,
-              children: [
-                for (final m in widget.methods) SizedBox(width: tileW, height: tileH, child: _methodTile(m)),
-              ],
-            );
-          }),
-          SizedBox(height: gap),
-          panel(),
-          SizedBox(height: gap),
-          bottomBar(),
-        ]),
-      );
-    }
+        SizedBox(height: gap),
+        panel(),
+        SizedBox(height: gap),
+        bottomBar(),
+      ]),
+    );
 
     return GestureDetector(
       // v3.3.251：点弹窗空白处不再丢焦点——扫码类自动把焦点还给付款码输入框，
@@ -2718,6 +2683,7 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   Widget _methodTile(String m) {
+    final compact = _compact;
     final on = method == m;
     final disabled = m == '会员支付' && widget.vip == null;
     return Opacity(
@@ -2735,22 +2701,22 @@ class _PayDialogState extends State<RetailPayDialog> {
           // 扫码收款：四个品牌图标排一起 + 文字（星驿付自动识别渠道）
           child: m == '扫码收款'
               ? LayoutBuilder(builder: (context, box) {
-                  if (box.maxWidth < 150) {
+                  if (box.maxWidth < 200) {
                     // 紧凑格：图标一行 + 文字一行
                     return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                         for (final p in _payBrandAssets) ...[
-                          _brandIcon(p, 16),
+                          _brandIcon(p, 20),
                           const SizedBox(width: 2),
                         ],
                       ]),
-                      const SizedBox(height: 3),
-                      Text('扫码收款', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+                      const SizedBox(height: 4),
+                      Text('扫码收款', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
                     ]);
                   }
                   return Row(children: [
                     for (final p in _payBrandAssets) ...[
-                      _brandIcon(p, 18),
+                      _brandIcon(p, 20),
                       const SizedBox(width: 3),
                     ],
                     const SizedBox(width: 5),
@@ -2760,12 +2726,12 @@ class _PayDialogState extends State<RetailPayDialog> {
                   ]);
                 })
               : Row(children: [
-            _methodIcon(m, size: 26, color: disabled ? PosTheme.textHint : _colorOf(m)),
+            _methodIcon(m, size: compact ? 28 : 32, color: disabled ? PosTheme.textHint : _colorOf(m)),
             const SizedBox(width: 8),
             Expanded(child: Text(m + (disabled ? '（未选会员）' : ''),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain))),
-            if (on) const Icon(Icons.check_circle, size: 18, color: PosTheme.green),
+                style: TextStyle(fontSize: compact ? 16 : 17, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain))),
+            if (on) const Icon(Icons.check_circle, size: 20, color: PosTheme.green),
           ]),
         ),
       ),
