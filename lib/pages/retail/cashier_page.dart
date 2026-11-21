@@ -2350,12 +2350,11 @@ class _PayDialogState extends State<RetailPayDialog> {
     final pad = compact ? 16.0 : 24.0;
     final gap = compact ? 10.0 : 14.0;
     final tileH = compact ? 70.0 : 78.0; // 方式卡加高，触屏更好点（v3.3.251）
-    final quickH = compact ? 42.0 : 52.0;
     final btnH = compact ? 52.0 : 62.0;
     final bigFont = compact ? 24.0 : 30.0;
     // 操作面板固定高度（按现金面板满配高度预留：实收行+快捷键+NumKeypad 56×4），
     // 各支付方式/各状态切换时弹窗宽高保持一致
-    final panelH = compact ? 392.0 : 440.0;
+    final panelH = compact ? 408.0 : 440.0;
 
     // 操作面板
     Widget panel() {
@@ -2367,7 +2366,7 @@ class _PayDialogState extends State<RetailPayDialog> {
       } else if (phase == 'fail') {
         inner = _failPanel();
       } else if (method == '现金') {
-        inner = _cashPanel(compact: compact, gap: gap, quickH: quickH, bigFont: bigFont);
+        inner = _cashPanel(compact: compact, gap: gap, bigFont: bigFont);
       } else if (method == '会员支付') {
         inner = _memberPanel(compact: compact);
       } else if (method != null) {
@@ -2535,7 +2534,7 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   // ---------- 右侧面板：现金 ----------
-  Widget _cashPanel({required bool compact, required double gap, required double quickH, required double bigFont}) {
+  Widget _cashPanel({required bool compact, required double gap, required double bigFont}) {
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
         Expanded(child: Container(
@@ -2560,25 +2559,15 @@ class _PayDialogState extends State<RetailPayDialog> {
         )),
       ]),
       SizedBox(height: gap),
-      // 快捷金额 + 抹零开关：一行 6 键（触屏等宽）
+      // 快捷键：抹分 / 抹角 / 刚好，三键与键盘 3 列对齐（键高一致 56）
       Row(children: [
-        Expanded(child: _cashKey('抹分', compact: compact, quickH: quickH,
+        Expanded(child: _cashKey('抹分',
             on: mollenType == 1, onTap: () => setState(() => mollenType = mollenType == 1 ? 0 : 1))),
-        SizedBox(width: compact ? 6 : 10),
-        Expanded(child: _cashKey('抹角', compact: compact, quickH: quickH,
+        const SizedBox(width: 10),
+        Expanded(child: _cashKey('抹角',
             on: mollenType == 2, onTap: () => setState(() => mollenType = mollenType == 2 ? 0 : 2))),
-        SizedBox(width: compact ? 6 : 10),
-        Expanded(child: _cashKey('¥50', compact: compact, quickH: quickH,
-            onTap: () => setState(() => received = Fmt.money(50.0)))),
-        SizedBox(width: compact ? 6 : 10),
-        Expanded(child: _cashKey('¥100', compact: compact, quickH: quickH,
-            onTap: () => setState(() => received = Fmt.money(100.0)))),
-        SizedBox(width: compact ? 6 : 10),
-        Expanded(child: _cashKey('¥200', compact: compact, quickH: quickH,
-            onTap: () => setState(() => received = Fmt.money(200.0)))),
-        SizedBox(width: compact ? 6 : 10),
-        Expanded(child: _cashKey('刚好', compact: compact, quickH: quickH,
-            onTap: () => setState(() => received = Fmt.money(payable)))),
+        const SizedBox(width: 10),
+        Expanded(child: _cashKey('刚好', onTap: () => setState(() => received = Fmt.money(payable)))),
       ]),
       SizedBox(height: gap),
       // 数字键盘：复用无码商品弹窗 NumKeypad（键高 56 / 字号 22 / 间距 10）
@@ -2592,13 +2581,13 @@ class _PayDialogState extends State<RetailPayDialog> {
     ]);
   }
 
-  /// 现金面板小按键（快捷金额 / 抹零开关），选中态绿色高亮
-  Widget _cashKey(String label, {required VoidCallback onTap, bool on = false, required bool compact, required double quickH}) {
+  /// 现金面板快捷键（抹零开关 / 刚好），与 NumKeypad 同高同风格，选中态绿色高亮
+  Widget _cashKey(String label, {required VoidCallback onTap, bool on = false}) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        height: quickH,
+        height: 56,
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: on ? PosTheme.green.withOpacity(0.12) : const Color(0xFFF7F8FA),
@@ -2606,7 +2595,7 @@ class _PayDialogState extends State<RetailPayDialog> {
           borderRadius: BorderRadius.circular(10),
         ),
         child: Text(label, style: TextStyle(
-            fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700,
+            fontSize: 18, fontWeight: FontWeight.w700,
             color: on ? PosTheme.green : PosTheme.textMain)),
       ),
     );
