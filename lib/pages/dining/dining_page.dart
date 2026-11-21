@@ -4055,14 +4055,68 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
 // ==================== 餐饮多规格 SKU 选择弹窗（1122，零售同款交互） ====================
 /// 平铺 SKU 列表：一行一个规格（名称 + 价格），点击即选中加菜；
 /// 餐饮不做库存判定（wx_goods_sku.stock 对餐饮商品通常未维护，0 不代表售罄）
-class DiningSkuPickerDialog extends StatelessWidget {
+/// 多规格选择弹窗：按维度自由组合（份量/口味…），点选实时匹配 SKU 显示价格/库存。
+/// 数据口径（shouyin/Goods.php canyin 下发）：
+///   specs  [{id, name, amount, stock, code, value_ids}]  SKU 组合明细
+///   groups [{id, title, values:[{id, name}]}]            规格维度分组
+/// groups 为空（维度表异常）时退化为平铺 SKU 列表。回传仍是匹配到的 SKU Map，调用方无感。
+class DiningSkuPickerDialog extends StatefulWidget {
   final Map goods;
   final List<String> imgs;
-  const DiningSkuPickerDialog({required this.goods, required this.imgs});
+  const DiningSkuPickerDialog({super.key, required this.goods, required this.imgs});
+
+  @override
+  State<DiningSkuPickerDialog> createState() => _DiningSkuPickerDialogState();
+}
+
+class _DiningSkuPickerDialogState extends State<DiningSkuPickerDialog> {
+  late final List<Map> _specs =
+      ((widget.goods['specs'] as List?) ?? []).whereType<Map>().toList();
+  late final List<Map> _groups =
+      ((widget.goods['spec_groups'] as List?) ?? []).whereType<Map>().toList();
+
+  /// 每个维度当前选中的规格值（默认各选第一项）
+  late final Map<int, int> _sel = {
+    for (final g in _groups)
+      if (((g['values'] as List?) ?? []).isNotEmpty)
+        (g['id'] as num).toInt(): (((g['values'] as List).first as Map)['id'] as num).toInt(),
+  };
+
+  // "11+22" / "11,22" → [11,22]
+  List<int> _parseIds(String s) {
+    final out = <int>[];
+    for (final p in s.split(RegExp(r'[+,.，]'))) {
+      final v = int.tryParse(p.trim());
+      if (v != null && v > 0) out.add(v);
+    }
+    out.sort();
+    return out;
+  }
+
+  /// 当前组合匹配到的 SKU（无匹配返回 null）
+  Map? get _matched {
+    if (_groups.isEmpty || _sel.length != _groups.length) return null;
+    final want = _sel.values.toList()..sort();
+    for (final s in _specs) {
+      if (_parseIds('${s['value_ids'] ?? ''}').join(',') == want.join(',')) return s;
+    }
+    return null;
+  }
+
+  String _selNames() {
+    final parts = <String>[];
+    for (final g in _groups) {
+      final want = _sel[(g['id'] as num).toInt()];
+      for (final v in ((g['values'] as List?) ?? []).whereType<Map>()) {
+        if ((v['id'] as num).toInt() == want) { parts.add('${v['name'] ?? ''}'); break; }
+      }
+    }
+    return parts.where((p) => p.isNotEmpty).join('-');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final specs = (goods['specs'] as List?) ?? [];
+    final flat = _groups.isEmpty; // 维度数据缺失 → 退化为平铺 SKU 列表
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -4075,14 +4129,15 @@ class DiningSkuPickerDialog extends StatelessWidget {
           Row(children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
-              child: SizedBox(width: 64, height: 64, child: RetailGoodsImage(urls: imgs, iconSize: 28)),
+              child: SizedBox(width: 64, height: 64, child: RetailGoodsImage(urls: widget.imgs, iconSize: 28)),
             ),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+              Text('${widget.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               const SizedBox(height: 4),
-              const Text('请选择规格', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+              Text(flat ? '请选择规格' : '请选择各维度规格，自由组合',
+                  style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
             ])),
             InkWell(
               onTap: () => Navigator.pop(context),
@@ -4091,45 +4146,134 @@ class DiningSkuPickerDialog extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 18),
-          // 规格列表：点击直接回传该 SKU
           Flexible(
-            child: ListView.separated(
-              shrinkWrap: true,
-              itemCount: specs.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder: (_, i) {
-                final s = specs[i] as Map;
-                return InkWell(
-                  onTap: () => Navigator.pop(context, s),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF7F8FA),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: PosTheme.line),
-                    ),
-                    child: Row(children: [
-                      Expanded(child: Text(
-                        '${s['name'] ?? '默认规格'}'.isEmpty ? '默认规格' : '${s['name']}',
-                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.textMain),
-                      )),
-                      Text('¥${Fmt.money(s['amount'])}',
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.accent)),
-                      const SizedBox(width: 14),
-                      Container(
-                        width: 46, height: 46,
-                        decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(10)),
-                        child: const Icon(Icons.add, size: 24, color: Colors.white),
-                      ),
-                    ]),
-                  ),
-                );
-              },
-            ),
+            child: flat ? _buildFlatList() : _buildGroups(),
           ),
+          if (!flat) ..._buildFooter(),
         ]),
       ),
     );
+  }
+
+  // ---- 平铺 SKU 列表（退化模式）：点击直接回传该 SKU ----
+  Widget _buildFlatList() {
+    return ListView.separated(
+      shrinkWrap: true,
+      itemCount: _specs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, i) {
+        final s = _specs[i];
+        return InkWell(
+          onTap: () => Navigator.pop(context, s),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7F8FA),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: PosTheme.line),
+            ),
+            child: Row(children: [
+              Expanded(child: Text(
+                '${s['name'] ?? '默认规格'}'.isEmpty ? '默认规格' : '${s['name']}',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: PosTheme.textMain),
+              )),
+              Text('¥${Fmt.money(s['amount'])}',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+              const SizedBox(width: 14),
+              Container(
+                width: 46, height: 46,
+                decoration: BoxDecoration(color: PosTheme.accent, borderRadius: BorderRadius.circular(10)),
+                child: const Icon(Icons.add, size: 24, color: Colors.white),
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  // ---- 按维度自由组合：每个维度一行选项 chips ----
+  Widget _buildGroups() {
+    return ListView(
+      shrinkWrap: true,
+      children: _groups.map((g) {
+        final gid = (g['id'] as num).toInt();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('${g['title'] ?? '规格'}',
+                style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 10, runSpacing: 10,
+              children: ((g['values'] as List?) ?? []).whereType<Map>().map((v) {
+                final vid = (v['id'] as num).toInt();
+                final on = _sel[gid] == vid;
+                return InkWell(
+                  onTap: () => setState(() => _sel[gid] = vid),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                    decoration: BoxDecoration(
+                      color: on ? PosTheme.accent : const Color(0xFFF5F6F8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: on ? PosTheme.accent : Colors.transparent),
+                    ),
+                    child: Text('${v['name'] ?? ''}',
+                        style: TextStyle(
+                          fontSize: 14.5,
+                          fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+                          color: on ? Colors.white : PosTheme.textMain,
+                        )),
+                  ),
+                );
+              }).toList(),
+            ),
+          ]),
+        );
+      }).toList(),
+    );
+  }
+
+  // ---- 底栏：组合摘要 + 价格 + 加购按钮 ----
+  List<Widget> _buildFooter() {
+    final sku = _matched;
+    final stock = sku == null ? 0 : ((sku['stock'] as num?)?.toInt() ?? 0);
+    final soldOut = sku != null && stock <= 0;
+    final ok = sku != null && !soldOut;
+    final summary = sku == null
+        ? '${_selNames()} · 无此组合'
+        : (soldOut ? '${_selNames()} · 已售罄' : '${_selNames()} · 库存 $stock');
+    return [
+      const SizedBox(height: 4),
+      Container(height: 1, color: PosTheme.line),
+      const SizedBox(height: 14),
+      Row(children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(summary, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+          const SizedBox(height: 4),
+          if (sku != null)
+            Text('¥${Fmt.money(sku['amount'])}',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.accent)),
+        ])),
+        InkWell(
+          onTap: ok ? () => Navigator.pop(context, sku) : () {
+            toast(context, sku == null ? '该组合暂不支持，请换个规格' : '该规格已售罄');
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 13),
+            decoration: BoxDecoration(
+              color: ok ? PosTheme.accent : const Color(0xFFD8D8D8),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Text(sku == null ? '加入购物车' : (soldOut ? '已售罄' : '加入购物车'),
+                style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700, color: Colors.white)),
+          ),
+        ),
+      ]),
+    ];
   }
 }
