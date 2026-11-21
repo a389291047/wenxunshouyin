@@ -2091,6 +2091,19 @@ class _PayDialogState extends State<RetailPayDialog> {
   String? method;
   String received = ''; // 现金实收（数字键盘输入）
   int mollenType = 0; // 抹零模式（v3.3.238）：0 不抹 / 1 抹分 / 2 抹角（仅现金）
+
+  // ===== v3.3.251 单弹窗收款：左侧方式卡 + 右侧操作面板 + 弹窗内直接支付 =====
+  // 收银员点方式卡 → 扫码枪扫顾客付款码（扫完自动收款）→ 完成，不再跳第二个扫码弹窗
+  final codeCtrl = TextEditingController();
+  final codeFocus = FocusNode();
+  String phase = 'input'; // input=待扫码/录现金 paying=支付中 success=成功 fail=失败
+  String payStatus = 'scanned';
+  int elapsedSec = 0;
+  String errorMsg = '';
+  String payNo = ''; // 本次扫码用的我方单号
+  bool needNewNo = false; // 上一笔已确认失败，重试换新单号
+  Map? payOrder; // 成功后的支付流水行
+
   final icons = {
     '现金': Icons.payments_outlined,
     '扫码收款': Icons.qr_code_scanner,
@@ -2162,9 +2175,160 @@ class _PayDialogState extends State<RetailPayDialog> {
     });
   }
 
-  // ===== v3.3.210 小屏/竖屏自适应 =====
-  // 竖屏收银机（如 600×1024）和矮宽屏（1024×768）上，固定 660 宽 + 全内容
-  // 约 800 高会溢出切掉「确认收款」。这里按屏幕算尺寸档位，再套滚动兜底。
+  @override
+  void dispose() {
+    codeCtrl.dispose();
+    codeFocus.dispose();
+    super.dispose();
+  }
+
+  // ==================== 扫码支付（弹窗内直接执行） ====================
+  bool get _isScan => method == '扫码收款' || method == '微信支付' || method == '支付宝';
+  bool get _busy => phase == 'paying' || phase == 'success';
+
+  /// 付款码前缀识别渠道换主题色（微信 10-15 / 支付宝 25-30 / 云闪付 62）
+  Color get _channelColor {
+    final code = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '');
+    if (code.length >= 2) {
+      final p = int.tryParse(code.substring(0, 2)) ?? 0;
+      if (p >= 10 && p <= 15) return const Color(0xFF07C160);
+      if (p >= 25 && p <= 30) return const Color(0xFF1677FF);
+      if (code.startsWith('62')) return const Color(0xFFE21836);
+    }
+    return method != null ? _colorOf(method!) : PosTheme.blue;
+  }
+
+  String _genNo({bool forceNew = false}) {
+    if (!forceNew && payNo.isNotEmpty) return payNo;
+    return 'XYFR${DateTime.now().millisecondsSinceEpoch}'
+        '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+  }
+
+  /// 支付中每秒计时
+  void _startElapsed() {
+    elapsedSec = 0;
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted || phase != 'paying') return false;
+      setState(() => elapsedSec++);
+      return true;
+    });
+  }
+
+  String get _payStatusText {
+    switch (payStatus) {
+      case 'scanned':
+        return '正在提交付款码…';
+      case 'accepted':
+        return '已受理，等待支付结果…';
+      default:
+        return '顾客正在输入密码…';
+    }
+  }
+
+  /// 确认收款（扫码类）：弹窗内直接调星驿付付款码支付 + 轮询
+  Future<void> _payScan() async {
+    if (_busy) return;
+    final code = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
+    if (!RegExp(r'^\d{16,32}$').hasMatch(code)) {
+      setState(() => errorMsg = '付款码无效（16-32位数字），请重新扫码或输入');
+      codeFocus.requestFocus();
+      return;
+    }
+    setState(() {
+      phase = 'paying';
+      payStatus = 'scanned';
+      errorMsg = '';
+    });
+    payNo = _genNo(forceNew: needNewNo);
+    needNewNo = false;
+    _startElapsed();
+    try {
+      final o = await Api.xyfScanPay(
+        amount: widget.total,
+        authCode: code,
+        orderNo: payNo,
+        bizType: 'retail',
+        onStatus: (s) {
+          if (mounted) setState(() => payStatus = s);
+        },
+      );
+      if (!mounted) return;
+      VoiceService.instance.pay('扫码', widget.total);
+      setState(() {
+        payOrder = o;
+        phase = 'success';
+      });
+      // 成功停 1.2 秒自动回传落单
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (!mounted) return;
+        Navigator.pop(context, {
+          'method': method,
+          'xyf_order_no': '${o['order_no'] ?? payNo}',
+          'xyf_channel': int.tryParse('${o['pay_channel'] ?? 0}') ?? 0,
+        });
+      });
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        phase = 'fail';
+        errorMsg = e.message;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        phase = 'fail';
+        errorMsg = '支付失败：$e';
+      });
+    }
+  }
+
+  /// 失败重试：先回查上一笔，防止「其实已付款」还让顾客再付一次（同扫码弹窗逻辑）
+  Future<void> _retry() async {
+    if (payNo.isNotEmpty) {
+      try {
+        final q = await Api.xyfQueryOrder(payNo);
+        final d = q['data'];
+        if ('${q['code']}' == '0' && d is Map) {
+          final m = Map<String, dynamic>.from(d);
+          final st = int.tryParse('${m['status'] ?? 0}') ?? 0;
+          if (st == 3) {
+            if (!mounted) return;
+            VoiceService.instance.pay('扫码', widget.total);
+            setState(() {
+              payOrder = m;
+              phase = 'success';
+              errorMsg = '';
+            });
+            Future.delayed(const Duration(milliseconds: 1200), () {
+              if (!mounted) return;
+              Navigator.pop(context, {
+                'method': method,
+                'xyf_order_no': '${m['order_no'] ?? payNo}',
+                'xyf_channel': int.tryParse('${m['pay_channel'] ?? 0}') ?? 0,
+              });
+            });
+            return;
+          }
+          if (st == 1 || st == 2) {
+            if (!mounted) return;
+            setState(() => errorMsg = '上一笔仍在等待支付结果，请稍等再点「重新收款」，请勿重复向顾客收款');
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+    needNewNo = true;
+    setState(() {
+      phase = 'input';
+      codeCtrl.clear();
+      errorMsg = '';
+    });
+    codeFocus.requestFocus();
+  }
+
+  // ==================== 布局 ====================
+  // v3.3.210 小屏/竖屏自适应；v3.3.251 宽屏改左右卡片布局
   bool get _compact {
     final s = MediaQuery.of(context).size;
     return s.height < 900 || s.width < 1100;
@@ -2174,145 +2338,102 @@ class _PayDialogState extends State<RetailPayDialog> {
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
     final compact = _compact;
-    final dialogW = (size.width - 32).clamp(320.0, 660.0);
-    final pad = compact ? 16.0 : 28.0;
+    final wide = !compact; // 宽屏：左侧方式卡竖排 + 右侧操作面板
+    final dialogW = wide ? 900.0 : (size.width - 32).clamp(320.0, 660.0);
+    final pad = compact ? 16.0 : 24.0;
     final gap = compact ? 10.0 : 14.0;
-    final tileH = compact ? 62.0 : 84.0;
+    final tileH = compact ? 62.0 : 68.0;
     final keyH = compact ? 44.0 : 56.0;
     final quickH = compact ? 42.0 : 52.0;
-    final btnH = compact ? 52.0 : 64.0;
+    final btnH = compact ? 52.0 : 62.0;
     final bigFont = compact ? 24.0 : 30.0;
 
-    Widget body = Container(
-      width: dialogW,
-      padding: EdgeInsets.all(pad),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        // 标题行
-        Row(children: [
-          Text('收款', style: TextStyle(fontSize: compact ? 20 : 24, fontWeight: FontWeight.w800)),
-          const Spacer(),
-          const Text('应收 ', style: TextStyle(fontSize: 15, color: PosTheme.textSub)),
-          Text('¥${Fmt.money(widget.total)}',
-              style: TextStyle(fontSize: compact ? 24 : 34, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
-        ]),
-        SizedBox(height: gap),
-        // 支付方式：按弹窗宽度自动算列数（2/3/4 列），竖屏也不挤
-        LayoutBuilder(builder: (context, box) {
-          final w = box.maxWidth;
-          final cols = w >= 600 ? 4 : (w >= 440 ? 3 : 2);
-          final tileW = (w - 12 * (cols - 1)) / cols;
-          return Wrap(
-            spacing: 12,
-            runSpacing: gap,
-            children: [
-              for (final m in widget.methods) SizedBox(width: tileW, height: tileH, child: _methodTile(m)),
-            ],
-          );
-        }),
-        SizedBox(height: gap),
-        if (method == '现金') ...[
-          // 实收 + 找零
-          Row(children: [
-            Expanded(child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: compact ? 8 : 14),
-              decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(12)),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('顾客实收', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                const SizedBox(height: 3),
-                Text(received.isEmpty ? '¥ 0.00' : '¥ $received',
-                    style: TextStyle(fontSize: bigFont, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
-              ]),
-            )),
-            SizedBox(width: compact ? 8 : 14),
-            Expanded(child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: compact ? 8 : 14),
-              decoration: BoxDecoration(color: const Color(0xFFF0FFF6), borderRadius: BorderRadius.circular(12)),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('找零', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
-                const SizedBox(height: 3),
-                Text('¥${Fmt.money(change)}', style: TextStyle(fontSize: bigFont, fontWeight: FontWeight.w800, color: PosTheme.green)),
-              ]),
-            )),
-          ]),
+    // 右侧操作面板
+    Widget panel() {
+      if (phase == 'paying') return _payingPanel();
+      if (phase == 'success') return _successPanel();
+      if (phase == 'fail') return _failPanel();
+      if (method == '现金') {
+        return _cashPanel(compact: compact, gap: gap, quickH: quickH, keyH: keyH, bigFont: bigFont);
+      }
+      if (method == '会员支付') return _memberPanel(compact: compact);
+      if (method != null) return _scanPanel(compact: compact);
+      return Container(
+        padding: EdgeInsets.symmetric(vertical: compact ? 14 : 40),
+        alignment: Alignment.center,
+        child: const Text('请先在左侧选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
+      );
+    }
+
+    // 底部按钮（取消 + 确认收款）
+    Widget bottomBar() {
+      return Row(children: [
+        Expanded(child: SizedBox(
+          height: btnH,
+          child: BigButton('取消', onTap: _busy ? null : () => Navigator.pop(context),
+              color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: btnH),
+        )),
+        SizedBox(width: compact ? 8 : 14),
+        Expanded(flex: 2, child: _confirmButton(btnH)),
+      ]);
+    }
+
+    Widget body;
+    if (wide) {
+      body = Container(
+        width: dialogW,
+        padding: EdgeInsets.all(pad),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _titleRow(),
           SizedBox(height: gap),
-          if (mollen > 0) ...[
-            // 抹零已生效提示（v3.3.239 切换按钮移入数字键盘 0 后）
-            Row(children: [
-              const Spacer(),
-              Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
-                  style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
-            ]),
-            SizedBox(height: gap),
-          ],
-          // 快捷金额
-          Row(children: [
-            for (final v in [50.0, 100.0, 200.0, payable]) ...[
-              Expanded(child: InkWell(
-                onTap: () => setState(() => received = Fmt.money(v)),
-                borderRadius: BorderRadius.circular(10),
-                child: Container(
-                  height: quickH, alignment: Alignment.center,
-                  decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
-                  child: Text(v == payable ? '刚好' : '¥${v.toInt()}',
-                      style: TextStyle(fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
-                ),
-              )),
-              SizedBox(width: compact ? 6 : 10),
-            ]
-          ]),
-          SizedBox(height: gap),
-          // 数字键盘
-          _keypad(keyH),
-        ] else if (method != null) ...[
-          Container(
-            padding: EdgeInsets.symmetric(vertical: compact ? 14 : 30),
-            alignment: Alignment.center,
-            child: Column(children: [
-              _methodIcon(method!, size: compact ? 42 : 56),
-              SizedBox(height: compact ? 8 : 12),
-              Text(method == '会员支付'
-                      ? '将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}'
-                      : method == '扫码收款' || method == '微信支付' || method == '支付宝'
-                          ? '点「确认收款」后用扫码枪扫顾客付款码（微信/支付宝自动识别）'
-                          : '确认到账后点击下方「确认收款」',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
-              SizedBox(height: compact ? 4 : 6),
-              Text(
-                  method == '会员支付'
-                      ? '当前余额 ¥${Fmt.money((double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0) + (double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0))}'
-                      : method == '扫码收款' || method == '微信支付' || method == '支付宝'
-                          ? '扫码成功自动完成收款'
-                          : '确认到账后点击下方「确认收款」',
-                  style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          IntrinsicHeight(
+            child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              // 左列：支付方式卡片竖排
+              SizedBox(
+                width: 190,
+                child: Column(children: [
+                  for (final m in widget.methods) ...[
+                    SizedBox(height: tileH, child: _methodTile(m)),
+                    const SizedBox(height: 8),
+                  ],
+                ]),
+              ),
+              const SizedBox(width: 16),
+              // 右侧：操作面板
+              Expanded(child: panel()),
             ]),
           ),
-        ] else ...[
-          Container(
-            padding: EdgeInsets.symmetric(vertical: compact ? 14 : 30),
-            alignment: Alignment.center,
-            child: const Text('请先选择收款方式', style: TextStyle(fontSize: 15, color: PosTheme.textHint)),
-          ),
-        ],
-        SizedBox(height: compact ? 12 : 20),
-        // 大按钮
-        Row(children: [
-          Expanded(child: SizedBox(
-            height: btnH,
-            child: BigButton('取消', onTap: () => Navigator.pop(context),
-                color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: btnH),
-          )),
-          SizedBox(width: compact ? 8 : 14),
-          Expanded(flex: 2, child: BigButton('确认收款 ¥${Fmt.money(payable)}',
-              onTap: method == null
-                  ? null
-                  : () => Navigator.pop(context, method == '现金' && mollen > 0
-                      ? {'method': '现金', 'mollen': mollen}
-                      : method),
-              height: btnH)),
+          SizedBox(height: gap),
+          bottomBar(),
         ]),
-      ]),
-    );
+      );
+    } else {
+      body = Container(
+        width: dialogW,
+        padding: EdgeInsets.all(pad),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _titleRow(),
+          SizedBox(height: gap),
+          // 支付方式：按弹窗宽度自动算列数（2/3/4 列）
+          LayoutBuilder(builder: (context, box) {
+            final w = box.maxWidth;
+            final cols = w >= 600 ? 4 : (w >= 440 ? 3 : 2);
+            final tileW = (w - 12 * (cols - 1)) / cols;
+            return Wrap(
+              spacing: 12,
+              runSpacing: gap,
+              children: [
+                for (final m in widget.methods) SizedBox(width: tileW, height: tileH, child: _methodTile(m)),
+              ],
+            );
+          }),
+          SizedBox(height: gap),
+          panel(),
+          SizedBox(height: gap),
+          bottomBar(),
+        ]),
+      );
+    }
 
     return Dialog(
       backgroundColor: Colors.white,
@@ -2325,49 +2446,252 @@ class _PayDialogState extends State<RetailPayDialog> {
     );
   }
 
-  /// 选择支付方式（v3.3.177 复用餐饮免确认直通）：
-  /// 微信/支付宝点卡片直接弹付款码，扫码成功带支付流水关单，跳过「确认收款」按钮；
-  /// 其余方式照旧选中后手动确认
-  Future<void> _pick(String m) async {
-    if (m != '微信支付' && m != '支付宝') {
-      setState(() => method = m);
-      return;
+  Widget _titleRow() {
+    final compact = _compact;
+    return Row(children: [
+      Text('收款', style: TextStyle(fontSize: compact ? 20 : 24, fontWeight: FontWeight.w800)),
+      const Spacer(),
+      const Text('应收 ', style: TextStyle(fontSize: 15, color: PosTheme.textSub)),
+      Text('¥${Fmt.money(widget.total)}',
+          style: TextStyle(fontSize: compact ? 24 : 34, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
+    ]);
+  }
+
+  /// 底部确认按钮：随 phase / method 切换形态
+  Widget _confirmButton(double btnH) {
+    if (phase == 'paying') {
+      return BigButton('支付中…', onTap: null, color: const Color(0xFFE9EBF0), textColor: PosTheme.textSub, height: btnH);
     }
-    final orderNo = 'XYFR${DateTime.now().millisecondsSinceEpoch}'
-        '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
-    final pay = await showXyfScanPayDialog(context,
-        amount: widget.total, title: '扫码收款 · $m', bizType: 'retail', orderNo: orderNo);
-    if (!mounted) return;
-    if (pay == null) {
-      // 扫码取消：不记账，收回选中状态，防止误点「确认收款」造成记账式收款
-      setState(() => method = null);
-      return;
+    if (phase == 'success') {
+      return BigButton('✓ 收款成功', onTap: null, color: PosTheme.green, textColor: Colors.white, height: btnH);
     }
-    Navigator.pop(context, {
-      'method': m,
-      'xyf_order_no': '${pay['orderNo'] ?? orderNo}',
-      'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+    if (phase == 'fail') {
+      return BigButton('重新收款', onTap: _retry, height: btnH);
+    }
+    // v3.3.251：扫码类空码/无效码时禁用确认（防止误点抢焦点导致扫码枪失灵），扫完自动收款
+    final codeClean = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
+    final codeOk = !_isScan || RegExp(r'^\d{16,32}$').hasMatch(codeClean);
+    final enabled = method != null && phase == 'input' && codeOk;
+    return BigButton(method == null ? '确认收款' : '确认收款 ¥${Fmt.money(payable)}',
+        onTap: !enabled
+            ? null
+            : _isScan
+                ? () => _payScan()
+                : () => Navigator.pop(context, method == '现金' && mollen > 0
+                    ? {'method': '现金', 'mollen': mollen}
+                    : method),
+        height: btnH);
+  }
+
+  // ---------- 右侧面板：扫码类 ----------
+  Widget _scanPanel({required bool compact}) {
+    final c = _channelColor;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        TextField(
+          controller: codeCtrl,
+          focusNode: codeFocus,
+          autofocus: true,
+          enabled: !_busy,
+          keyboardType: TextInputType.number,
+          maxLength: 32,
+          style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+          onChanged: (v) {
+            // 清除扫码枪带回的换行/制表符等脏字符
+            final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
+            if (clean != v) {
+              codeCtrl.value = TextEditingValue(
+                  text: clean,
+                  selection: TextSelection.collapsed(offset: clean.length));
+            }
+            setState(() {});
+          },
+          onSubmitted: (_) => _payScan(), // 扫码枪带回车：扫完直接收款，零点击
+          decoration: InputDecoration(
+            labelText: '顾客付款码',
+            counterText: '',
+            prefixIcon: Icon(Icons.qr_code, size: 24, color: c),
+            contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+            suffixIcon: codeCtrl.text.isEmpty
+                ? null
+                : IconButton(icon: const Icon(Icons.clear, size: 20), onPressed: () => setState(() => codeCtrl.clear())),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text('扫码枪对准顾客付款码，扫完自动收款（微信/支付宝/云闪付自动识别）',
+            style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+        if (errorMsg.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Row(children: [
+            const Icon(Icons.error_outline, size: 16, color: PosTheme.red),
+            const SizedBox(width: 5),
+            Expanded(child: Text(errorMsg, style: const TextStyle(fontSize: 13, color: PosTheme.red))),
+          ]),
+        ],
+      ]),
+    );
+  }
+
+  // ---------- 右侧面板：现金 ----------
+  Widget _cashPanel({required bool compact, required double gap, required double quickH, required double keyH, required double bigFont}) {
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Expanded(child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: compact ? 8 : 14),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(12)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('顾客实收', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(height: 3),
+            Text(received.isEmpty ? '¥ 0.00' : '¥ $received',
+                style: TextStyle(fontSize: bigFont, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
+          ]),
+        )),
+        SizedBox(width: compact ? 8 : 14),
+        Expanded(child: Container(
+          padding: EdgeInsets.symmetric(horizontal: 14, vertical: compact ? 8 : 14),
+          decoration: BoxDecoration(color: const Color(0xFFF0FFF6), borderRadius: BorderRadius.circular(12)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('找零', style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
+            const SizedBox(height: 3),
+            Text('¥${Fmt.money(change)}', style: TextStyle(fontSize: bigFont, fontWeight: FontWeight.w800, color: PosTheme.green)),
+          ]),
+        )),
+      ]),
+      SizedBox(height: gap),
+      if (mollen > 0) ...[
+        Row(children: [
+          const Spacer(),
+          Text('已优惠 ¥${Fmt.money(mollen)}，应收 ¥${Fmt.money(payable)}',
+              style: const TextStyle(fontSize: 12.5, color: Colors.green, fontWeight: FontWeight.w700)),
+        ]),
+        SizedBox(height: gap),
+      ],
+      Row(children: [
+        for (final v in [50.0, 100.0, 200.0, payable]) ...[
+          Expanded(child: InkWell(
+            onTap: () => setState(() => received = Fmt.money(v)),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              height: quickH, alignment: Alignment.center,
+              decoration: BoxDecoration(border: Border.all(color: PosTheme.line), borderRadius: BorderRadius.circular(10)),
+              child: Text(v == payable ? '刚好' : '¥${v.toInt()}',
+                  style: TextStyle(fontSize: compact ? 15 : 17, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+            ),
+          )),
+          SizedBox(width: compact ? 6 : 10),
+        ]
+      ]),
+      SizedBox(height: gap),
+      _keypad(keyH),
+    ]);
+  }
+
+  // ---------- 右侧面板：会员支付 ----------
+  Widget _memberPanel({required bool compact}) {
+    return Container(
+      padding: EdgeInsets.symmetric(vertical: compact ? 14 : 30),
+      alignment: Alignment.center,
+      child: Column(children: [
+        _methodIcon('会员支付', size: compact ? 42 : 56),
+        SizedBox(height: compact ? 8 : 12),
+        Text('将从「${widget.vip?['name'] ?? widget.vip?['phone'] ?? ''}」余额扣除 ¥${Fmt.money(widget.total)}',
+            textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
+        const SizedBox(height: 6),
+        Text('当前余额 ¥${Fmt.money((double.tryParse('${widget.vip?['amount'] ?? 0}') ?? 0) + (double.tryParse('${widget.vip?['gift_balance'] ?? 0}') ?? 0))}',
+            style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+      ]),
+    );
+  }
+
+  // ---------- 右侧面板：支付中 / 成功 / 失败 ----------
+  Widget _payingPanel() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 10),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 96, height: 96,
+          decoration: const BoxDecoration(color: Color(0xFFEAF2FF), shape: BoxShape.circle),
+          alignment: Alignment.center,
+          child: const SizedBox(width: 60, height: 60, child: CircularProgressIndicator(strokeWidth: 5, color: PosTheme.blue)),
+        ),
+        const SizedBox(height: 16),
+        Text(_payStatusText, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 4),
+        Text('已等待 $elapsedSec 秒 · 最长 60 秒', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
+      ]),
+    );
+  }
+
+  Widget _successPanel() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 30),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 78, height: 78,
+            decoration: BoxDecoration(color: PosTheme.green.withOpacity(0.12), shape: BoxShape.circle),
+            child: const Icon(Icons.check, size: 44, color: PosTheme.green)),
+        const SizedBox(height: 14),
+        const Text('收款成功', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+      ]),
+    );
+  }
+
+  Widget _failPanel() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(width: 78, height: 78,
+            decoration: BoxDecoration(color: PosTheme.red.withOpacity(0.1), shape: BoxShape.circle),
+            child: const Icon(Icons.close, size: 44, color: PosTheme.red)),
+        const SizedBox(height: 14),
+        const Text('收款失败', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: PosTheme.red)),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(errorMsg, textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
+        ),
+      ]),
+    );
+  }
+
+  /// 选择支付方式（v3.3.251 改为只选中，扫码在弹窗内确认时执行）
+  void _pick(String m) {
+    if (m == '会员支付' && widget.vip == null) return;
+    setState(() {
+      method = m;
+      phase = 'input';
+      errorMsg = '';
+      if (m != '现金') mollenType = 0;
     });
+    if (_isScan) codeFocus.requestFocus();
   }
 
   Widget _methodTile(String m) {
     final on = method == m;
     final disabled = m == '会员支付' && widget.vip == null;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: disabled ? null : () => _pick(m),
-      child: Container(
-        decoration: BoxDecoration(
-          color: on ? _colorOf(m).withOpacity(0.1) : const Color(0xFFF7F8FA),
-          border: Border.all(color: on ? _colorOf(m) : Colors.transparent, width: 2),
-          borderRadius: BorderRadius.circular(12),
+    return Opacity(
+      opacity: _busy && !on ? 0.45 : 1,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: (disabled || _busy) ? null : () => _pick(m),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: on ? _colorOf(m).withOpacity(0.1) : const Color(0xFFF7F8FA),
+            border: Border.all(color: on ? _colorOf(m) : Colors.transparent, width: 2),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(children: [
+            _methodIcon(m, size: 26, color: disabled ? PosTheme.textHint : _colorOf(m)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(m + (disabled ? '（未选会员）' : ''),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain))),
+            if (on) const Icon(Icons.check_circle, size: 18, color: PosTheme.green),
+          ]),
         ),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _methodIcon(m, size: 30, color: disabled ? PosTheme.textHint : _colorOf(m)),
-          const SizedBox(height: 6),
-          Text(m + (disabled ? '（未选会员）' : ''),
-              style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: disabled ? PosTheme.textHint : PosTheme.textMain)),
-        ]),
       ),
     );
   }
@@ -2389,7 +2713,7 @@ class _PayDialogState extends State<RetailPayDialog> {
             ]
           ]),
         ),
-      // 底行：0 占两格，后面是抹零键（v3.3.239 移入；小数点在第三行、退格在第一行保留）
+      // 底行：0 占两格，后面是抹零键（v3.3.239 移入）
       Row(children: [
         Expanded(flex: 2, child: _keyBtn('0', keyH)),
         const SizedBox(width: 8),
