@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../core/pending_recharge.dart';
 import '../core/preorder_auto_print.dart';
 import '../core/preorder_badge.dart';
 import '../core/printer_route.dart';
@@ -32,6 +33,7 @@ class ShellPage extends StatefulWidget {
 class _ShellPageState extends State<ShellPage> {
   int _index = 0;
   Timer? _bookingTimer; // 预约单自动打印全局轮询（v3.3.152）
+  Timer? _rechargeRetryTimer; // 扫码充值待补入账轮询（v3.3.256）
   bool get _isDining => Session.hangye == 2;
   bool get _isFresh => Session.hangye == 3;
 
@@ -50,12 +52,29 @@ class _ShellPageState extends State<ShellPage> {
         if (mounted) PreorderAutoPrint.check();
       });
     }
+    // v3.3.256：扫码充值「待补入账」自动核对（546 商户 ¥200 孤儿充值兜底）
+    // 启动后先查一次；之后每 5 分钟核对一遍，处理「渠道仍在处理中」的滞后单
+    WidgetsBinding.instance.addPostFrameCallback((_) => _retryPendingRecharge());
+    _rechargeRetryTimer = Timer.periodic(const Duration(minutes: 5), (_) {
+      if (mounted) _retryPendingRecharge();
+    });
+  }
+
+  /// 待补入账核对：补成一笔 toast 提示一笔；无待补记录时静默
+  Future<void> _retryPendingRecharge() async {
+    if (!mounted) return;
+    try {
+      await PendingRecharge.retryAll(onProgress: (msg) {
+        if (mounted) toast(context, msg);
+      });
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     ThemePrefs.skinId.removeListener(_onSkinChanged);
     _bookingTimer?.cancel();
+    _rechargeRetryTimer?.cancel();
     super.dispose();
   }
 

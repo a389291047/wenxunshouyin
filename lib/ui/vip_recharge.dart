@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/cloud_printer.dart';
+import '../core/pending_recharge.dart';
 import '../core/print_prefs.dart';
 import '../core/session.dart';
 import '../core/theme.dart';
@@ -77,8 +80,9 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
       return;
     }
     setState(() => submitting = true);
+    String orderNo = '';
+    String myNo = ''; // 付款码业务单号（待补入账记录的 key，catch 块也要用）
     try {
-      String orderNo = '';
       if (!cashMode) {
         // ---- 付款码充值（v3.3.161）：星驿付付款码支付 + 轮询，成功后入账 ----
         final code = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
@@ -89,20 +93,31 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           codeFocus.requestFocus();
           return;
         }
-        final myNo = 'XYFC${DateTime.now().millisecondsSinceEpoch}'
+        final myNo2 = 'XYFC${DateTime.now().millisecondsSinceEpoch}'
             '${(DateTime.now().microsecondsSinceEpoch % 10000).toString().padLeft(4, '0')}';
+        myNo = myNo2;
+        // v3.3.256：发起扣款前先落「待补入账」记录——星驿扣款成功但入账断掉时
+        // （546 商户 ¥200 孤儿充值），软件启动/会员页会自动补入账，不再丢
+        await PendingRecharge.save(
+          orderNo: myNo2,
+          vipId: int.tryParse('${widget.vip['id']}') ?? 0,
+          vipName: '${widget.vip['name'] ?? widget.vip['xm'] ?? ''}',
+          phone: '${widget.vip['phone'] ?? ''}',
+          amount: amount,
+          gift: gift,
+        );
         try {
           final o = await Api.xyfScanPay(
             amount: amount,
             authCode: code,
-            orderNo: myNo,
+            orderNo: myNo2,
             bizType: 'recharge',
           );
           if (!mounted) return;
           VoiceService.instance.pay('扫码', amount);
           // 入账单号优先星驿渠道单号，其次我方业务单号（后端双匹配）
           orderNo = '${o['order_no'] ?? ''}';
-          if (orderNo.isEmpty) orderNo = '${o['three_order_no'] ?? myNo}';
+          if (orderNo.isEmpty) orderNo = '${o['three_order_no'] ?? myNo2}';
         } on ApiError catch (e) {
           if (!mounted) return;
           setState(() => submitting = false);
@@ -111,8 +126,13 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           if (raw.contains('开通支付') || raw.contains('商户号') || raw.contains('cust')) {
             toast(context, '商户未开通扫码收款，请联系客服开通支付', error: true);
           } else {
-            toast(context, raw, error: true);
+            toast(context, '$raw（若已被扣款，软件会自动核对并补入账）', error: true);
           }
+          // 扣款结果未知（超时/异常）：留在待补入账列表，稍后自动核对；
+          // 渠道确认未扣款的记录会被自动清理
+          unawaited(Future.delayed(const Duration(seconds: 8), () {
+            PendingRecharge.retryAll();
+          }));
           return;
         }
       } else {
@@ -136,6 +156,11 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
       );
       if (!mounted) return;
       if ('${r2['code']}' == '200') {
+        // v3.3.256：入账成功，清掉待补入账记录（业务单号 + 渠道单号都清，防残留）
+        if (myNo.isNotEmpty) await PendingRecharge.remove(myNo);
+        if (orderNo.isNotEmpty && orderNo != myNo) {
+          await PendingRecharge.remove(orderNo);
+        }
         // 充值小票（v3.3.174）：小票打印设置可关；USB 直连优先，无 USB 自动走云打印
         if (await PrintPrefs.on('vipcz')) {
           CloudPrinter.print(CloudPrinter.vipRechargeTicket(
@@ -151,16 +176,41 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         Navigator.pop(context, {'amount': amount, 'gift': gift});
       } else {
         setState(() => submitting = false);
-        toast(context, '${r2['msg'] ?? '充值失败'}', error: true);
+        // v3.3.256：付款码已扣款但入账失败 → 记录已在本地，提示自动补入账
+        final keep = !cashMode && orderNo.isNotEmpty;
+        toast(context,
+            '${r2['msg'] ?? '充值失败'}${keep ? '（扫码扣款若已成功，软件会自动补入账）' : ''}',
+            error: true);
+        if (keep) {
+          unawaited(Future.delayed(const Duration(seconds: 8), () {
+            PendingRecharge.retryAll();
+          }));
+        }
       }
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() => submitting = false);
-      toast(context, e.message, error: true);
+      // v3.3.256：付款码已扣款但入账请求异常 → 待补入账记录已落盘，提示会自动补
+      final keep = !cashMode && myNo.isNotEmpty;
+      toast(context,
+          '${e.message}${keep ? '（扫码扣款若已成功，软件会自动补入账）' : ''}',
+          error: true);
+      if (keep) {
+        unawaited(Future.delayed(const Duration(seconds: 8), () {
+          PendingRecharge.retryAll();
+        }));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => submitting = false);
-      toast(context, '充值失败：$e', error: true);
+      final keep = !cashMode && myNo.isNotEmpty;
+      toast(context, '充值失败：$e${keep ? '（扫码扣款若已成功，软件会自动补入账）' : ''}',
+          error: true);
+      if (keep) {
+        unawaited(Future.delayed(const Duration(seconds: 8), () {
+          PendingRecharge.retryAll();
+        }));
+      }
     }
   }
 
