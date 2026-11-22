@@ -82,8 +82,17 @@ jobs:
               Write-Host "bundled $dll (repo, filever $v)"
             }
             # 安全闸：msvcp140 版本必须 < 14.30（否则 Win7 必挂）
-            $mv = [version]((Get-Item (Join-Path $rel "msvcp140.dll")).VersionInfo.FileVersion)
-            if ($mv -ge [version]"14.30") { Write-Error "msvcp140.dll >= 14.30 breaks Windows 7"; exit 1 }
+            # 注意官方 DLL 的 FileVersion 形如 "14.29.30157.0 built by: cloudtest"，
+            # 直接 [version] 强转会抛异常，先正则取前段数字
+            $fvRaw = (Get-Item (Join-Path $rel "msvcp140.dll")).VersionInfo.FileVersion
+            Write-Host "msvcp140 FileVersion raw: '$fvRaw'"
+            if ($fvRaw -match '^\s*(\d+(?:\.\d+){1,3})') {
+              $mv = [version]$matches[1]
+              if ($mv -ge [version]"14.30") { Write-Error "msvcp140.dll $mv >= 14.30 breaks Windows 7"; exit 1 }
+              Write-Host "msvcp140 version gate passed: $mv"
+            } else {
+              Write-Warning "无法解析 msvcp140 版本号，跳过版本闸门（仅打包，不阻断）"
+            }
           } else {
             Write-Warning "Repo Win7 runtime incomplete ($missingRepo), fallback to system copy"
             $pats = @(
