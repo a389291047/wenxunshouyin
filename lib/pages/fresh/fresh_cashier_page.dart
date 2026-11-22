@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../core/cart_store.dart';
 import '../../core/customer_display.dart';
 import '../../core/display_prefs.dart';
 import '../../core/api.dart';
@@ -87,6 +88,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   final searchKeeper = SearchFocusKeeper();
 
   final List<_CartLine> cart = [];
+  // 购物车本地持久化（v3.3.255）：切页面/重启不丢，删除或清空才消失
+  static const _cartPersistKey = 'fresh_cart';
   Map? vip;
 
   Timer? _cdTimer; // 副屏（客显）推送（v3.3.209）
@@ -96,6 +99,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     super.initState();
     searchKeeper.init();
     _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
+    _loadCartLocal(); // 恢复上次未结算的购物车（v3.3.255）
     _load();
     // 店铺活动（v3.3.222）：生鲜同样支持满减/买赠
     ActivityStore.list.addListener(_onActivityChanged);
@@ -253,6 +257,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       cart.add(_CartLine(g, 1));
     }
     setState(() {});
+    _saveCartLocal();
   }
 
   Future<void> _tapGoods(Map g) async {
@@ -285,6 +290,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     }
     l.giftQty = GiftMode.clampGift(l.num.toDouble(), l.giftQty, l.byWeight); // 防赠送顶满 0 元购（v3.3.237）
     setState(() {});
+    _saveCartLocal();
   }
 
   // ==================== 单个商品操作（v3.3.205） ====================
@@ -322,6 +328,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       l.price = r.price;
       l.giftQty = GiftMode.clampGift(l.num.toDouble(), r.giftQty, l.byWeight);
     });
+    _saveCartLocal();
   }
 
   /// 删除单行商品（带 4 秒撤销）
@@ -329,6 +336,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     final i = cart.indexOf(l);
     if (i < 0) return;
     setState(() => cart.removeAt(i));
+    _saveCartLocal();
     if (cart.isEmpty && vip != null) setState(() => vip = null);
     final messenger = ScaffoldMessenger.maybeOf(context);
     messenger?.hideCurrentSnackBar();
@@ -343,6 +351,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         onPressed: () {
           if (!mounted) return;
           setState(() => cart.insert(i.clamp(0, cart.length), l));
+          _saveCartLocal();
         },
       ),
     ));
@@ -351,6 +360,32 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   void _clearCart() {
     if (cart.isEmpty) return;
     setState(() { cart.clear(); vip = null; });
+    _saveCartLocal();
+  }
+
+  // ---- 购物车本地持久化（v3.3.255）：切页面/重启不丢，删除或清空才消失 ----
+  void _loadCartLocal() {
+    CartStore.load(_cartPersistKey).then((list) {
+      if (!mounted || cart.isNotEmpty || list.isEmpty) return;
+      setState(() {
+        for (final m in list) {
+          cart.add(_CartLine(
+            Map<String, dynamic>.from(m['goods'] as Map),
+            (m['num'] as num?)?.toInt() ?? 1,
+          ));
+          final l = cart.last;
+          if ((m['price'] as num?) != null) l.price = (m['price'] as num).toDouble();
+          l.giftQty = (m['gift_qty'] as num?)?.toDouble() ?? 0;
+        }
+      });
+    });
+  }
+
+  void _saveCartLocal() {
+    CartStore.save(_cartPersistKey, [
+      for (final l in cart)
+        {'goods': l.goods, 'num': l.num, 'price': l.price, 'gift_qty': l.giftQty},
+    ]);
   }
 
   // ==================== 结算收款 ====================
@@ -1023,7 +1058,10 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           child: Text('${l.num}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         ),
         InkWell(
-          onTap: () => setState(() => l.num++),
+          onTap: () {
+            setState(() => l.num++);
+            _saveCartLocal();
+          },
           borderRadius: const BorderRadius.horizontal(right: Radius.circular(9)),
           child: Container(width: 46, height: 46, alignment: Alignment.center, child: const Icon(Icons.add, size: 20, color: FreshColors.accent)),
         ),

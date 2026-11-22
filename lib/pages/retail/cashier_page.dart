@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api.dart';
 import '../../core/cart_prefs.dart';
+import '../../core/cart_store.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/customer_display.dart';
 import '../../core/clear_pin.dart';
@@ -104,6 +105,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   static const _holdsKey = 'retail_holds';
 
   final List<_CartLine> cart = [];
+  // 购物车本地持久化（v3.3.255）：切页面/重启不丢，删除或清空才消失
+  static const _cartPersistKey = 'retail_cart';
   Map? vip; // 选中的会员
   int couponSel = 0; // 优惠券档位（v3.3.242）：0未选 1=5元券 2=8.4元券(满16.8)，互斥单选
   bool get couponOn => couponSel > 0; // 兼容旧引用（v3.3.219 语义：有券在用）
@@ -131,6 +134,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
     _cdTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _publishCd());
     _loadHolds();
+    _loadCartLocal(); // 恢复上次未结算的购物车（v3.3.255）
     _load();
     // 店铺活动（v3.3.222）：加载 + 监听，设置里改完回来自动生效
     ActivityStore.list.addListener(_onActivityChanged);
@@ -518,6 +522,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       cart.add(_CartLine(g, qty));
     }
     setState(() {});
+    _saveCartLocal();
   }
 
   /// 称重商品：弹称重面板。已存在该行时预填当前重量（改重量，不累加）
@@ -542,6 +547,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         cart.add(_CartLine(g, w));
       }
     });
+    _saveCartLocal();
   }
 
   /// 点击商品：称重商品走称重面板；多规格弹规格组合弹窗；单规格直接加购
@@ -587,6 +593,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     }
     l.giftQty = GiftMode.clampGift(l.num, l.giftQty, l.byWeight); // 防赠送顶满 0 元购（v3.3.237）
     setState(() {});
+    _saveCartLocal();
   }
 
   // ==================== 单个商品操作（v3.3.205） ====================
@@ -625,6 +632,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       l.price = r.price;
       l.giftQty = GiftMode.clampGift(r.num, r.giftQty, l.byWeight);
     });
+    _saveCartLocal();
   }
 
   /// 删除单行商品（带 4 秒撤销）
@@ -632,6 +640,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     final i = cart.indexOf(l);
     if (i < 0) return;
     setState(() => cart.removeAt(i));
+    _saveCartLocal();
     // 该行删掉后若购物车空了，会员也一并清掉
     if (cart.isEmpty && vip != null) setState(() => vip = null);
     final messenger = ScaffoldMessenger.maybeOf(context);
@@ -648,6 +657,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         onPressed: () {
           if (!mounted) return;
           setState(() => cart.insert(i.clamp(0, cart.length), l));
+          _saveCartLocal();
         },
       ),
     ));
@@ -672,6 +682,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       wholeRate = 0; // 整单折扣随清空重置（v3.3.246）
       wholePrice = 0; // 整单改价随清空重置（v3.3.246）
     });
+    _saveCartLocal();
   }
 
   // ==================== 整单折扣 / 整单改价（v3.3.246） ====================
@@ -736,6 +747,30 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   // ==================== 挂单 / 取单（v3.3.191） ====================
 
+  // ---- 购物车本地持久化（v3.3.255）：切页面/重启不丢，删除或清空才消失 ----
+  void _loadCartLocal() {
+    CartStore.load(_cartPersistKey).then((list) {
+      if (!mounted || cart.isNotEmpty || list.isEmpty) return;
+      setState(() {
+        for (final m in list) {
+          cart.add(_CartLine(
+            Map<String, dynamic>.from(m['goods'] as Map),
+            (m['num'] as num?)?.toDouble() ?? 1,
+            price: (m['price'] as num?)?.toDouble(),
+            giftQty: (m['gift_qty'] as num?)?.toDouble() ?? 0,
+          ));
+        }
+      });
+    });
+  }
+
+  void _saveCartLocal() {
+    CartStore.save(_cartPersistKey, [
+      for (final l in cart)
+        {'goods': l.goods, 'num': l.num, 'price': l.price, 'gift_qty': l.giftQty},
+    ]);
+  }
+
   Future<void> _loadHolds() async {
     final sp = await SharedPreferences.getInstance();
     final raw = sp.getString(_holdsKey);
@@ -777,6 +812,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       wholePrice = 0;
     });
     await _saveHolds();
+    _saveCartLocal(); // 挂单后购物车已清空，同步本地（v3.3.255）
     if (!mounted) return;
     toast(context, '已挂单（共 ${holds.length} 单，点「取单」找回）');
   }
@@ -841,6 +877,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       wholePrice = 0;
     });
     await _saveHolds();
+    _saveCartLocal(); // 取单替换了购物车，同步本地（v3.3.255）
     if (!mounted) return;
     toast(context, items.isEmpty ? '挂单内容为空，已移除' : '已取单：${items.length} 个商品');
   }
@@ -1369,6 +1406,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           cart.add(_CartLine(h, tag.kg));
         }
       });
+      _saveCartLocal();
       toast(context, '已按秤标签加入：${h['title']} ${_qtyTextOf(tag.kg)}${_unitOf(h)}');
     } else {
       _add(h);
@@ -2066,7 +2104,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           child: Text('${l.num}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
         ),
         InkWell(
-          onTap: () => setState(() => l.num++),
+          onTap: () {
+            setState(() => l.num++);
+            _saveCartLocal();
+          },
           borderRadius: const BorderRadius.horizontal(right: Radius.circular(9)),
           child: Container(width: 46, height: 46, alignment: Alignment.center, child: Icon(Icons.add, size: 20, color: PosTheme.accentLive)),
         ),
