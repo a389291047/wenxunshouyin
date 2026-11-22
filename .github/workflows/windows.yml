@@ -65,33 +65,63 @@ jobs:
         run: |
           # Flutter Windows 产物依赖 VC++ 运行库（vcruntime140_1.dll 等），
           # 未装过 VC++ Redist 的全新系统会报"找不到 VCRUNTIME140_1.dll"。
-          # 优先取 VS 官方 Redist 目录，找不到则从 System32 拷贝（均为可再分发的官方 DLL）。
-          $pats = @(
-            "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT",
-            "C:\Program Files (x86)\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT"
-          )
-          $src = $null
-          foreach ($pat in $pats) {
-            $hits = Get-ChildItem $pat -Directory -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
-            if ($hits) { $src = $hits[0].FullName; break }
-          }
-          if (-not $src) {
-            Write-Host "VS Redist dir not found, listing candidates:"
-            Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Directory -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object -First 30 -ExpandProperty FullName
-            $need = @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll")
-            if (($need | Where-Object { -not (Test-Path (Join-Path "C:\Windows\System32" $_)) }).Count -eq 0) {
-              $src = "C:\Windows\System32"
-              Write-Host "Fallback to System32"
+          # v3.3.254 起固定用仓库内置的 14.29 运行库（windows/win7/vcruntime/，官方
+          # VS2019 14.29.30157 x64 提取）：14.30+ 新版 msvcp140.dll 静态导入 Win8+ 的
+          # GetSystemTimePreciseAsFileTime，Win7 加载即报"无法定位程序输入点"。
+          # 仓库文件缺失时回退旧逻辑（VS Redist 目录 → System32）并打印警告。
+          $rel = "build/windows/x64/runner/Release"
+          $repo = "windows/win7/vcruntime"
+          # 必需三件套（WenXun.exe/插件实际导入）；vcruntime140_threads.dll 是 14.4x 新增
+          # 且应用不导入，仅为兼容旧打包习惯可选携带
+          $need = @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll")
+          $missingRepo = $need | Where-Object { -not (Test-Path (Join-Path $repo $_)) }
+          if (-not $missingRepo) {
+            foreach ($dll in $need) {
+              Copy-Item (Join-Path $repo $dll) $rel -Force
+              $v = (Get-Item (Join-Path $rel $dll)).VersionInfo.FileVersion
+              Write-Host "bundled $dll (repo, filever $v)"
+            }
+            # 安全闸：msvcp140 版本必须 < 14.30（否则 Win7 必挂）
+            $mv = [version]((Get-Item (Join-Path $rel "msvcp140.dll")).VersionInfo.FileVersion)
+            if ($mv -ge [version]"14.30") { Write-Error "msvcp140.dll >= 14.30 breaks Windows 7"; exit 1 }
+          } else {
+            Write-Warning "Repo Win7 runtime incomplete ($missingRepo), fallback to system copy"
+            $pats = @(
+              "C:\Program Files\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT",
+              "C:\Program Files (x86)\Microsoft Visual Studio\2022\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT"
+            )
+            $src = $null
+            foreach ($pat in $pats) {
+              $hits = Get-ChildItem $pat -Directory -ErrorAction SilentlyContinue | Sort-Object FullName -Descending
+              if ($hits) { $src = $hits[0].FullName; break }
+            }
+            if (-not $src) {
+              Write-Host "VS Redist dir not found, listing candidates:"
+              Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Directory -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object -First 30 -ExpandProperty FullName
+              $need2 = @("msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll")
+              if (($need2 | Where-Object { -not (Test-Path (Join-Path "C:\Windows\System32" $_)) }).Count -eq 0) {
+                $src = "C:\Windows\System32"
+                Write-Host "Fallback to System32"
+              }
+            }
+            if (-not $src) { Write-Error "No VC runtime source found"; exit 1 }
+            Write-Host "CRT source: $src"
+            foreach ($dll in $need) {
+              $f = Join-Path $src $dll
+              if (Test-Path $f) { Copy-Item $f $rel -Force; Write-Host "bundled $dll" }
+              else { Write-Host "MISSING: $dll" }
             }
           }
-          if (-not $src) { Write-Error "No VC runtime source found"; exit 1 }
-          Write-Host "CRT source: $src"
-          foreach ($dll in "msvcp140.dll","vcruntime140.dll","vcruntime140_1.dll","vcruntime140_threads.dll") {
-            $f = Join-Path $src $dll
-            if (Test-Path $f) { Copy-Item $f "build/windows/x64/runner/Release/" -Force; Write-Host "bundled $dll" }
-            else { Write-Host "MISSING: $dll" }
+          # vcruntime140_threads.dll 可选携带（仓库/系统里有就拷，没有不影响运行）
+          foreach ($srcDir in @($repo, "C:\Windows\System32")) {
+            $tf = Join-Path $srcDir "vcruntime140_threads.dll"
+            if ((Test-Path $tf) -and (-not (Test-Path (Join-Path $rel "vcruntime140_threads.dll")))) {
+              Copy-Item $tf $rel -Force
+              Write-Host "bundled vcruntime140_threads.dll (optional, from $srcDir)"
+              break
+            }
           }
-          Get-ChildItem "build/windows/x64/runner/Release/*.dll" | ForEach-Object { Write-Host ("{0}  {1}" -f $_.Name, $_.Length) }
+          Get-ChildItem "$rel/*.dll" | ForEach-Object { Write-Host ("{0}  {1}" -f $_.Name, $_.Length) }
 
       - name: Package portable (zip)
         shell: pwsh
