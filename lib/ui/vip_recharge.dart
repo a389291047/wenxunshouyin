@@ -16,11 +16,13 @@ import 'widgets.dart';
 /// - 两种方式：付款码充值（扫顾客付款码，免密，默认）/ 现金充值（需权限密码）
 /// - 付款码走星驿付 codePay（type=A），成功后调 shouyin/vip/chongzhi 入账；
 ///   商户未开通星驿付时提示「联系客服开通支付」
-/// - 点弹窗外空白即可关闭，不放关闭按钮
+/// - v3.3.265：点弹窗外空白不再关闭（曾致支付中误关找不到充值单）；右上角 X 关闭，
+///   支付处理中（submitting）禁关：点空白/Esc/返回键全部拦截，只有充值成功或非支付中点 X 才能关
 /// 充值成功返回 {'amount': 本金, 'gift': 赠送}，取消/失败返回 null。
 Future<Map?> showVipRechargeDialog(BuildContext context, {required Map vip}) {
   return showDialog<Map>(
     context: context,
+    barrierDismissible: false, // v3.3.265：点空白不关弹窗（防支付中误关丢单）
     builder: (_) => _VipRechargeDialog(vip: vip),
   );
 }
@@ -217,8 +219,10 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   @override
   Widget build(BuildContext context) {
     final v = widget.vip;
-    // 点弹窗外空白即可关闭（showDialog 默认 barrierDismissible），不再放关闭按钮
-    return AlertDialog(
+    // v3.3.265：支付处理中禁关弹窗（Esc/返回键也拦截）；点空白不再关闭
+    return PopScope(
+      canPop: !submitting,
+      child: AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: EdgeInsets.zero,
       contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
@@ -301,6 +305,19 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         ),
       ),
       actions: [
+        // v3.3.265：支付处理中提示（弹窗已禁止关闭，防止误关找不到充值单）
+        if (submitting) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+                color: const Color(0xFFFFF2ED), borderRadius: BorderRadius.circular(10)),
+            alignment: Alignment.center,
+            child: Text(cashMode ? '正在充值，请稍候…' : '支付处理中，请勿关闭弹窗…',
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+          ),
+          const SizedBox(height: 10),
+        ],
         // 渐变大按钮（v3.3.168）：取消已移到右上角 X
         DecoratedBox(
           decoration: BoxDecoration(
@@ -339,6 +356,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           ),
         ),
       ],
+      ),
     );
   }
 
@@ -384,6 +402,16 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: Colors.white70)),
               ]),
+            ),
+            // v3.3.265：右上角关闭按钮（支付处理中禁用——只有充值成功或非支付中才能关）
+            InkWell(
+              onTap: submitting ? null : () => Navigator.pop(context),
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(Icons.close, size: 22,
+                    color: Colors.white.withOpacity(submitting ? 0.35 : 0.9)),
+              ),
             ),
           ]),
           const SizedBox(height: 14),
