@@ -9,6 +9,8 @@ import 'dart:async';
 /// 核销管理（v3.3.262 左侧菜单「核销」）：零售 / 餐饮 / 生鲜三版通用
 ///
 /// 平台切换：
+///   自动核销（v3.3.272 默认档）—— 单输入框，后端按 小程序→美团→抖音 逐平台只读探测，
+///     识别成功回显预检卡，确认后走对应平台核销链路
 ///   小程序订单 —— 统一订单表 order_from=1：
 ///     未核销（status=20 待核销 / 配送中）· 已核销（40）· 退款（60/70）
 ///     操作：扫码枪/输入核销码核销（CAS 防重复）、退款审核（同意/拒绝，仅推进状态）
@@ -21,7 +23,7 @@ class HexiaoPage extends StatefulWidget {
 }
 
 class _HexiaoPageState extends State<HexiaoPage> {
-  int platform = 0; // 0 小程序订单 1 抖音团购 2 美团团购（无限聚核）
+  int platform = 3; // 3 自动核销（默认，智能识别平台） 0 小程序订单 1 抖音团购 2 美团团购（无限聚核）
   int statusTab = 0; // 0 未核销 1 已核销 2 退款（美团档：0 核销工作台 1 核销记录）
   int dayTab = 0; // 0 今天 1 昨天 2 近7天
   List list = [];
@@ -51,6 +53,12 @@ class _HexiaoPageState extends State<HexiaoPage> {
   Map? mtVerifyResult; // parseVerify 结果（credentials 撤销用）
   bool mtBusy = false;
 
+  // 自动核销（v3.3.272 智能识别：后端 小程序→美团→抖音 逐平台只读探测）
+  Map? autoResult; // {type: mini|mt|dy, code, order?/prepare?/poi_id+verify_token+certificates}
+  bool autoBusy = false;
+  final TextEditingController autoCtrl = TextEditingController();
+  final FocusNode autoFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +75,8 @@ class _HexiaoPageState extends State<HexiaoPage> {
     dyCodeFocus.dispose();
     mtCodeCtrl.dispose();
     mtCodeFocus.dispose();
+    autoCtrl.dispose();
+    autoFocusNode.dispose();
     super.dispose();
   }
 
@@ -75,6 +85,11 @@ class _HexiaoPageState extends State<HexiaoPage> {
   String get _platformStr => platform == 0 ? 'mini' : 'douyin';
 
   Future<void> _load() async {
+    // 自动核销档：单输入框工作台，不走列表接口
+    if (platform == 3) {
+      setState(() { loading = false; error = null; list = []; selected = null; });
+      return;
+    }
     // 美团购档：走无限聚核本地流水（/shouyin/elys/records），不走统一订单接口
     if (platform == 2) return _loadMt();
     setState(() { loading = true; error = null; });
@@ -484,6 +499,143 @@ class _HexiaoPageState extends State<HexiaoPage> {
     }
   }
 
+  // ==================== 自动核销（智能识别） ====================
+
+  /// 识别券码所属平台（只读探测，不核销）
+  Future<void> _autoCheck() async {
+    final code = autoCtrl.text.trim();
+    if (code.isEmpty) {
+      toast(context, '请扫描或输入券码', error: true);
+      return;
+    }
+    setState(() => autoBusy = true);
+    try {
+      final r = await Api.hexiaoAutoCheck(wenxunId: Session.wenxunId, code: code);
+      if (!mounted) return;
+      setState(() {
+        autoBusy = false;
+        r['code'] = code;
+        autoResult = r;
+        autoCtrl.clear();
+        autoFocusNode.requestFocus();
+      });
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        autoBusy = false;
+        autoResult = null;
+        autoCtrl.clear();
+        autoFocusNode.requestFocus();
+      });
+      toast(context, e.message, error: true);
+    }
+  }
+
+  /// 按识别结果分平台确认核销
+  Future<void> _autoVerify() async {
+    final r = autoResult;
+    if (r == null || autoBusy) return;
+    final type = '${r['type']}';
+
+    if (type == 'mini') {
+      final o = (r['order'] ?? {}) as Map;
+      final goods = (o['goods'] ?? []) as List;
+      final gText = goods.take(3).map((g) => '${g['name']}×${g['quantity']}').join('、');
+      final ok = await confirm(context, '确认核销',
+          '小程序订单 ${o['order_no']}\n${gText.isEmpty ? '' : '$gText\n'}合计 ¥${Fmt.money(o['total'])}\n核销后顾客即可取货');
+      if (!ok) return;
+      setState(() => autoBusy = true);
+      try {
+        await Api.hexiaoVerifyMini(
+          wenxunId: Session.wenxunId,
+          id: int.tryParse('${o['id']}') ?? 0,
+          code: '${r['code'] ?? ''}',
+          operatorName: Session.staffName,
+        );
+        if (!mounted) return;
+        setState(() { autoBusy = false; autoResult = null; });
+        toast(context, '核销成功');
+        autoFocusNode.requestFocus();
+      } on ApiError catch (e) {
+        if (mounted) {
+          setState(() => autoBusy = false);
+          toast(context, e.message, error: true);
+        }
+      }
+      return;
+    }
+
+    if (type == 'mt') {
+      final p = ElysLogic.parsePrepare((r['prepare'] ?? {}) as Map);
+      final ticketInfo = p['ticketInfo'] ?? '';
+      if (ticketInfo.isEmpty) {
+        toast(context, '核销凭证缺失，请重新验券', error: true);
+        return;
+      }
+      final ok = await confirm(context, '确认核销',
+          '美团团购券 ${p['ticketName'] ?? ''}\n实付 ¥${p['payAmountText'] ?? '0.00'}\n核销后券不可恢复（可凭凭证撤销）');
+      if (!ok) return;
+      setState(() => autoBusy = true);
+      try {
+        await Api.elysVerify(
+          wenxunId: Session.wenxunId,
+          code: '${r['code'] ?? ''}',
+          ticketInfo: ticketInfo,
+          operatorName: Session.staffName,
+        );
+        if (!mounted) return;
+        setState(() { autoBusy = false; autoResult = null; });
+        toast(context, '核销成功');
+        autoFocusNode.requestFocus();
+      } on ApiError catch (e) {
+        if (mounted) {
+          setState(() => autoBusy = false);
+          toast(context, e.message, error: true);
+        }
+      }
+      return;
+    }
+
+    if (type == 'dy') {
+      final certs = (r['certificates'] ?? []) as List;
+      if (certs.isEmpty) {
+        toast(context, '券数据异常', error: true);
+        return;
+      }
+      final codes = certs.map((c) => '${(c as Map)['encrypted_code'] ?? ''}').where((s) => s.isNotEmpty).toList();
+      if (codes.isEmpty) {
+        toast(context, '券数据异常', error: true);
+        return;
+      }
+      final first = certs.first as Map;
+      final ok = await confirm(context, '确认核销',
+          '${first['sku_title'] ?? '抖音团购券'}\n¥${Fmt.money(first['pay_amount'])} × ${certs.length} 张\n核销后券不可恢复（1小时内可撤销）');
+      if (!ok) return;
+      setState(() => autoBusy = true);
+      try {
+        await Api.douyinVerify(
+          wenxunId: Session.wenxunId,
+          poiId: '${r['poi_id'] ?? ''}',
+          verifyToken: '${r['verify_token'] ?? ''}',
+          encryptedCodes: codes,
+          code: '',
+          skuInfo: '{"sku_title":"${(first['sku_title'] ?? '').toString().replaceAll('"', '')}","sku_id":"${first['sku_id'] ?? ''}","pay_amount":${first['pay_amount'] ?? 0}}',
+          operatorId: Session.staffId,
+          operatorName: Session.staffName,
+        );
+        if (!mounted) return;
+        setState(() { autoBusy = false; autoResult = null; });
+        toast(context, '核销成功（${certs.length} 张）');
+        autoFocusNode.requestFocus();
+      } on ApiError catch (e) {
+        if (mounted) {
+          setState(() => autoBusy = false);
+          toast(context, e.message, error: true);
+        }
+      }
+    }
+  }
+
   // ==================== UI ====================
 
   @override
@@ -521,6 +673,8 @@ class _HexiaoPageState extends State<HexiaoPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
           child: Row(children: [
+            _seg('自动核销', 3, platform, (v) => _switch(() { platform = v; autoResult = null; })),
+            const SizedBox(width: 8),
             _seg('小程序订单', 0, platform, (v) => _switch(() { platform = v; })),
             const SizedBox(width: 8),
             _seg('抖音团购', 1, platform, (v) => _switch(() { platform = v; selected = null; dyPrepare = null; })),
@@ -529,36 +683,39 @@ class _HexiaoPageState extends State<HexiaoPage> {
               platform = v; selected = null; mtPrepare = null; mtVerifyResult = null;
               _loadMtCfg(); // 美团档懒加载聚核配置
             })),
-            const Spacer(),
-            _timeSeg('今天', 0),
-            const SizedBox(width: 6),
-            _timeSeg('昨天', 1),
-            const SizedBox(width: 6),
-            _timeSeg('近7天', 2),
+            if (platform != 3) const Spacer(),
+            if (platform != 3) _timeSeg('今天', 0),
+            if (platform != 3) const SizedBox(width: 6),
+            if (platform != 3) _timeSeg('昨天', 1),
+            if (platform != 3) const SizedBox(width: 6),
+            if (platform != 3) _timeSeg('近7天', 2),
           ]),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
-          child: platform == 2
-              ? Row(children: [
-                  _seg('核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
-                  const SizedBox(width: 8),
-                  _seg('已核销记录', 1, statusTab, (v) => _switch(() => statusTab = v)),
-                ])
-              : Row(children: [
-                  _seg('未核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
-                  const SizedBox(width: 8),
-                  _seg('已核销', 1, statusTab, (v) => _switch(() => statusTab = v)),
-                  const SizedBox(width: 8),
-                  _seg('退款', 2, statusTab, (v) => _switch(() => statusTab = v)),
-                ]),
-        ),
+        if (platform != 3)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+            child: platform == 2
+                ? Row(children: [
+                    _seg('核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
+                    const SizedBox(width: 8),
+                    _seg('已核销记录', 1, statusTab, (v) => _switch(() => statusTab = v)),
+                  ])
+                : Row(children: [
+                    _seg('未核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
+                    const SizedBox(width: 8),
+                    _seg('已核销', 1, statusTab, (v) => _switch(() => statusTab = v)),
+                    const SizedBox(width: 8),
+                    _seg('退款', 2, statusTab, (v) => _switch(() => statusTab = v)),
+                  ]),
+          ),
         // 搜索 / 扫码输入
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
-          child: (platform == 0 && statusTab == 0) || (platform == 2 && statusTab == 0)
-              ? (platform == 2 ? _mtCodeField() : _scanField()) // 小程序/美团未核销档：扫码枪核销入口
-              : _searchField(),
+          child: platform == 3
+              ? _autoCodeField() // 自动核销档：统一券码入口
+              : (platform == 0 && statusTab == 0) || (platform == 2 && statusTab == 0)
+                  ? (platform == 2 ? _mtCodeField() : _scanField()) // 小程序/美团未核销档：扫码枪核销入口
+                  : _searchField(),
         ),
         const Divider(height: 14, color: PosTheme.line),
         Expanded(
@@ -579,6 +736,7 @@ class _HexiaoPageState extends State<HexiaoPage> {
   }
 
   String _emptyText() {
+    if (platform == 3) return '在上方扫描或输入券码，系统自动识别小程序 / 美团 / 抖音';
     if (platform == 2) {
       return statusTab == 0 ? '在上方输入或扫描美团券码验券（今日已核销记录见下）' : '暂无已核销记录';
     }
@@ -586,6 +744,138 @@ class _HexiaoPageState extends State<HexiaoPage> {
       return statusTab == 0 ? '在上方输入或扫描顾客券码验券' : '暂无记录';
     }
     return ['暂无待核销订单', '暂无已核销订单', '暂无退款记录'][statusTab];
+  }
+
+  /// 自动核销统一券码输入框：扫码枪回车自动识别
+  Widget _autoCodeField() {
+    return PosField(
+      controller: autoCtrl,
+      focusNode: autoFocusNode,
+      autofocus: true,
+      cleanScan: true,
+      hint: '扫描/输入券码，自动识别小程序 · 美团 · 抖音后核销',
+      icon: Icons.qr_code_scanner,
+      onSubmitted: (_) => _autoCheck(),
+      suffix: TextButton(
+        onPressed: autoBusy ? null : _autoCheck,
+        child: const Text('识别', style: TextStyle(fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+
+  /// 自动核销工作卡（右卡）：识别结果 + 确认核销
+  Widget _autoWorkCard() {
+    final r = autoResult;
+    return AppCard(
+      child: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Text('智能核销', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: PosTheme.accent.withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
+              child: const Text('自动识别平台', style: TextStyle(fontSize: 11, color: PosTheme.accent, fontWeight: FontWeight.w600)),
+            ),
+          ]),
+          const SizedBox(height: 4),
+          Text('扫描或输入券码，系统按 小程序 → 美团 → 抖音 顺序自动识别并完成核销',
+              style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+          const SizedBox(height: 16),
+          if (r == null) ...[
+            _autoTipRow(Icons.storefront, '美团团购券：顾客出示美团 App 券码，扫码枪直接扫'),
+            const SizedBox(height: 10),
+            _autoTipRow(Icons.local_offer, '抖音团购券：扫顾客券码二维码，多券一次核销'),
+            const SizedBox(height: 10),
+            _autoTipRow(Icons.smartphone, '小程序核销码：4-12 位数字，核销后顾客即可取货'),
+          ] else ...[
+            ..._autoResultCards(r),
+            const SizedBox(height: 18),
+            BigButton(autoBusy ? '核销中…' : '确认核销', onTap: autoBusy ? null : _autoVerify, height: 48),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: autoBusy ? null : () => setState(() => autoResult = null),
+              child: const Text('清除，重新识别'),
+            ),
+          ],
+        ]),
+      ),
+    );
+  }
+
+  /// 识别结果卡（按平台返回展示字段）
+  List<Widget> _autoResultCards(Map r) {
+    final type = '${r['type']}';
+    if (type == 'mini') {
+      final o = (r['order'] ?? {}) as Map;
+      final goods = (o['goods'] ?? []) as List;
+      return [
+        _autoBadge('已识别：小程序订单', PosTheme.accent),
+        const SizedBox(height: 12),
+        _autoLine('订单号', '${o['order_no'] ?? ''}'),
+        if (goods.isNotEmpty)
+          _autoLine('商品', goods.take(3).map((g) => '${(g as Map)['name']}×${g['quantity']}').join('、')),
+        _autoLine('合计', '¥${Fmt.money(o['total'])}'),
+        _autoLine('核销码', '${o['verify_code'] ?? r['code'] ?? ''}'),
+      ];
+    }
+    if (type == 'mt') {
+      final p = ElysLogic.parsePrepare((r['prepare'] ?? {}) as Map);
+      return [
+        _autoBadge('已识别：美团团购券（无限聚核）', PosTheme.green),
+        const SizedBox(height: 12),
+        _autoLine('团购', p['ticketName'] ?? ''),
+        _autoLine('券码', '${r['code'] ?? ''}'),
+        _autoLine('实付', '¥${p['payAmountText'] ?? '0.00'}'),
+      ];
+    }
+    final certs = (r['certificates'] ?? []) as List;
+    final first = certs.isEmpty ? <dynamic, dynamic>{} : (certs.first as Map);
+    return [
+      _autoBadge('已识别：抖音团购券', const Color(0xFFF59E0B)),
+      const SizedBox(height: 12),
+      _autoLine('团购', '${first['sku_title'] ?? ''}'),
+      _autoLine('数量', '${certs.length} 张'),
+      _autoLine('实付', '¥${Fmt.money(first['pay_amount'])}'),
+    ];
+  }
+
+  Widget _autoBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(10)),
+      child: Row(children: [
+        Icon(Icons.check_circle, size: 18, color: color),
+        const SizedBox(width: 8),
+        Text(text, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: color)),
+      ]),
+    );
+  }
+
+  Widget _autoLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(width: 64, child: Text(label, style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint))),
+        const SizedBox(width: 8),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+      ]),
+    );
+  }
+
+  Widget _autoTipRow(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: PosTheme.textHint.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(children: [
+        Icon(icon, size: 18, color: PosTheme.textHint),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub))),
+      ]),
+    );
   }
 
   /// 美团购券码输入框：扫码枪回车自动验券
@@ -717,6 +1007,9 @@ class _HexiaoPageState extends State<HexiaoPage> {
 
   // ---------- 右卡 ----------
   Widget _rightCard() {
+    if (platform == 3) {
+      return _autoWorkCard(); // 自动核销档 = 智能识别工作卡
+    }
     if (platform == 1 && statusTab == 0) {
       return _dyWorkCard(); // 抖音未核销档 = 验券工作卡
     }

@@ -706,6 +706,17 @@ class Api {
     if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '撤销失败'}');
   }
 
+  /// 智能核销识别（后端按 小程序→美团→抖音 逐平台只读探测）
+  /// 成功返回 {type: mini|mt|dy, order?/prepare?/certificates?...}；失败抛出各平台汇总原因
+  static Future<Map<String, dynamic>> hexiaoAutoCheck({required int wenxunId, required String code}) async {
+    final r = await post('/shouyin/hexiao/autoCheck', {
+      'wenxun_id': wenxunId,
+      'code': code,
+    });
+    if ('${r['code']}' == '200') return r;
+    throw ApiError('${r['msg'] ?? '未能识别券码所属平台'}');
+  }
+
   // ==================== 无限聚核 · 美团团购核销（服务零售，v3.3.271） ====================
   // 文档：https://doc.elys.cn/index.md；API Key 只存服务端云端配置，客户端经 tp8 代理转发
 
