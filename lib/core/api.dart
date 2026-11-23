@@ -706,6 +706,116 @@ class Api {
     if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '撤销失败'}');
   }
 
+  // ==================== 无限聚核 · 美团团购核销（服务零售，v3.3.271） ====================
+  // 文档：https://doc.elys.cn/index.md；API Key 只存服务端云端配置，客户端经 tp8 代理转发
+
+  /// 读取聚核配置（Key 掩码回显）→ {api_key_masked, shop_id, configured}
+  static Future<Map<String, dynamic>> elysConfig(int wenxunId) async {
+    final r = await post('/shouyin/elys/config', {'wenxun_id': wenxunId, 'act': 'get'});
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '读取配置失败'}');
+    return (r['data'] ?? {}) as Map<String, dynamic>;
+  }
+
+  /// 保存聚核配置（api_key 传空=不修改）
+  static Future<void> elysSaveConfig({
+    required int wenxunId,
+    required String shopId,
+    String apiKey = '',
+  }) async {
+    final r = await post('/shouyin/elys/config', {
+      'wenxun_id': wenxunId,
+      'act': 'save',
+      'shop_id': shopId,
+      'api_key': apiKey,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '保存配置失败'}');
+  }
+
+  /// 美团商户授权链接 → {url}
+  static Future<String> elysAuthUrl({required int wenxunId, int platform = 1}) async {
+    final r = await post('/shouyin/elys/authUrl', {'wenxun_id': wenxunId, 'platform': platform});
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '获取授权链接失败'}');
+    return '${(r['data'] ?? {})['url'] ?? ''}';
+  }
+
+  /// 团购列表 → data[]
+  static Future<List> elysDeals({required int wenxunId, int offset = 1, int limit = 20, int platform = 1}) async {
+    final r = await post('/shouyin/elys/deals', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'offset': offset,
+      'limit': limit,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '获取团购列表失败'}');
+    return ((r['data'] ?? {})['deals'] ?? []) as List;
+  }
+
+  /// 预核销（券码校验）→ data（ticketInfo 原文透传）
+  static Future<Map<String, dynamic>> elysPrepare({
+    required int wenxunId,
+    required String code,
+    int platform = 1,
+  }) async {
+    final r = await post('/shouyin/elys/prepare', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'code': code,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '验券失败'}');
+    return (r['data'] ?? {}) as Map<String, dynamic>;
+  }
+
+  /// 核销 → {rows, credentials, wxdgOrderNo}
+  static Future<Map<String, dynamic>> elysVerify({
+    required int wenxunId,
+    required String code,
+    required String ticketInfo,
+    int num = 1,
+    int platform = 1,
+    String operatorName = '',
+  }) async {
+    final r = await post('/shouyin/elys/verify', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'code': code,
+      'ticket_info': ticketInfo,
+      'num': num,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '核销失败'}');
+    return (r['data'] ?? {}) as Map<String, dynamic>;
+  }
+
+  /// 撤销核销（凭 consumeCredential 或核销流水 log_id）
+  static Future<Map<String, dynamic>> elysCancel({
+    required int wenxunId,
+    List<String> credentials = const [],
+    int logId = 0,
+    int platform = 1,
+    String operatorName = '',
+  }) async {
+    final r = await post('/shouyin/elys/cancel', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'credentials': credentials,
+      'log_id': logId,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '撤销失败'}');
+    return (r['data'] ?? {}) as Map<String, dynamic>;
+  }
+
+  /// 核销记录（本地流水）→ rows[]
+  static Future<List> elysRecords({required int wenxunId, String day = 'today', int platform = 1}) async {
+    final r = await post('/shouyin/elys/records', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'day': day,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '查询记录失败'}');
+    return ((r['data'] ?? {})['rows'] ?? []) as List;
+  }
+
   // ==================== 订单配送（美团/京东秒送/淘宝闪购） ====================
 
   /// 平台配置列表

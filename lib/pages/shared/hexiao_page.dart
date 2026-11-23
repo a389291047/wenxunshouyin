@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/elys.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/widgets.dart';
@@ -20,8 +21,8 @@ class HexiaoPage extends StatefulWidget {
 }
 
 class _HexiaoPageState extends State<HexiaoPage> {
-  int platform = 0; // 0 小程序订单 1 抖音团购
-  int statusTab = 0; // 0 未核销 1 已核销 2 退款
+  int platform = 0; // 0 小程序订单 1 抖音团购 2 美团团购（无限聚核）
+  int statusTab = 0; // 0 未核销 1 已核销 2 退款（美团档：0 核销工作台 1 核销记录）
   int dayTab = 0; // 0 今天 1 昨天 2 近7天
   List list = [];
   bool loading = true;
@@ -42,6 +43,14 @@ class _HexiaoPageState extends State<HexiaoPage> {
   Map? dyPrepare; // {verify_token, certificates:[...]}
   bool dyBusy = false;
 
+  // 美团（无限聚核，v3.3.271）
+  Map mtCfg = {}; // {api_key_masked, shop_id, configured}
+  final TextEditingController mtCodeCtrl = TextEditingController();
+  final FocusNode mtCodeFocus = FocusNode();
+  Map? mtPrepare; // parsePrepare 结果（含 ticketInfo 原文）
+  Map? mtVerifyResult; // parseVerify 结果（credentials 撤销用）
+  bool mtBusy = false;
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +65,8 @@ class _HexiaoPageState extends State<HexiaoPage> {
     scanFocus.dispose();
     dyCodeCtrl.dispose();
     dyCodeFocus.dispose();
+    mtCodeCtrl.dispose();
+    mtCodeFocus.dispose();
     super.dispose();
   }
 
@@ -64,6 +75,8 @@ class _HexiaoPageState extends State<HexiaoPage> {
   String get _platformStr => platform == 0 ? 'mini' : 'douyin';
 
   Future<void> _load() async {
+    // 美团购档：走无限聚核本地流水（/shouyin/elys/records），不走统一订单接口
+    if (platform == 2) return _loadMt();
     setState(() { loading = true; error = null; });
     try {
       final r = await Api.hexiaoList(
@@ -91,6 +104,193 @@ class _HexiaoPageState extends State<HexiaoPage> {
     final curId = selected == null ? -1 : int.tryParse('${selected!['id']}') ?? -1;
     final still = list.any((o) => (int.tryParse('${o['id']}') ?? -2) == curId);
     if (!still) selected = list.first;
+  }
+
+  // ==================== 美团（无限聚核） ====================
+
+  Future<void> _loadMtCfg() async {
+    try {
+      final cfg = await Api.elysConfig(Session.wenxunId);
+      if (!mounted) return;
+      setState(() => mtCfg = cfg);
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() => mtCfg = {'configured': false, 'tip': e.message});
+    }
+  }
+
+  Future<void> _loadMt() async {
+    setState(() { loading = true; error = null; });
+    try {
+      final rows = await Api.elysRecords(wenxunId: Session.wenxunId, day: _dayStr);
+      if (!mounted) return;
+      setState(() {
+        // 只显示已核销（status=1）；已撤销（status=2）不进列表
+        list = rows.where((r) => int.tryParse('${r['status']}') == 1).toList();
+        loading = false;
+        _ensureSelected();
+      });
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() { loading = false; error = e.message; list = []; });
+    }
+  }
+
+  /// 美团配置弹窗：API Key（留空=不修改）+ 门店 shopId
+  Future<void> _showMtSettings() async {
+    final keyCtrl = TextEditingController();
+    final shopCtrl = TextEditingController(text: '${mtCfg['shop_id'] ?? ''}');
+    final saved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('美团核销设置（无限聚核）', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        content: SizedBox(
+          width: 420,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text('当前 Key：${mtCfg['api_key_masked'] ?? '未配置'}', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+            const SizedBox(height: 10),
+            PosField(
+              controller: keyCtrl,
+              cleanScan: true,
+              obscureText: true,
+              label: 'API Key',
+              hint: '开发者中心获取；留空=保持不变',
+              icon: Icons.key,
+              compact: true,
+            ),
+            const SizedBox(height: 12),
+            PosField(
+              controller: shopCtrl,
+              cleanScan: true,
+              label: '门店 shopId',
+              hint: '聚核系统门店 ID（具体门店，非商户号）',
+              icon: Icons.store,
+              compact: true,
+            ),
+            const SizedBox(height: 10),
+            const Text('Key 仅保存在服务器，不会下发到收银机；配置后需在聚核完成美团门店授权。',
+                style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('取消')),
+          BigButton('保存', onTap: () async {
+            final shopId = shopCtrl.text.trim();
+            if (shopId.isEmpty) {
+              toast(dctx, '请填写门店 shopId', error: true);
+              return;
+            }
+            try {
+              await Api.elysSaveConfig(
+                wenxunId: Session.wenxunId,
+                shopId: shopId,
+                apiKey: keyCtrl.text.trim(),
+              );
+              if (dctx.mounted) Navigator.pop(dctx, true);
+            } on ApiError catch (e) {
+              toast(dctx, e.message, error: true);
+            }
+          }, height: 44),
+        ],
+      ),
+    );
+    if (saved == true) {
+      if (!mounted) return;
+      toast(context, '已保存');
+      await _loadMtCfg();
+    }
+  }
+
+  /// 美团预核销（券码校验，只读）
+  Future<void> _mtPrepare() async {
+    final code = mtCodeCtrl.text.trim();
+    if (code.isEmpty) {
+      toast(context, '请扫描或输入美团券码', error: true);
+      return;
+    }
+    if ('${mtCfg['configured'] ?? ''}' != 'true') {
+      toast(context, '请先配置无限聚核 API Key 与门店 shopId', error: true);
+      return;
+    }
+    setState(() => mtBusy = true);
+    try {
+      final data = await Api.elysPrepare(wenxunId: Session.wenxunId, code: code);
+      if (!mounted) return;
+      setState(() {
+        mtPrepare = ElysLogic.parsePrepare(data);
+        mtPrepare!['code'] = code;
+        mtBusy = false;
+        mtCodeCtrl.clear();
+        mtCodeFocus.requestFocus();
+      });
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() {
+        mtBusy = false;
+        mtPrepare = null;
+        mtCodeCtrl.clear();
+        mtCodeFocus.requestFocus();
+      });
+      toast(context, e.message, error: true);
+    }
+  }
+
+  /// 美团核销（写操作）
+  Future<void> _mtVerify() async {
+    final p = mtPrepare;
+    if (p == null) return;
+    final ticketInfo = '${p['ticketInfo'] ?? ''}';
+    if (ticketInfo.isEmpty) {
+      toast(context, '核销凭证缺失，请重新验券', error: true);
+      return;
+    }
+    final ok = await confirm(context, '确认核销',
+        '${p['ticketName'] ?? '美团团购券'}\n实付 ¥${p['payAmountText'] ?? '0.00'}\n核销后券不可恢复（可凭凭证撤销）');
+    if (!ok) return;
+    setState(() => mtBusy = true);
+    try {
+      final resp = await Api.elysVerify(
+        wenxunId: Session.wenxunId,
+        code: '${p['code'] ?? ''}',
+        ticketInfo: ticketInfo,
+        operatorName: Session.staffName,
+      );
+      if (!mounted) return;
+      final parsed = ElysLogic.parseVerify(resp);
+      setState(() {
+        mtBusy = false;
+        mtPrepare = null;
+        mtVerifyResult = parsed;
+      });
+      toast(context, '核销成功');
+      _loadMt();
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() => mtBusy = false);
+      toast(context, e.message, error: true);
+    }
+  }
+
+  /// 美团撤销（写操作：后端按核销流水 id 取凭证）
+  Future<void> _mtCancel(Map row) async {
+    final ok = await confirm(context, '撤销核销',
+        '${row['deal_title'] ?? row['ticket_name'] ?? ''}\n券码 ${row['code']}\n撤销后券回到待使用状态');
+    if (!ok) return;
+    try {
+      await Api.elysCancel(
+        wenxunId: Session.wenxunId,
+        logId: int.tryParse('${row['id']}') ?? 0,
+        platform: int.tryParse('${row['platform']}') ?? 1,
+        operatorName: Session.staffName,
+      );
+      if (!mounted) return;
+      toast(context, '撤销成功');
+      _loadMt();
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    }
   }
 
   void _switch(void Function() fn) {
@@ -324,6 +524,11 @@ class _HexiaoPageState extends State<HexiaoPage> {
             _seg('小程序订单', 0, platform, (v) => _switch(() { platform = v; })),
             const SizedBox(width: 8),
             _seg('抖音团购', 1, platform, (v) => _switch(() { platform = v; selected = null; dyPrepare = null; })),
+            const SizedBox(width: 8),
+            _seg('美团团购', 2, platform, (v) => _switch(() {
+              platform = v; selected = null; mtPrepare = null; mtVerifyResult = null;
+              _loadMtCfg(); // 美团档懒加载聚核配置
+            })),
             const Spacer(),
             _timeSeg('今天', 0),
             const SizedBox(width: 6),
@@ -334,19 +539,25 @@ class _HexiaoPageState extends State<HexiaoPage> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
-          child: Row(children: [
-            _seg('未核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
-            const SizedBox(width: 8),
-            _seg('已核销', 1, statusTab, (v) => _switch(() => statusTab = v)),
-            const SizedBox(width: 8),
-            _seg('退款', 2, statusTab, (v) => _switch(() => statusTab = v)),
-          ]),
+          child: platform == 2
+              ? Row(children: [
+                  _seg('核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
+                  const SizedBox(width: 8),
+                  _seg('已核销记录', 1, statusTab, (v) => _switch(() => statusTab = v)),
+                ])
+              : Row(children: [
+                  _seg('未核销', 0, statusTab, (v) => _switch(() => statusTab = v)),
+                  const SizedBox(width: 8),
+                  _seg('已核销', 1, statusTab, (v) => _switch(() => statusTab = v)),
+                  const SizedBox(width: 8),
+                  _seg('退款', 2, statusTab, (v) => _switch(() => statusTab = v)),
+                ]),
         ),
         // 搜索 / 扫码输入
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
-          child: platform == 0 && statusTab == 0
-              ? _scanField() // 小程序未核销档：扫码枪核销入口
+          child: (platform == 0 && statusTab == 0) || (platform == 2 && statusTab == 0)
+              ? (platform == 2 ? _mtCodeField() : _scanField()) // 小程序/美团未核销档：扫码枪核销入口
               : _searchField(),
         ),
         const Divider(height: 14, color: PosTheme.line),
@@ -368,10 +579,30 @@ class _HexiaoPageState extends State<HexiaoPage> {
   }
 
   String _emptyText() {
+    if (platform == 2) {
+      return statusTab == 0 ? '在上方输入或扫描美团券码验券（今日已核销记录见下）' : '暂无已核销记录';
+    }
     if (platform == 1) {
       return statusTab == 0 ? '在上方输入或扫描顾客券码验券' : '暂无记录';
     }
     return ['暂无待核销订单', '暂无已核销订单', '暂无退款记录'][statusTab];
+  }
+
+  /// 美团购券码输入框：扫码枪回车自动验券
+  Widget _mtCodeField() {
+    return PosField(
+      controller: mtCodeCtrl,
+      focusNode: mtCodeFocus,
+      autofocus: true,
+      cleanScan: true,
+      hint: '扫描顾客美团团购券码 / 手动输入后回车',
+      icon: Icons.qr_code_scanner,
+      onSubmitted: (_) => _mtPrepare(),
+      suffix: TextButton(
+        onPressed: mtBusy ? null : _mtPrepare,
+        child: const Text('验券', style: TextStyle(fontWeight: FontWeight.w700)),
+      ),
+    );
   }
 
   /// 扫码核销输入框（小程序未核销档）：扫码枪回车自动触发
@@ -413,11 +644,21 @@ class _HexiaoPageState extends State<HexiaoPage> {
   // ---------- 左列表行 ----------
   Widget _row(Map o) {
     final on = selected != null && '${selected!['id']}' == '${o['id']}';
-    final title = platform == 0 ? '${o['order_no'] ?? ''}' : '${o['sku_title'] ?? ''}';
+    final title = platform == 0
+        ? '${o['order_no'] ?? ''}'
+        : platform == 2
+            ? '${o['deal_title'] ?? o['ticket_name'] ?? ''}'
+            : '${o['sku_title'] ?? ''}';
     final sub = platform == 0
         ? '${o['receiver'] ?? ''}${('${o['phone'] ?? ''}'.isNotEmpty) ? ' · ${o['phone']}' : ''}'
-        : '券码 ${o['code'] ?? ''}';
-    final amount = platform == 0 ? (double.tryParse('${o['total']}') ?? 0) : (double.tryParse('${o['amount']}') ?? 0);
+        : platform == 2
+            ? '券码 ${o['code'] ?? ''}${('${o['operator_name'] ?? ''}'.isNotEmpty) ? ' · ${o['operator_name']}' : ''}'
+            : '券码 ${o['code'] ?? ''}';
+    final amount = platform == 0
+        ? (double.tryParse('${o['total']}') ?? 0)
+        : platform == 2
+            ? (double.tryParse('${o['pay_amount']}') ?? 0)
+            : (double.tryParse('${o['amount']}') ?? 0);
     final color = _statusColor(o);
 
     return Padding(
@@ -460,6 +701,10 @@ class _HexiaoPageState extends State<HexiaoPage> {
     if (platform == 1) {
       return int.tryParse('${o['status']}') == 2 ? const Color(0xFFF59E0B) : PosTheme.green;
     }
+    if (platform == 2) {
+      // 美团流水：1 已核销（绿）2 已撤销（橙）
+      return int.tryParse('${o['status']}') == 2 ? const Color(0xFFF59E0B) : PosTheme.green;
+    }
     switch (int.tryParse('${o['display']}') ?? 0) {
       case 20: return PosTheme.accent; // 待核销
       case 30: return PosTheme.blue;
@@ -475,10 +720,168 @@ class _HexiaoPageState extends State<HexiaoPage> {
     if (platform == 1 && statusTab == 0) {
       return _dyWorkCard(); // 抖音未核销档 = 验券工作卡
     }
+    if (platform == 2 && statusTab == 0) {
+      return _mtWorkCard(); // 美团未核销档 = 验券工作卡
+    }
     if (selected == null) {
       return AppCard(child: EmptyView(loading ? '加载中…' : '选择记录查看详情'));
     }
+    if (platform == 2) return _mtDetail(selected!);
     return platform == 0 ? _miniDetail(selected!) : _dyDetail(selected!);
+  }
+
+  // ---------- 美团：验券工作卡（未核销档） ----------
+  Widget _mtWorkCard() {
+    final p = mtPrepare;
+    return AppCard(
+      child: SingleChildScrollView(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            const Text('美团团购核销', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _showMtSettings,
+              icon: const Icon(Icons.settings_outlined, size: 16),
+              label: const Text('美团设置', style: TextStyle(fontSize: 12.5)),
+            ),
+          ]),
+          const SizedBox(height: 2),
+          Text('顾客出示美团 App 团购券二维码，扫码枪扫描或输入券码后验券核销',
+              style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+          const SizedBox(height: 14),
+          // 配置状态
+          if ('${mtCfg['configured'] ?? ''}' != 'true')
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFDBA74)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(mtCfg['tip'] ?? '尚未配置：点右上「美团设置」填入无限聚核 API Key 与门店 shopId',
+                    style: const TextStyle(fontSize: 12.5, color: Color(0xFF9A3412))),
+                const SizedBox(height: 4),
+                const Text('配置后还需在聚核开发者中心完成美团门店授权（授权链接可在设置页生成）',
+                    style: TextStyle(fontSize: 11.5, color: Color(0xFF9A3412))),
+              ]),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: PosTheme.green.withOpacity(0.35)),
+              ),
+              child: Text('门店 shopId ${mtCfg['shop_id'] ?? ''} · Key ${mtCfg['api_key_masked'] ?? ''}',
+                  style: const TextStyle(fontSize: 12.5, color: PosTheme.green)),
+            ),
+          const SizedBox(height: 12),
+          // 验券结果确认卡（核销凭证）
+          if (p != null) ...[
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: PosTheme.green.withOpacity(0.4)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${p['ticketName'] ?? '美团团购券'}',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Row(children: [
+                  Text('¥${p['payAmountText'] ?? '0.00'}',
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: PosTheme.green)),
+                  const Spacer(),
+                  Text('券码 ${p['code'] ?? ''}', style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                ]),
+                if (('${p['actualPayText'] ?? ''}').isNotEmpty && (double.tryParse('${p['actualPayText']}') ?? 0) > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('顾客实付 ¥${p['actualPayText']}${('${p['marketPriceText'] ?? ''}').isNotEmpty ? ' · 门市价 ¥${p['marketPriceText']}' : ''}',
+                        style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
+                  ),
+                const SizedBox(height: 10),
+                BigButton('确认核销', onTap: mtBusy ? () {} : _mtVerify, height: 48),
+              ]),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (mtVerifyResult != null) ...[
+            // 核销成功回执（含撤销入口）
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: PosTheme.blue.withOpacity(0.4)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('核销成功', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: PosTheme.blue)),
+                const SizedBox(height: 6),
+                for (final r in (mtVerifyResult!['rows'] ?? []) as List)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(children: [
+                      Expanded(child: Text('${r['dealTitle']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 13))),
+                      Text('${r['receiptCode']}', style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                      const SizedBox(width: 8),
+                      Text('¥${r['payAmountText']}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    ]),
+                  ),
+                if ((mtVerifyResult!['credentials'] ?? []).isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text('已保存撤销凭证，如需撤销请到「已核销记录」选中该笔操作',
+                      style: const TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+                ],
+              ]),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (mtBusy) const Center(child: Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator(color: PosTheme.accent))),
+          const SizedBox(height: 8),
+          Text('说明：先验券再核销；核销后可在「已核销记录」撤销（平台口径以聚核为准）；结果未知时请勿重复核销',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+        ]),
+      ),
+    );
+  }
+
+  // ---------- 美团流水详情（已核销记录档） ----------
+  Widget _mtDetail(Map o) {
+    return AppCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          _statusPill(o),
+          const Spacer(),
+          Text('¥${Fmt.money(o['pay_amount'])}', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: _statusColor(o))),
+        ]),
+        const SizedBox(height: 10),
+        _kvRow('团购', '${o['deal_title'] ?? o['ticket_name'] ?? '—'}'),
+        _kvRow('券码', '${o['code'] ?? '—'}'),
+        _kvRow('门店 shopId', '${o['shop_id'] ?? '—'}'),
+        _kvRow('张数', '${o['num'] ?? 1}'),
+        _kvRow('操作员', '${o['operator_name'] ?? '—'}'),
+        _kvRow('核销时间', '${o['create_time'] ?? '—'}'),
+        if (int.tryParse('${o['status']}') == 2) _kvRow('撤销时间', '${o['cancel_time'] ?? '—'}'),
+        const Spacer(),
+        if ('${o['status']}' == '1' && o['has_credential'] == true)
+          BigButton('撤销核销', onTap: () => _mtCancel(o), height: 50, color: const Color(0xFFEF4444))
+        else if ('${o['status']}' == '1')
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Center(child: Text('缺少撤销凭证，请到聚核后台处理', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint))),
+          ),
+        if (int.tryParse('${o['status']}') == 2)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Center(child: Text('该笔已撤销', style: TextStyle(fontSize: 12.5, color: PosTheme.textHint))),
+          ),
+      ]),
+    );
   }
 
   // ---------- 小程序详情 ----------
@@ -555,7 +958,9 @@ class _HexiaoPageState extends State<HexiaoPage> {
 
   Widget _statusPill(Map o) {
     final color = _statusColor(o);
-    final text = platform == 0 ? '${o['status_text'] ?? ''}' : '${o['status_text'] ?? ''}';
+    final text = platform == 2
+        ? (int.tryParse('${o['status']}') == 2 ? '已撤销' : '已核销')
+        : '${o['status_text'] ?? ''}';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(999)),
