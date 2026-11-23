@@ -357,7 +357,7 @@ class _DirectOrderDialogState extends State<DirectOrderDialog> {
     final pay = await showXyfScanPayDialog(context,
         amount: total, title: '扫码收款', bizType: 'dining', orderNo: myNo);
     if (pay == null || !mounted) return;
-    final ch = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
+    final ch = (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     _checkout('扫码收款',
         xyfOrderNo: '${pay['orderNo'] ?? myNo}', xyfChannel: ch);
   }

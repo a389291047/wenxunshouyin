@@ -2059,7 +2059,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           'method': quickMethod, 'vip': vip,
           'cash_received': 0.0, 'cash_change': 0.0,
           'xyf_order_no': '${pay['orderNo'] ?? quickNo}',
-          'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+          'xyf_channel': (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
           'scan_paid': true,
         });
       }
@@ -2128,7 +2128,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           amount: finalTotal, title: '扫码收款 · $picked', bizType: 'dining', orderNo: xyfOrderNo);
       if (pay == null || !mounted) return;
       xyfOrderNo = '${pay['orderNo'] ?? xyfOrderNo}';
-      xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
+      xyfChannel = (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
     loadingDialog(context, picked == '挂账' ? '挂账中…' : '结算中…');
     try {
@@ -3468,7 +3468,7 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
       'cash_received': 0.0,
       'cash_change': 0.0,
       'xyf_order_no': '${pay['orderNo'] ?? orderNo}',
-      'xyf_channel': int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
+      'xyf_channel': (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0,
       'scan_paid': true,
     });
   }

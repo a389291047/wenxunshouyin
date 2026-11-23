@@ -100,6 +100,19 @@ class Api {
         headers: {'merchant-no': '${Session.wenxunId}'}, timeoutSec: 15);
   }
 
+  /// 付款码前缀识别支付渠道（v3.3.260）：支付宝 25-30 / 微信 10-15 / 云闪付(银联) 62 开头。
+  /// 背景：星驿回调异步更新 wx_pay_orders.pay_channel，桌面查到「已支付」时渠道
+  /// 可能还是 0，导致支付宝单落成「其他支付」；按付款码前缀判断不依赖回调时序。
+  static int xyfChannelFromCode(String authCode) {
+    final c = authCode.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
+    if (c.length < 2) return 0;
+    final p2 = int.tryParse(c.substring(0, 2)) ?? 0;
+    if (p2 >= 25 && p2 <= 30) return 1; // 支付宝
+    if (p2 >= 10 && p2 <= 15) return 2; // 微信支付
+    if (c.startsWith('62')) return 9; // 云闪付
+    return 0;
+  }
+
   /// 付款码支付一体流程：下单 → （待输密码则轮询）→ 成功返回订单行 / 失败抛 ApiError
   /// 轮询节奏先快后慢（v3.3.248）：前 15 秒每秒一查（顾客输密码大多很快），
   /// 之后每 3 秒一查，总时长约 60 秒 —— 旧版 25 次×(查询RTT约3s+1s)≈100 秒太久，

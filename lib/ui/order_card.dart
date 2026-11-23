@@ -373,7 +373,32 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         const SizedBox(height: 8),
         _kvRow(Icons.schedule, Fmt.date(o['create_time'])),
         const SizedBox(height: 5),
-        _kvRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}'),
+        // 支付方式（v3.3.260：组合支付逐笔显示「方式 ¥金额」）
+        Builder(builder: (_) {
+          final m2 = '${o['payment_method_2'] ?? ''}';
+          if (m2.isEmpty || m2 == 'null') {
+            return _kvRow(Icons.payments_outlined, '${o['payment_method'] ?? '其他支付'}');
+          }
+          final a2 = double.tryParse('${o['amount_2'] ?? 0}') ?? 0;
+          final a3 = double.tryParse('${o['amount_3'] ?? 0}') ?? 0;
+          final m3 = '${o['payment_method_3'] ?? ''}';
+          final has3 = m3.isNotEmpty && m3 != 'null';
+          final main = (double.tryParse('${o['total'] ?? 0}') ?? 0) -
+              a2 -
+              (has3 ? a3 : 0);
+          final rows = <List<String>>[
+            ['${o['payment_method'] ?? '其他支付'}', Fmt.money(main)],
+            [m2, Fmt.money(a2)],
+            if (has3) [m3, Fmt.money(a3)],
+          ];
+          return Column(children: [
+            for (int i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: 3),
+              _kvRow(Icons.payments_outlined,
+                  i == 0 ? '组合支付：${rows[i][0]} ¥${rows[i][1]}' : '${rows[i][0]} ¥${rows[i][1]}'),
+            ],
+          ]);
+        }),
         // 会员信息（v3.3.249）：vip_name 后端列表接口回填；phone 会员支付单落库
         if (('${o['vip_name'] ?? ''}'.trim()).isNotEmpty ||
             ('${o['phone'] ?? ''}'.trim()).isNotEmpty) ...[

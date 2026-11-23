@@ -61,6 +61,15 @@ _PayChannel? _channelByCode(String code) {
   return null;
 }
 
+/// 付款码前缀 → 数值渠道（1支付宝 2微信 9云闪付），未知返回 0（v3.3.260）
+int _channelNoByCode(String code) {
+  final c = _channelByCode(code);
+  if (c == _chAlipay) return 1;
+  if (c == _chWechat) return 2;
+  if (c == _chUnion) return 9;
+  return 0;
+}
+
 class _XyfScanPayDialog extends StatefulWidget {
   final double amount;
   final String title;
@@ -176,6 +185,9 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
         Navigator.pop(context, {
           'payNo': '${o['order_no'] ?? ''}',
           'orderNo': '${o['three_order_no'] ?? ''}',
+          'channel': (int.tryParse('${o['pay_channel'] ?? 0}') ?? 0) > 0
+              ? int.tryParse('${o['pay_channel'] ?? 0}') ?? 0
+              : _channelNoByCode(codeCtrl.text),
           'order': o,
         });
       });
@@ -223,6 +235,9 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
               Navigator.pop(context, {
                 'payNo': '${m['order_no'] ?? ''}',
                 'orderNo': '${m['three_order_no'] ?? lastNo}',
+                'channel': (int.tryParse('${m['pay_channel'] ?? 0}') ?? 0) > 0
+                    ? int.tryParse('${m['pay_channel'] ?? 0}') ?? 0
+                    : _channelNoByCode(codeCtrl.text),
                 'order': m,
               });
             });

@@ -407,7 +407,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
       if (pay != null && pay['more'] != true) {
         return _createPaidOrder(quick, t,
             xyfOrderNo: '${pay['orderNo'] ?? quickNo}',
-            xyfChannel: int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
+            xyfChannel: (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0);
       }
       // 取消扫码 或 点「其他方式」→ 继续走下面的完整弹窗
     }
@@ -475,7 +475,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           bizType: 'retail', orderNo: preNo);
       if (pay == null || !mounted) return;
       xyfOrderNo = '${pay['orderNo'] ?? preNo}';
-      xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
+      xyfChannel = (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
     await _createPaidOrder(pickedMethod, t, mollen: mollen,
         xyfOrderNo: xyfOrderNo, xyfChannel: xyfChannel);

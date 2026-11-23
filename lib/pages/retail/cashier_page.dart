@@ -1001,7 +1001,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           bizType: 'retail', orderNo: preNo);
       if (pay == null || !mounted) return;
       xyfOrderNo = '${pay['orderNo'] ?? preNo}';
-      xyfChannel = int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
+      xyfChannel = (pay['channel'] as int?) ?? int.tryParse('${pay['order']?['pay_channel'] ?? 0}') ?? 0;
     }
     await _finishOrder(pickedMethod, t, coupon: coupon, mollen: mollen,
         wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice,
@@ -2284,6 +2284,14 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   // ==================== 组合支付（v3.3.258） ====================
+  /// 渠道识别：优先星驿返回的 pay_channel；为 0（回调未及时更新）时按付款码
+  /// 前缀兜底（v3.3.260 修复支付宝单落成「其他支付」）
+  int _chanOf(Map o) {
+    final c = int.tryParse('${o['pay_channel'] ?? 0}') ?? 0;
+    if (c > 0) return c;
+    return Api.xyfChannelFromCode(codeCtrl.text);
+  }
+
   bool _isComboScan(Map l) =>
       '${l['method']}' == '扫码收款' || '${l['method']}' == '微信支付' || '${l['method']}' == '支付宝';
 
@@ -2323,17 +2331,29 @@ class _PayDialogState extends State<RetailPayDialog> {
         (double.tryParse('${v['gift_balance'] ?? 0}') ?? 0);
   }
 
-  /// 进入组合支付：预置两行（扫码收款 + 现金），金额待填
+  /// 进入组合支付：预置两行，金额尽量预填——
+  /// 有会员且余额小于应收时，第一笔默认「会员支付」直接扣完余额（v3.3.260），
+  /// 第二笔现金预填差额；无会员时保持 扫码+现金
   void _enterCombo() {
     comboMode = true;
     comboScanIdx = -1;
     comboActive = 0;
-    comboLines
-      ..clear()
-      ..addAll([
-        {'method': '扫码收款', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
-        {'method': '现金', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
-      ]);
+    comboLines..clear();
+    final bal = _dialogVipBalance;
+    String amtStr(double v) => v.toStringAsFixed(2);
+    if (widget.vip != null && bal > 0 && bal < payable) {
+      comboLines
+        ..addAll([
+          {'method': '会员支付', 'amount': amtStr(bal), 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+          {'method': '现金', 'amount': amtStr(payable - bal), 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+        ]);
+    } else {
+      comboLines
+        ..addAll([
+          {'method': '扫码收款', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+          {'method': '现金', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+        ]);
+    }
   }
 
   /// 组合行金额键盘输入
@@ -2506,7 +2526,7 @@ class _PayDialogState extends State<RetailPayDialog> {
         final idx = comboScanIdx.clamp(0, comboLines.length - 1);
         comboLines[idx]['paid'] = true;
         comboLines[idx]['xyfNo'] = '${o['three_order_no'] ?? o['order_no'] ?? payNo}';
-        comboLines[idx]['xyfChan'] = int.tryParse('${o['pay_channel'] ?? 0}') ?? 0;
+        comboLines[idx]['xyfChan'] = _chanOf(o);
         setState(() {});
         _afterComboLinePaid();
         return;
@@ -2521,7 +2541,7 @@ class _PayDialogState extends State<RetailPayDialog> {
         Navigator.pop(context, {
           'method': method,
           'xyf_order_no': '${o['three_order_no'] ?? o['order_no'] ?? payNo}',
-          'xyf_channel': int.tryParse('${o['pay_channel'] ?? 0}') ?? 0,
+          'xyf_channel': _chanOf(o),
         });
       });
     } on ApiError catch (e) {
@@ -2555,7 +2575,7 @@ class _PayDialogState extends State<RetailPayDialog> {
               final idx = comboScanIdx.clamp(0, comboLines.length - 1);
               comboLines[idx]['paid'] = true;
               comboLines[idx]['xyfNo'] = '${m['three_order_no'] ?? m['order_no'] ?? payNo}';
-              comboLines[idx]['xyfChan'] = int.tryParse('${m['pay_channel'] ?? 0}') ?? 0;
+              comboLines[idx]['xyfChan'] = _chanOf(m);
               _afterComboLinePaid();
               return;
             }
@@ -2569,7 +2589,7 @@ class _PayDialogState extends State<RetailPayDialog> {
               Navigator.pop(context, {
                 'method': method,
                 'xyf_order_no': '${m['three_order_no'] ?? m['order_no'] ?? payNo}',
-                'xyf_channel': int.tryParse('${m['pay_channel'] ?? 0}') ?? 0,
+                'xyf_channel': _chanOf(m),
               });
             });
             return;
@@ -2622,7 +2642,7 @@ class _PayDialogState extends State<RetailPayDialog> {
               Navigator.pop(context, {
                 'method': method,
                 'xyf_order_no': '${m['three_order_no'] ?? m['order_no'] ?? payNo}',
-                'xyf_channel': int.tryParse('${m['pay_channel'] ?? 0}') ?? 0,
+                'xyf_channel': _chanOf(m),
               });
             });
             return;
@@ -3090,7 +3110,18 @@ class _PayDialogState extends State<RetailPayDialog> {
       onTap: locked
           ? null
           : () => setState(() {
-                if (activeLine != null) activeLine['method'] = m;
+                if (activeLine != null) {
+                  activeLine['method'] = m;
+                  // 选会员支付且金额未填时，默认预填 min(余额, 待收差额)（v3.3.260）
+                  if (m == '会员支付' &&
+                      (double.tryParse('${activeLine['amount'] ?? ''}') ?? 0) <= 0 &&
+                      comboRemaining > 0) {
+                    final v = _dialogVipBalance < comboRemaining
+                        ? _dialogVipBalance
+                        : comboRemaining;
+                    if (v > 0) activeLine['amount'] = v.toStringAsFixed(2);
+                  }
+                }
               }),
       child: Container(
         height: 34,

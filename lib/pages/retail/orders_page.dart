@@ -97,7 +97,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
     if (k.isNotEmpty) {
       l = l.where((o) {
         final no = '${o['order_number'] ?? ''}'.toLowerCase();
-        final pm = '${o['payment_method'] ?? ''}'.toLowerCase();
+        final pm = _payMethods(o).toLowerCase(); // 含组合支付 _2/_3（v3.3.260）
         final amt = Fmt.money(o['total']);
         return no.contains(k) || pm.contains(k) || amt.contains(k);
       });
@@ -316,6 +316,17 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
     );
   }
 
+  /// 支付方式显示（v3.3.260）：组合支付单把 _2/_3 一并显示（微信支付+现金+会员支付）
+  String _payMethods(Map o) {
+    final parts = <String>['${o['payment_method'] ?? ''}'];
+    for (final k2 in ['payment_method_2', 'payment_method_3']) {
+      final m = '${o[k2] ?? ''}';
+      if (m.isNotEmpty && m != 'null') parts.add(m);
+    }
+    final out = parts.where((p) => p.isNotEmpty && p != 'null').toList();
+    return out.isEmpty ? '其他支付' : out.join('+');
+  }
+
   /// 状态圆点：绿=正常已支付，橙=未支付/退款中，红=已退款/部分退款
   Color _statusColor(Map o) {
     final refundSt = int.tryParse('${o['refund_status']}') ?? 0;
@@ -383,7 +394,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
               const SizedBox(width: 10),
               seg(2, time, const TextStyle(fontSize: 13, color: PosTheme.textSub)),
               const SizedBox(width: 10),
-              seg(2, st.isEmpty ? '${o['payment_method'] ?? '其他支付'}' : '$st · ${o['payment_method'] ?? ''}',
+              seg(2, st.isEmpty ? _payMethods(o) : '$st · ${_payMethods(o)}',
                   TextStyle(
                       fontSize: 13,
                       color: st.isEmpty ? PosTheme.textSub : (st == '未支付' ? PosTheme.amber : PosTheme.red))),
