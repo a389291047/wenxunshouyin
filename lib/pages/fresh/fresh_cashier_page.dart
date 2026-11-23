@@ -720,24 +720,16 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         Expanded(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 360),
-            child: TextField(
+            child: PosField(
               focusNode: searchKeeper.node,
+              compact: true,
+              hint: '搜索生鲜商品名称',
+              icon: Icons.search,
+              iconColor: FreshColors.accent,
               onChanged: (v) => setState(() => keyword = v.trim()),
-              style: const TextStyle(fontSize: 15),
-              decoration: InputDecoration(
-                isDense: true,
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                hintText: '搜索生鲜商品名称',
-                hintStyle: const TextStyle(fontSize: 14, color: PosTheme.textHint),
-                prefixIcon: const Icon(Icons.search, size: 22, color: FreshColors.accent),
-                suffixIcon: keyword.isEmpty ? null : GestureDetector(
-                  onTap: () => setState(() => keyword = ''),
-                  child: const Icon(Icons.close, size: 20),
-                ),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: BorderSide.none),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(24), borderSide: const BorderSide(color: Colors.white70, width: 2)),
+              suffix: keyword.isEmpty ? null : GestureDetector(
+                onTap: () => setState(() => keyword = ''),
+                child: const Icon(Icons.close, size: 20),
               ),
             ),
           ),

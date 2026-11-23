@@ -344,28 +344,10 @@ class _ActivityEditorState extends State<_ActivityEditor> {
                 ]),
                 const SizedBox(height: 14),
                 _label('活动名称'),
-                SizedBox(
-                  height: 46,
-                  child: TextField(
-                    controller: nameCtrl,
-                    style: const TextStyle(fontSize: 15),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: const Color(0xFFF7F8FA),
-                      hintText: '不填则自动生成，如 ${_autoName()}',
-                      hintStyle: const TextStyle(fontSize: 14, color: PosTheme.textHint),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: PosTheme.line),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(color: PosTheme.line),
-                      ),
-                    ),
-                  ),
+                PosField(
+                  controller: nameCtrl,
+                  compact: true,
+                  hint: '不填则自动生成，如 ${_autoName()}',
                 ),
                 const SizedBox(height: 14),
                 _label('适用范围'),
@@ -655,26 +637,13 @@ class _GoodsPickDialogState extends State<_GoodsPickDialog> {
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SizedBox(
-              height: 44,
-              child: TextField(
-                controller: kw,
-                onChanged: (_) => setState(() {}),
-                style: const TextStyle(fontSize: 14.5),
-                decoration: InputDecoration(
-                  isDense: true,
-                  filled: true,
-                  fillColor: const Color(0xFFF7F8FA),
-                  hintText: '搜索商品名称 / 简拼 / 条码',
-                  hintStyle: const TextStyle(fontSize: 13.5, color: PosTheme.textHint),
-                  prefixIcon: const Icon(Icons.search, size: 20, color: PosTheme.textSub),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-              ),
+            child: PosField(
+              controller: kw,
+              onChanged: (_) => setState(() {}),
+              compact: true,
+              hint: '搜索商品名称 / 简拼 / 条码',
+              icon: Icons.search,
+              iconColor: PosTheme.textSub,
             ),
           ),
           const SizedBox(height: 8),

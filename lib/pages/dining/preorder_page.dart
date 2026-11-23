@@ -286,31 +286,22 @@ class _PreorderPageState extends State<PreorderPage> {
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
           child: SizedBox(
             height: 38,
-            child: TextField(
+            child: PosField(
               controller: _searchCtrl,
               textInputAction: TextInputAction.search,
-              style: const TextStyle(fontSize: 13),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '搜手机号 / 称呼',
-                hintStyle: const TextStyle(fontSize: 13, color: PosTheme.textHint),
-                prefixIcon: const Icon(Icons.search, size: 18, color: PosTheme.textHint),
-                suffixIcon: keyword.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.close, size: 16),
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          keyword = '';
-                          _load();
-                        },
-                      ),
-                filled: true,
-                fillColor: PosTheme.bg,
-                contentPadding: const EdgeInsets.symmetric(vertical: 9),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-              ),
+              hint: '搜手机号 / 称呼',
+              icon: Icons.search,
+              iconColor: PosTheme.textHint,
+              suffix: keyword.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 16),
+                      onPressed: () {
+                        _searchCtrl.clear();
+                        keyword = '';
+                        _load();
+                      },
+                    ),
               onSubmitted: (v) {
                 keyword = v.trim();
                 _load();

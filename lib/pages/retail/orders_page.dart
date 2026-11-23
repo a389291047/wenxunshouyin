@@ -215,19 +215,12 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                   // 搜索行（v3.3.216）：订单号 / 支付方式 / 金额
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
-                    child: TextField(
+                    child: PosField(
+                      compact: true,
+                      cleanScan: true, // 支持扫码枪扫订单号搜索
+                      hint: '搜索订单号 / 支付方式 / 金额',
+                      icon: Icons.search,
                       onChanged: (v) => setState(() { kw = v; _ensureSelected(); }),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: '搜索订单号 / 支付方式 / 金额',
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        suffixIcon: kw.isEmpty
-                            ? null
-                            : IconButton(
-                                icon: const Icon(Icons.close, size: 17),
-                                onPressed: () => setState(() { kw = ''; _ensureSelected(); }),
-                              ),
-                      ),
                     ),
                   ),
                   const Divider(height: 14, color: PosTheme.line),

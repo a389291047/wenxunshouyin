@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/api.dart';
 import '../core/theme.dart';
 import '../ui/agreement.dart';
+import '../ui/widgets.dart';
 import 'login_page.dart' show BrandPanel;
 
 /// 商家自助注册页
@@ -214,23 +215,14 @@ class _RegisterPageState extends State<RegisterPage> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label, style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
-      TextField(
+      PosField(
         controller: controller,
         obscureText: obscure,
         keyboardType: keyboardType,
         maxLength: maxLength,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400, color: PosTheme.textHint),
-          counterText: '',
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: PosTheme.line)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: PosTheme.accent, width: 2)),
-          suffixIcon: trailing,
-        ),
+        compact: true,
+        hint: hint,
+        suffix: trailing,
       ),
     ]);
   }

@@ -465,36 +465,18 @@ class _XyfScanPayDialogState extends State<_XyfScanPayDialog> {
         const Text('扫码枪对准顾客付款码（微信/支付宝/云闪付自动识别）',
             style: TextStyle(fontSize: 14, color: PosTheme.textSub)),
         const SizedBox(height: 16),
-        TextField(
+        PosField(
           controller: codeCtrl,
           focusNode: focusNode,
           autofocus: true,
           enabled: !submitting,
           keyboardType: TextInputType.number,
           maxLength: 32,
-          style: const TextStyle(
-              fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: 1.5),
-          onChanged: (v) {
-            // 清除扫码枪带回的换行/制表符等脏字符；并按前缀实时识别渠道换主题色
-            final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
-            if (clean != v) {
-              codeCtrl.value = TextEditingValue(
-                  text: clean,
-                  selection: TextSelection.collapsed(offset: clean.length));
-            }
-            setState(() {});
-          },
+          cleanScan: true,
+          label: '顾客付款码',
+          icon: Icons.qr_code,
+          onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _pay(),
-          decoration: InputDecoration(
-            labelText: '顾客付款码',
-            counterText: '',
-            prefixIcon: const Icon(Icons.qr_code, size: 24),
-            contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-            suffixIcon: codeCtrl.text.isEmpty
-                ? null
-                : IconButton(icon: const Icon(Icons.clear, size: 20), onPressed: () => setState(() => codeCtrl.clear())),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-          ),
         ),
         if (errorMsg.isNotEmpty) ...[
           const SizedBox(height: 10),

@@ -607,36 +607,28 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
           Text('单号 ${o['order_sn'] ?? '-'} · 实收 ¥${Fmt.money(total)}${refunded > 0 ? ' · 已退 ¥${Fmt.money(refunded)}' : ''}',
               style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
           const SizedBox(height: 14),
-          TextField(
+          PosField(
             controller: amtCtl,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: '退款金额（不填=整单退 ¥${Fmt.money(refundable)}）',
-              prefixText: '¥ ',
-              border: const OutlineInputBorder(),
-              isDense: true,
-              helperText: '剩余可退 ¥${Fmt.money(refundable)}',
-            ),
+            label: '退款金额（不填=整单退 ¥${Fmt.money(refundable)}）',
+            compact: true,
           ),
           const SizedBox(height: 12),
-          TextField(
+          PosField(
             controller: reasonCtl,
             maxLines: 2,
-            decoration: const InputDecoration(labelText: '退款原因', border: OutlineInputBorder(), isDense: true),
+            label: '退款原因',
+            compact: true,
           ),
           const SizedBox(height: 12),
-          TextField(
+          PosField(
             controller: pwdCtl,
             obscureText: true,
             keyboardType: TextInputType.number,
             maxLength: 6,
-            decoration: const InputDecoration(
-              labelText: '权限密码（6位数字）',
-              counterText: '',
-              prefixIcon: Icon(Icons.lock_outline, size: 20),
-              border: OutlineInputBorder(),
-              isDense: true,
-            ),
+            label: '权限密码（6位数字）',
+            icon: Icons.lock_outline,
+            compact: true,
           ),
           const SizedBox(height: 8),
           const Text('会员余额支付原路退回余额；现金/扫码登记退款线下原路退回。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),

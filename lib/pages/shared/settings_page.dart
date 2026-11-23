@@ -376,9 +376,10 @@ class _SettingsPageState extends State<SettingsPage> {
       Row(children: [
         SizedBox(
           width: 220,
-          child: TextField(
+          child: PosField(
             controller: zuofaCtrl,
-            decoration: const InputDecoration(hintText: '输入做法名称，如：微辣', isDense: true),
+            compact: true,
+            hint: '输入做法名称，如：微辣',
             onSubmitted: (_) => _zuofaAdd(),
           ),
         ),
@@ -744,34 +745,26 @@ class _SettingsPageState extends State<SettingsPage> {
             Text('该收银员执行「订单退款」「现金充值」时需输入此密码。',
                 style: const TextStyle(fontSize: 12, color: PosTheme.textHint)),
             const SizedBox(height: 14),
-            TextField(
+            PosField(
               controller: pwdCtl,
               obscureText: true,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(
-                counterText: '',
-                labelText: '权限密码（6位数字）',
-                prefixIcon: Icon(Icons.lock_outline, size: 20),
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
+              compact: true,
+              fontSize: 18,
+              label: '权限密码（6位数字）',
+              icon: Icons.lock_outline,
             ),
             const SizedBox(height: 12),
-            TextField(
+            PosField(
               controller: pwd2Ctl,
               obscureText: true,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              style: const TextStyle(fontSize: 18, letterSpacing: 6, fontWeight: FontWeight.w700),
-              decoration: const InputDecoration(
-                counterText: '',
-                labelText: '确认密码',
-                prefixIcon: Icon(Icons.lock, size: 20),
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
+              compact: true,
+              fontSize: 18,
+              label: '确认密码',
+              icon: Icons.lock,
             ),
           ]),
         ),
@@ -3019,18 +3012,12 @@ class _SettingsPageState extends State<SettingsPage> {
                                   color: isCustomPage ? Colors.white : PosTheme.textSub)),
                           SizedBox(
                             width: 120,
-                            child: TextField(
+                            child: PosField(
                               controller: customCtl,
                               keyboardType: TextInputType.number,
-                              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                              textAlign: TextAlign.center,
-                              decoration: InputDecoration(
-                                  isDense: true,
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                                  hintText: 'mm',
-                                  suffixText: 'mm',
-                                  suffixStyle: const TextStyle(fontSize: 11)),
+                              compact: true,
+                              hint: 'mm',
+                              suffix: const Text('mm', style: TextStyle(fontSize: 11)),
                               onChanged: (v) => setD(() {
                                 final m = double.tryParse(v) ?? 0;
                                 if (m >= 50 && m <= 500) cfgs[spec] = {'pageMm': m, 'offMm': offMm};
@@ -3899,9 +3886,11 @@ class _ScaleCardState extends State<_ScaleCard> {
           Row(children: [
             SizedBox(
               width: 180,
-              child: TextField(
+              child: PosField(
                 controller: portCtrl,
-                decoration: const InputDecoration(labelText: '串口号', hintText: 'COM3', isDense: true),
+                compact: true,
+                label: '串口号',
+                hint: 'COM3',
                 onChanged: (_) => _save(),
               ),
             ),
@@ -4105,10 +4094,11 @@ class _CdCardState extends State<_CdCard> {
           const Text('自动搜索没找到主收银机，请手动输入它显示在「副屏客显」里的地址，例如 192.168.1.23:19877',
               style: TextStyle(fontSize: 13, color: PosTheme.textSub)),
           const SizedBox(height: 12),
-          TextField(
+          PosField(
             controller: ctl,
             autofocus: true,
-            decoration: const InputDecoration(hintText: '192.168.1.23:19877'),
+            compact: true,
+            hint: '192.168.1.23:19877',
           ),
         ]),
         actions: [

@@ -284,7 +284,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                 const SizedBox(height: 10),
                 _pwdPad(),
               ] else
-                TextField(
+                PosField(
                   controller: codeCtrl,
                   focusNode: codeFocus,
                   autofocus: true,
@@ -292,27 +292,9 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                   maxLength: 32,
                   enabled: !submitting,
                   onSubmitted: (_) => _submit(),
-                  // v3.3.251：样式对齐扫码收款弹窗——同高（contentPadding 20）、同字号粗体，去掉多余提示文字
-                  style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: 1.5),
-                  onChanged: (v) {
-                    // 清除扫码枪带回的换行/制表符等脏字符
-                    final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
-                    if (clean != v) {
-                      codeCtrl.value = TextEditingValue(
-                          text: clean,
-                          selection: TextSelection.collapsed(offset: clean.length));
-                    }
-                  },
-                  decoration: InputDecoration(
-                    labelText: '顾客付款码',
-                    counterText: '',
-                    prefixIcon: const Icon(Icons.qr_code, size: 24),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-                    suffixIcon: codeCtrl.text.isEmpty
-                        ? null
-                        : IconButton(icon: const Icon(Icons.clear, size: 20), onPressed: () => setState(() => codeCtrl.clear())),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                  ),
+                  cleanScan: true,
+                  label: '顾客付款码',
+                  icon: Icons.qr_code,
                 ),
             ]);
           },

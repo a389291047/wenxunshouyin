@@ -2329,28 +2329,13 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         SizedBox(
           width: 260,
           height: 40,
-          child: TextField(
+          child: PosField(
             controller: searchCtrl,
             focusNode: searchKeeper.node,
             onChanged: _onSearch,
-            style: const TextStyle(fontSize: 13.5),
-            decoration: InputDecoration(
-              hintText: '搜索商品名称 / 简拼',
-              hintStyle: const TextStyle(fontSize: 13, color: PosTheme.textHint),
-              prefixIcon: const Icon(Icons.search, size: 19, color: PosTheme.textHint),
-              // 清除搜索（v3.3.76）
-              suffixIcon: keyword.trim().isEmpty ? null : InkWell(
-                onTap: () { searchCtrl.clear(); setState(() => keyword = ''); },
-                borderRadius: BorderRadius.circular(20),
-                child: const Icon(Icons.close, size: 16, color: PosTheme.textHint),
-              ),
-              suffixIconConstraints: const BoxConstraints(minWidth: 34, minHeight: 30),
-              isDense: true,
-              filled: true,
-              fillColor: const Color(0xFFF7F8FA),
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-            ),
+            hint: '搜索商品名称 / 简拼',
+            icon: Icons.search,
+            iconColor: PosTheme.textHint,
           ),
         ),
         const SizedBox(width: 8),
@@ -2807,9 +2792,11 @@ class _DiningVipPickerState extends State<_DiningVipPicker> {
       content: SizedBox(
         width: 480, height: 460,
         child: Column(children: [
-          TextField(
+          PosField(
             autofocus: true,
-            decoration: const InputDecoration(hintText: '手机号 / 姓名 搜索后回车', prefixIcon: Icon(Icons.search, size: 19), isDense: true),
+            hint: '手机号 / 姓名 搜索后回车',
+            icon: Icons.search,
+            compact: true,
             onSubmitted: (v) => _load(v.trim()),
           ),
           const SizedBox(height: 10),
@@ -3200,15 +3187,12 @@ class _PreorderDialogState extends State<_PreorderDialog> {
       decoration: const BoxDecoration(border: Border(top: BorderSide(color: PosTheme.line))),
       child: Row(children: [
         Expanded(
-          child: TextField(
+          child: PosField(
             controller: TextEditingController(text: remark),
             onChanged: (v) => remark = v,
-            style: const TextStyle(fontSize: 13.5),
-            decoration: const InputDecoration(
-              isDense: true,
-              hintText: '到店备注（如：预计12:00到店 · 张先生）',
-              prefixIcon: Icon(Icons.schedule, size: 19),
-            ),
+            hint: '到店备注（如：预计12:00到店 · 张先生）',
+            icon: Icons.schedule,
+            compact: true,
           ),
         ),
         const SizedBox(width: 14),
@@ -3342,11 +3326,12 @@ class _OrderRemarkDialogState extends State<_OrderRemarkDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('整单备注', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-      content: SizedBox(width: 420, child: TextField(
+      content: SizedBox(width: 420, child: PosField(
         controller: ctrl,
         autofocus: true,
         maxLines: 3,
-        decoration: const InputDecoration(hintText: '如：先上凉菜、12:30 前出餐、打包一半'),
+        hint: '如：先上凉菜、12:30 前出餐、打包一半',
+        compact: true,
       )),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
@@ -3637,14 +3622,14 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                       ),
                       if (remarkOpen) ...[
                         const SizedBox(height: 6),
-                        TextField(controller: remarkCtrl, maxLines: 2, onChanged: (_) => setState(() {})),
+                        PosField(controller: remarkCtrl, maxLines: 2, onChanged: (_) => setState(() {}), compact: true),
                       ],
                     ]),
                   ),
                   _section('发票（选填）', Column(children: [
-                    TextField(controller: invoiceCtrl, decoration: const InputDecoration(hintText: '发票抬头', isDense: true)),
+                    PosField(controller: invoiceCtrl, hint: '发票抬头', compact: true),
                     const SizedBox(height: 8),
-                    TextField(controller: invoiceNoCtrl, decoration: const InputDecoration(hintText: '税号', isDense: true)),
+                    PosField(controller: invoiceNoCtrl, hint: '税号', compact: true),
                   ])),
                   const SizedBox(height: 4),
                 ]),
@@ -3804,16 +3789,12 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       const Text('实收现金', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
                       const SizedBox(height: 6),
-                      TextField(
+                      PosField(
                         controller: cashCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         onChanged: (_) => setState(() {}),
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22B573)),
-                        decoration: const InputDecoration(
-                          hintText: '0.00', isDense: true,
-                          prefixText: '¥ ',
-                          prefixStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22B573)),
-                        ),
+                        hint: '0.00',
+                        compact: true,
                       ),
                       const SizedBox(height: 8),
                       // 常用面额快捷键：直接按面额收，自动算找零
@@ -4033,11 +4014,12 @@ class _SettlePayDialogState extends State<_SettlePayDialog> {
   }
 
   Widget _feeField(String label, TextEditingController c) {
-    return Expanded(child: TextField(
+    return Expanded(child: PosField(
       controller: c,
       keyboardType: TextInputType.number,
       onChanged: (_) => setState(() {}),
-      decoration: InputDecoration(hintText: label, isDense: true),
+      hint: label,
+      compact: true,
     ));
   }
 

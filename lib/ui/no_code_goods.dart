@@ -102,17 +102,13 @@ class _NoCodeGoodsDialogState extends State<NoCodeGoodsDialog> {
           ]),
           const SizedBox(height: 20),
           // 名称（可选，物理/系统键盘输入）
-          TextField(
+          PosField(
             controller: nameCtrl,
             maxLength: 30,
             inputFormatters: [LengthLimitingTextInputFormatter(30)],
-            style: const TextStyle(fontSize: 17),
-            decoration: InputDecoration(
-              counterText: '',
-              hintText: '${widget.title}名称（可选）',
-              prefixIcon: const Icon(Icons.edit_outlined, size: 20),
-              contentPadding: const EdgeInsets.symmetric(vertical: 15),
-            ),
+            compact: true,
+            hint: '${widget.title}名称（可选）',
+            icon: Icons.edit_outlined,
           ),
           const SizedBox(height: 14),
           // 单价 / 数量 两个输入展示块（点击切换键盘作用域）

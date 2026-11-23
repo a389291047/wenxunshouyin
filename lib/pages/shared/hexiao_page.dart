@@ -376,26 +376,28 @@ class _HexiaoPageState extends State<HexiaoPage> {
 
   /// 扫码核销输入框（小程序未核销档）：扫码枪回车自动触发
   Widget _scanField() {
-    return TextField(
+    return PosField(
       controller: scanCtrl,
       focusNode: scanFocus,
       autofocus: true,
       textInputAction: TextInputAction.done,
+      cleanScan: true, // 扫码枪扫核销码，脏字符自动清洗
+      hint: '扫描顾客核销码 / 手动输入 6 位核销码后回车',
+      icon: Icons.qr_code_scanner,
       onSubmitted: (_) => _scanVerify(),
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: '扫描顾客核销码 / 手动输入 6 位核销码后回车',
-        prefixIcon: const Icon(Icons.qr_code_scanner, size: 20),
-        suffixIcon: TextButton(
-          onPressed: _scanVerify,
-          child: const Text('核销', style: TextStyle(fontWeight: FontWeight.w700)),
-        ),
+      suffix: TextButton(
+        onPressed: _scanVerify,
+        child: const Text('核销', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
 
   Widget _searchField() {
-    return TextField(
+    return PosField(
+      compact: true,
+      cleanScan: true, // 支持扫码枪扫订单号/手机号搜索
+      hint: platform == 0 ? '搜索订单号 / 手机号 / 顾客' : '搜索券码 / 团购标题 / 门店',
+      icon: Icons.search,
       onChanged: (v) {
         _debounce?.cancel();
         _debounce = Timer(const Duration(milliseconds: 350), () {
@@ -405,11 +407,6 @@ class _HexiaoPageState extends State<HexiaoPage> {
           }
         });
       },
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: platform == 0 ? '搜索订单号 / 手机号 / 顾客' : '搜索券码 / 团购标题 / 门店',
-        prefixIcon: const Icon(Icons.search, size: 20),
-      ),
     );
   }
 
@@ -601,17 +598,15 @@ class _HexiaoPageState extends State<HexiaoPage> {
                   style: const TextStyle(fontSize: 12.5, color: Color(0xFF9A3412))),
             ),
           const SizedBox(height: 12),
-          TextField(
+          PosField(
             controller: dyCodeCtrl,
             focusNode: dyCodeFocus,
             autofocus: dyShops.isNotEmpty,
+            cleanScan: true, // 扫码枪扫券码，脏字符自动清洗
+            hint: '扫描顾客券码二维码 / 输入券码明文',
+            icon: Icons.qr_code_scanner,
             onSubmitted: (_) => _dyPrepare(),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: '扫描顾客券码二维码 / 输入券码明文',
-              prefixIcon: const Icon(Icons.qr_code_scanner, size: 20),
-              suffixIcon: TextButton(onPressed: dyBusy ? null : _dyPrepare, child: const Text('验券', style: TextStyle(fontWeight: FontWeight.w700))),
-            ),
+            suffix: TextButton(onPressed: dyBusy ? null : _dyPrepare, child: const Text('验券', style: TextStyle(fontWeight: FontWeight.w700))),
           ),
           const SizedBox(height: 14),
           // 验券结果

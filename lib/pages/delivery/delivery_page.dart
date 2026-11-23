@@ -349,35 +349,31 @@ class _ConfigDialogState extends State<_ConfigDialog> {
             ),
         ]),
         const SizedBox(height: 14),
-        TextField(controller: appIdCtrl, decoration: InputDecoration(
-          labelText: platform == 'meituan' ? '开发者 app_id' : '开发者 app_key',
-          hintText: '开放平台开发者应用ID（全商户共用）',
-          isDense: true,
-        )),
+        PosField(controller: appIdCtrl, compact: true,
+          label: platform == 'meituan' ? '开发者 app_id' : '开发者 app_key',
+          hint: '开放平台开发者应用ID（全商户共用）',
+        ),
         const SizedBox(height: 12),
-        TextField(controller: secretCtrl, obscureText: true, decoration: const InputDecoration(
-          labelText: '应用密钥 app_secret',
-          hintText: '开发者应用密钥；留空或 **** 表示不修改',
-          isDense: true,
-        )),
+        PosField(controller: secretCtrl, obscureText: true, compact: true,
+          label: '应用密钥 app_secret',
+          hint: '开发者应用密钥；留空或 **** 表示不修改',
+        ),
         if (platform == 'jddj') ...[
           const SizedBox(height: 12),
-          TextField(controller: sourceCtrl, decoration: const InputDecoration(
-            labelText: '商户 SourceID（绑定商户ID）',
-            hintText: '京东秒送「商户绑定」里该商户的商户ID，如 107713',
-            isDense: true,
-          )),
+          PosField(controller: sourceCtrl, compact: true,
+            label: '商户 SourceID（绑定商户ID）',
+            hint: '京东秒送「商户绑定」里该商户的商户ID，如 107713',
+          ),
         ],
         const SizedBox(height: 12),
-        TextField(controller: storeCtrl, decoration: InputDecoration(
-          labelText: platform == 'jddj' ? '门店编号' : '平台门店ID',
-          hintText: platform == 'meituan'
+        PosField(controller: storeCtrl, compact: true,
+          label: platform == 'jddj' ? '门店编号' : '平台门店ID',
+          hint: platform == 'meituan'
               ? '美团授权门店 ePoiId'
               : platform == 'jddj'
                   ? '京东秒送联调/门店管理里的门店编号'
                   : '饿了么门店 shopId',
-          isDense: true,
-        )),
+        ),
         if (platform == 'jddj') ...[
           const SizedBox(height: 10),
           SwitchListTile(
@@ -396,11 +392,10 @@ class _ConfigDialogState extends State<_ConfigDialog> {
         ],
         if (platform == 'shangou') ...[
           const SizedBox(height: 12),
-          TextField(controller: tokenCtrl, obscureText: true, decoration: const InputDecoration(
-            labelText: 'OAuth access_token（淘宝闪购）',
-            hintText: '商户授权后取得；留空或 **** 表示不修改',
-            isDense: true,
-          )),
+          PosField(controller: tokenCtrl, obscureText: true, compact: true,
+            label: 'OAuth access_token（淘宝闪购）',
+            hint: '商户授权后取得；留空或 **** 表示不修改',
+          ),
         ],
         const SizedBox(height: 10),
         SwitchListTile(

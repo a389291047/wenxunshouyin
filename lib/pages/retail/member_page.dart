@@ -285,11 +285,14 @@ class _MemberPageState extends State<MemberPage> {
                   Padding(
                     padding: const EdgeInsets.all(14),
                     child: Row(children: [
-                      Expanded(child: TextField(
+                      Expanded(child: PosField(
                         controller: searchCtrl,
+                        compact: true,
+                        cleanScan: true, // 支持扫码枪扫会员卡号/手机号
+                        hint: '手机号搜索后回车',
+                        icon: Icons.search,
                         onChanged: (v) => kw = v.trim(),
                         onSubmitted: (_) => _load(),
-                        decoration: const InputDecoration(isDense: true, hintText: '手机号搜索后回车', prefixIcon: Icon(Icons.search, size: 20)),
                       )),
                       const SizedBox(width: 10),
                       _kbBtn(),

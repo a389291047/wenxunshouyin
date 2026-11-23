@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/theme.dart';
 
 /// 通用 UI 组件
@@ -193,4 +194,170 @@ void loadingDialog(BuildContext context, String text) {
       ),
     ),
   );
+}
+
+/// ==================== 统一输入框（v3.3.263） ====================
+/// 全端输入框复用「顾客付款码」输入框样式：圆角 14 描边、大号粗体、
+/// 高内边距、前缀图标、一键清空、扫码枪脏字符清洗、回车提交。
+/// 纯样式装饰器：给不能换组件的 TextFormField / TextField 用。
+InputDecoration posFieldDeco({
+  String? label,
+  String? hint,
+  IconData? icon,
+  Color? iconColor,
+  Widget? suffix,
+  bool compact = false,
+  int? maxLength,
+}) {
+  return InputDecoration(
+    labelText: label,
+    hintText: hint,
+    counterText: maxLength != null ? '' : null,
+    prefixIcon: icon != null ? Icon(icon, size: 24, color: iconColor ?? PosTheme.accentLive) : null,
+    contentPadding: EdgeInsets.symmetric(vertical: compact ? 18 : 24, horizontal: 16),
+    suffixIcon: suffix,
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+  );
+}
+
+/// 统一输入框文字样式（对齐付款码输入框：粗体大字，扫码枪友好）
+TextStyle posFieldStyle({bool compact = false}) => TextStyle(
+    fontSize: compact ? 19 : 23, fontWeight: FontWeight.w700, letterSpacing: 1);
+
+/// 统一输入框组件：默认即付款码输入框观感。
+/// [cleanScan] 为 true 时自动剔除扫码枪带回的换行/制表符/空格脏字符。
+class PosField extends StatefulWidget {
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+  final bool autofocus;
+  final bool enabled;
+  final TextInputType? keyboardType;
+  final int? maxLength;
+  final int? maxLines;
+  final bool obscureText;
+  final String? label;
+  final String? hint;
+  final IconData? icon;
+  final Color? iconColor;
+  final bool compact;
+  final bool cleanScan;
+  final double? fontSize;
+  final Widget? suffix;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  final FormFieldValidator<String>? validator;
+  final List<TextInputFormatter>? inputFormatters;
+  final TextInputAction? textInputAction;
+  const PosField({
+    super.key,
+    this.controller,
+    this.focusNode,
+    this.autofocus = false,
+    this.enabled = true,
+    this.keyboardType,
+    this.maxLength,
+    this.maxLines = 1,
+    this.obscureText = false,
+    this.label,
+    this.hint,
+    this.icon,
+    this.iconColor,
+    this.compact = false,
+    this.cleanScan = false,
+    this.fontSize,
+    this.suffix,
+    this.onChanged,
+    this.onSubmitted,
+    this.validator,
+    this.inputFormatters,
+    this.textInputAction,
+  });
+  @override
+  State<PosField> createState() => _PosFieldState();
+}
+
+class _PosFieldState extends State<PosField> {
+  late TextEditingController _ctrl = widget.controller ?? TextEditingController();
+
+  @override
+  void didUpdateWidget(PosField old) {
+    super.didUpdateWidget(old);
+    if (widget.controller != old.controller) {
+      _ctrl = widget.controller ?? TextEditingController();
+    }
+  }
+
+  void _onChange(String v) {
+    if (widget.cleanScan) {
+      final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
+      if (clean != v) {
+        _ctrl.value = TextEditingValue(text: clean, selection: TextSelection.collapsed(offset: clean.length));
+      }
+    }
+    widget.onChanged?.call(_ctrl.text);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasText = _ctrl.text.isNotEmpty;
+    final effSuffix = widget.suffix ?? (hasText
+        ? IconButton(icon: const Icon(Icons.clear, size: 22), onPressed: () {
+            _ctrl.clear();
+            widget.onChanged?.call('');
+            setState(() {});
+          })
+        : null);
+    if (widget.validator != null) {
+      return TextFormField(
+        controller: _ctrl,
+        focusNode: widget.focusNode,
+        autofocus: widget.autofocus,
+        enabled: widget.enabled,
+        keyboardType: widget.keyboardType,
+        maxLength: widget.maxLength,
+        maxLines: widget.maxLines,
+        obscureText: widget.obscureText,
+        style: widget.fontSize != null ? TextStyle(fontSize: widget.fontSize, fontWeight: FontWeight.w700, letterSpacing: 1) : posFieldStyle(compact: widget.compact),
+        validator: widget.validator,
+        inputFormatters: widget.inputFormatters,
+        textInputAction: widget.textInputAction,
+        onChanged: _onChange,
+        onFieldSubmitted: widget.onSubmitted,
+        decoration: posFieldDeco(
+          label: widget.label,
+          hint: widget.hint,
+          icon: widget.icon,
+          iconColor: widget.iconColor,
+          suffix: effSuffix,
+          compact: widget.compact,
+          maxLength: widget.maxLength,
+        ),
+      );
+    }
+    return TextField(
+      controller: _ctrl,
+      focusNode: widget.focusNode,
+      autofocus: widget.autofocus,
+      enabled: widget.enabled,
+      keyboardType: widget.keyboardType,
+      maxLength: widget.maxLength,
+      maxLines: widget.maxLines,
+      obscureText: widget.obscureText,
+      style: widget.fontSize != null ? TextStyle(fontSize: widget.fontSize, fontWeight: FontWeight.w700, letterSpacing: 1) : posFieldStyle(compact: widget.compact),
+      inputFormatters: widget.inputFormatters,
+      textInputAction: widget.textInputAction,
+      onChanged: _onChange,
+      onSubmitted: widget.onSubmitted,
+      decoration: posFieldDeco(
+        label: widget.label,
+        hint: widget.hint,
+        icon: widget.icon,
+        iconColor: widget.iconColor,
+        suffix: effSuffix,
+        compact: widget.compact,
+        maxLength: widget.maxLength,
+      ),
+    );
+  }
 }

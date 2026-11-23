@@ -689,22 +689,23 @@ class _PinDialogState extends State<_PinDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(widget.sub, style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
           const SizedBox(height: 12),
-          TextField(
+          PosField(
             controller: ctrl,
             autofocus: true,
             obscureText: true,
             keyboardType: TextInputType.number,
             maxLength: 12,
-            decoration: InputDecoration(
-              hintText: '权限密码',
-              counterText: '',
-              isDense: true,
-              border: const OutlineInputBorder(),
-              errorText: err,
-              prefixIcon: const Icon(Icons.lock_outline, size: 19),
-            ),
+            compact: true,
+            hint: '权限密码',
+            icon: Icons.lock_outline,
             onSubmitted: (_) => _submit(),
           ),
+          if (err != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(err!,
+                  style: const TextStyle(fontSize: 12, color: PosTheme.red)),
+            ),
         ]),
       ),
       actions: [

@@ -1355,44 +1355,15 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Widget _searchBox() {
     return SizedBox(
       height: 48,
-      child: TextField(
+      child: PosField(
         controller: searchCtrl,
         focusNode: searchKeeper.node,
-        textAlignVertical: TextAlignVertical.center,
-        cursorColor: PosTheme.accentLive,
-        style: const TextStyle(
-            fontSize: 17, fontWeight: FontWeight.w500, color: PosTheme.textMain),
+        compact: true,
+        hint: '搜索商品名称 / 简拼 / 条码',
+        icon: Icons.search_rounded,
+        iconColor: PosTheme.textSub,
         onChanged: _onSearchChanged,
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: Colors.white,
-          hintText: '搜索商品名称 / 简拼 / 条码',
-          hintStyle: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
-              color: PosTheme.textHint),
-          contentPadding: const EdgeInsets.symmetric(vertical: 12),
-          prefixIcon: const Icon(Icons.search_rounded,
-              size: 24, color: PosTheme.textSub),
-          prefixIconConstraints:
-              const BoxConstraints(minWidth: 50, minHeight: 48),
-          suffixIcon: keyword.isEmpty ? null : _clearBtn(),
-          suffixIconConstraints:
-              const BoxConstraints(minWidth: 46, minHeight: 48),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: PosTheme.line),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: PosTheme.accentLive, width: 1.6),
-          ),
-        ),
+        suffix: keyword.isEmpty ? null : _clearBtn(),
       ),
     );
   }
@@ -2848,35 +2819,20 @@ class _PayDialogState extends State<RetailPayDialog> {
             ),
             const SizedBox(height: 10),
           ],
-          TextField(
+          PosField(
           controller: codeCtrl,
           focusNode: codeFocus,
           autofocus: true,
           enabled: !_busy,
           keyboardType: TextInputType.number,
           maxLength: 32,
-          style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w700, letterSpacing: 2),
-          onChanged: (v) {
-            // 清除扫码枪带回的换行/制表符等脏字符
-            final clean = v.replaceAll(RegExp(r'[\r\n\t\s]'), '');
-            if (clean != v) {
-              codeCtrl.value = TextEditingValue(
-                  text: clean,
-                  selection: TextSelection.collapsed(offset: clean.length));
-            }
-            setState(() {});
-          },
+          label: '顾客付款码',
+          icon: Icons.qr_code,
+          iconColor: c,
+          cleanScan: true, // 扫码枪脏字符（换行/制表符）已内置清洗
+          fontSize: 25,
           onSubmitted: (_) => _payScan(), // 扫码枪带回车：扫完直接收款，零点击
-          decoration: InputDecoration(
-            labelText: '顾客付款码',
-            counterText: '',
-            prefixIcon: Icon(Icons.qr_code, size: 26, color: c),
-            contentPadding: EdgeInsets.symmetric(vertical: compact ? 24 : 28, horizontal: 16),
-            suffixIcon: codeCtrl.text.isEmpty
-                ? null
-                : IconButton(icon: const Icon(Icons.clear, size: 22), onPressed: () => setState(() => codeCtrl.clear())),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-          ),
+          onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 12),
         Text('扫码枪对准顾客付款码，扫完自动收款（微信/支付宝/云闪付/抖音自动识别）',

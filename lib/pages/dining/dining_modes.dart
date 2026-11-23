@@ -396,10 +396,11 @@ class _DirectVipPickerState extends State<_DirectVipPicker> {
       title: const Text('选择会员', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
       content: SizedBox(width: 380, child: Column(mainAxisSize: MainAxisSize.min, children: [
         Row(children: [
-          Expanded(child: TextField(
+          Expanded(child: PosField(
             controller: phoneCtrl,
             autofocus: true,
-            decoration: const InputDecoration(hintText: '输入会员手机号', isDense: true),
+            hint: '输入会员手机号',
+            compact: true,
             onSubmitted: (_) => _search(),
           )),
           const SizedBox(width: 8),
@@ -939,9 +940,9 @@ Future<Map<String, String>?> showGuazhangInfoDialog(BuildContext context) async 
               style: TextStyle(fontSize: 12.5, color: PosTheme.accent)),
         ),
         const SizedBox(height: 12),
-        TextField(controller: nameCtrl, autofocus: true, decoration: const InputDecoration(labelText: '挂账人姓名（必填）', isDense: true)),
+        PosField(controller: nameCtrl, autofocus: true, label: '挂账人姓名（必填）', compact: true),
         const SizedBox(height: 10),
-        TextField(controller: phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: '联系电话（选填）', isDense: true)),
+        PosField(controller: phoneCtrl, keyboardType: TextInputType.phone, label: '联系电话（选填）', compact: true),
       ])),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
