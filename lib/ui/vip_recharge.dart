@@ -220,9 +220,16 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   Widget build(BuildContext context) {
     final v = widget.vip;
     // v3.3.265：支付处理中禁关弹窗（Esc/返回键也拦截）；点空白不再关闭
+    // v3.3.268：点弹窗内空白处（档位以外区域）把焦点还给付款码框——扫码枪必须常驻焦点，
+    //           点空白后光标消失会输不进码；档位/方式/按钮自己的手势优先，不受影响
     return PopScope(
       canPop: !submitting,
-      child: AlertDialog(
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () {
+          if (!cashMode && !submitting) codeFocus.requestFocus();
+        },
+        child: AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       titlePadding: EdgeInsets.zero,
       contentPadding: const EdgeInsets.fromLTRB(22, 18, 22, 8),
@@ -356,6 +363,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
           ),
         ),
       ],
+      ),
       ),
     );
   }
