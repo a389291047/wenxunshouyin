@@ -2665,7 +2665,7 @@ class _PayDialogState extends State<RetailPayDialog> {
         inner = comboScanIdx >= 0
             ? _scanPanel(compact: compact,
                 comboHint: '组合支付第 ${comboScanIdx + 1} 笔 · ${comboLines[comboScanIdx]['method']} ¥${Fmt.money(_lineAmt(comboScanIdx))}')
-            : _comboPanel(compact: compact, gap: gap);
+            : _comboPanel(compact: compact, gap: gap, panelH: panelH);
       } else if (method == '现金') {
         inner = _cashPanel(compact: compact, gap: gap, bigFont: bigFont);
       } else if (method == '会员支付') {
@@ -2939,72 +2939,77 @@ class _PayDialogState extends State<RetailPayDialog> {
   // ---------- 右侧面板：组合支付编辑（v3.3.258） ----------
   // 注意：操作面板固定高度（compact 408 / wide 440），本面板所有行高按紧凑档排布，
   // 3 行明细满配也不得超出（v3.3.258a 修复 Column overflow 22-34px）
-  Widget _comboPanel({required bool compact, required double gap}) {
+  Widget _comboPanel({required bool compact, required double gap, required double panelH}) {
     final remaining = comboRemaining;
     final chips = ['现金', '扫码收款', if (widget.vip != null) '会员支付'];
     final activeLine = comboLines.isNotEmpty && comboActive < comboLines.length
         ? comboLines[comboActive]
         : null;
     const cgap = 8.0; // 组合面板专用小间距（gap 14 会超面板高度）
-    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      // 待收余额 + 添加一行
-      Row(children: [
-        Expanded(child: Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-              color: remaining == 0 ? const Color(0xFFF0FFF6) : const Color(0xFFFFF7EC),
-              borderRadius: BorderRadius.circular(10)),
-          alignment: Alignment.centerLeft,
-          child: Text(
-            remaining == 0
-                ? '已凑齐 ¥${Fmt.money(comboSum)}'
-                : '待收 ¥${Fmt.money(remaining)}${remaining < 0 ? '（超出 ¥${Fmt.money(-remaining)}，请调减）' : ''}',
-            style: TextStyle(
-                fontSize: 15, fontWeight: FontWeight.w800,
-                color: remaining == 0 ? PosTheme.green : const Color(0xFFE8890C)),
-          ),
-        )),
-        const SizedBox(width: 8),
-        if (comboLines.length < 3)
-          InkWell(
-            borderRadius: BorderRadius.circular(10),
-            onTap: () => setState(() {
-              comboLines.add({'method': '', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0});
-              comboActive = comboLines.length - 1;
-            }),
-            child: Container(
-              height: 36,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFF8E6BF1), width: 1.2),
-                  borderRadius: BorderRadius.circular(10)),
-              alignment: Alignment.center,
-              child: const Text('+ 加一笔',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
+    return SizedBox(
+      height: panelH,
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        // 待收余额 + 添加一行：整体居中在顶部中间（v3.3.263）
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+                color: remaining == 0 ? const Color(0xFFF0FFF6) : const Color(0xFFFFF7EC),
+                borderRadius: BorderRadius.circular(10)),
+            alignment: Alignment.center,
+            child: Text(
+              remaining == 0
+                  ? '已凑齐 ¥${Fmt.money(comboSum)}'
+                  : '待收 ¥${Fmt.money(remaining)}${remaining < 0 ? '（超出 ¥${Fmt.money(-remaining)}，请调减）' : ''}',
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w800,
+                  color: remaining == 0 ? PosTheme.green : const Color(0xFFE8890C)),
             ),
           ),
+          if (comboLines.length < 3) ...[
+            const SizedBox(width: 10),
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => setState(() {
+                comboLines.add({'method': '', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0});
+                comboActive = comboLines.length - 1;
+              }),
+              child: Container(
+                height: 36,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFF8E6BF1), width: 1.2),
+                    borderRadius: BorderRadius.circular(10)),
+                alignment: Alignment.center,
+                child: const Text('+ 加一笔',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
+              ),
+            ),
+          ],
+        ]),
+        const SizedBox(height: cgap),
+        // 明细行（最多 3 笔）
+        for (int i = 0; i < comboLines.length; i++) _comboRow(i),
+        const SizedBox(height: cgap),
+        // 当前行支付方式选择
+        Row(children: [
+          for (int i = 0; i < chips.length; i++) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(child: _comboChip(chips[i], activeLine)),
+          ],
+        ]),
+        const SizedBox(height: cgap),
+        // 数字键盘撑满剩余高度（触屏键随空间变大）
+        Expanded(child: NumKeypad(
+          onKey: _keyCombo,
+          showDot: true,
+          dotActive: activeLine != null && !('${activeLine['amount'] ?? ''}').contains('.'),
+          gap: 6,
+          expand: true,
+        )),
       ]),
-      const SizedBox(height: cgap),
-      // 明细行（最多 3 笔）
-      for (int i = 0; i < comboLines.length; i++) _comboRow(i),
-      const SizedBox(height: cgap),
-      // 当前行支付方式选择
-      Row(children: [
-        for (int i = 0; i < chips.length; i++) ...[
-          if (i > 0) const SizedBox(width: 8),
-          Expanded(child: _comboChip(chips[i], activeLine)),
-        ],
-      ]),
-      const SizedBox(height: cgap),
-      NumKeypad(
-        onKey: _keyCombo,
-        showDot: true,
-        dotActive: activeLine != null && !('${activeLine['amount'] ?? ''}').contains('.'),
-        keyHeight: compact ? 40 : 42,
-        gap: 6,
-      ),
-    ]);
+    );
   }
 
   Widget _comboRow(int i) {
