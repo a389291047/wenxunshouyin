@@ -2961,17 +2961,20 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   // ---------- 右侧面板：组合支付编辑（v3.3.258） ----------
+  // 注意：操作面板固定高度（compact 408 / wide 440），本面板所有行高按紧凑档排布，
+  // 3 行明细满配也不得超出（v3.3.258a 修复 Column overflow 22-34px）
   Widget _comboPanel({required bool compact, required double gap}) {
     final remaining = comboRemaining;
     final chips = ['现金', '扫码收款', if (widget.vip != null) '会员支付'];
     final activeLine = comboLines.isNotEmpty && comboActive < comboLines.length
         ? comboLines[comboActive]
         : null;
+    const cgap = 8.0; // 组合面板专用小间距（gap 14 会超面板高度）
     return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       // 待收余额 + 添加一行
       Row(children: [
         Expanded(child: Container(
-          height: 40,
+          height: 36,
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
               color: remaining == 0 ? const Color(0xFFF0FFF6) : const Color(0xFFFFF7EC),
@@ -2982,7 +2985,7 @@ class _PayDialogState extends State<RetailPayDialog> {
                 ? '已凑齐 ¥${Fmt.money(comboSum)}'
                 : '待收 ¥${Fmt.money(remaining)}${remaining < 0 ? '（超出 ¥${Fmt.money(-remaining)}，请调减）' : ''}',
             style: TextStyle(
-                fontSize: 16, fontWeight: FontWeight.w800,
+                fontSize: 15, fontWeight: FontWeight.w800,
                 color: remaining == 0 ? PosTheme.green : const Color(0xFFE8890C)),
           ),
         )),
@@ -2995,21 +2998,21 @@ class _PayDialogState extends State<RetailPayDialog> {
               comboActive = comboLines.length - 1;
             }),
             child: Container(
-              height: 40,
+              height: 36,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
                   border: Border.all(color: const Color(0xFF8E6BF1), width: 1.2),
                   borderRadius: BorderRadius.circular(10)),
               alignment: Alignment.center,
               child: const Text('+ 加一笔',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
             ),
           ),
       ]),
-      SizedBox(height: gap),
+      const SizedBox(height: cgap),
       // 明细行（最多 3 笔）
       for (int i = 0; i < comboLines.length; i++) _comboRow(i),
-      SizedBox(height: gap),
+      const SizedBox(height: cgap),
       // 当前行支付方式选择
       Row(children: [
         for (int i = 0; i < chips.length; i++) ...[
@@ -3017,13 +3020,13 @@ class _PayDialogState extends State<RetailPayDialog> {
           Expanded(child: _comboChip(chips[i], activeLine)),
         ],
       ]),
-      SizedBox(height: gap),
+      const SizedBox(height: cgap),
       NumKeypad(
         onKey: _keyCombo,
         showDot: true,
         dotActive: activeLine != null && !('${activeLine['amount'] ?? ''}').contains('.'),
-        keyHeight: compact ? 44 : 46,
-        gap: 8,
+        keyHeight: compact ? 40 : 42,
+        gap: 6,
       ),
     ]);
   }
@@ -3038,8 +3041,8 @@ class _PayDialogState extends State<RetailPayDialog> {
       borderRadius: BorderRadius.circular(10),
       onTap: paid ? null : () => setState(() => comboActive = i),
       child: Container(
-        height: 38,
-        margin: const EdgeInsets.only(bottom: 6),
+        height: 34,
+        margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
             color: paid ? const Color(0xFFF0FFF6) : (active ? const Color(0xFFF3F0FF) : const Color(0xFFF7F8FA)),
@@ -3090,14 +3093,14 @@ class _PayDialogState extends State<RetailPayDialog> {
                 if (activeLine != null) activeLine['method'] = m;
               }),
       child: Container(
-        height: 40,
+        height: 34,
         alignment: Alignment.center,
         decoration: BoxDecoration(
             color: sel ? const Color(0xFF8E6BF1).withOpacity(0.12) : const Color(0xFFF7F8FA),
             border: Border.all(color: sel ? const Color(0xFF8E6BF1) : Colors.transparent, width: 1.5),
             borderRadius: BorderRadius.circular(10)),
         child: Text(m, style: TextStyle(
-            fontSize: 15, fontWeight: FontWeight.w700,
+            fontSize: 14, fontWeight: FontWeight.w700,
             color: sel ? const Color(0xFF8E6BF1) : PosTheme.textMain)),
       ),
     );
