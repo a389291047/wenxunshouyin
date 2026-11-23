@@ -35,13 +35,19 @@ class NumKeypad extends StatelessWidget {
     return Column(
       mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
       children: [
+        // expand 模式：Expanded 必须是 Column 的直接子级，Padding 包在 Expanded 里面
         for (final row in allRows)
-          Padding(
-            padding: EdgeInsets.only(bottom: identical(row, last) ? 0 : gap),
-            child: expand
-                ? Expanded(child: Row(children: _rowKids(row)))
-                : Row(children: _rowKids(row)),
-          ),
+          expand
+              ? Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: identical(row, last) ? 0 : gap),
+                    child: Row(children: _rowKids(row)),
+                  ),
+                )
+              : Padding(
+                  padding: EdgeInsets.only(bottom: identical(row, last) ? 0 : gap),
+                  child: Row(children: _rowKids(row)),
+                ),
       ],
     );
   }
