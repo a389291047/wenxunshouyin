@@ -391,19 +391,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                   TextStyle(
                       fontSize: 13,
                       color: st.isEmpty ? PosTheme.textSub : (st == '未支付' ? PosTheme.amber : PosTheme.red))),
-              // 整单折扣/改价标记（v3.3.246）：没有就正常显示，不加
-              if ((double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0) > 0.001) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text((double.tryParse('${o['whole_discount_rate'] ?? 0}') ?? 0) > 0 ? '整单折扣' : '整单改价',
-                      style: const TextStyle(fontSize: 11, color: Colors.green, fontWeight: FontWeight.w700)),
-                ),
-              ],
+              // 整单折扣/改价徽标已移除（v3.3.268）：右侧详情已有「※ 整单折扣 8折 -¥3.20」，左侧不再重复
               // 优惠列（v3.3.250）：preferential_amount = 商品合计 − 实收（活动/券/整单折扣/抹零全含）
               if (tab != 2) ...[
                 const SizedBox(width: 10),
