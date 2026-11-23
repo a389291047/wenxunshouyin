@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/api.dart';
 import '../../core/cash_drawer.dart';
 import '../../core/cloud_printer.dart';
+import '../../core/display_prefs.dart';
 import '../../core/pay_methods.dart';
 import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
@@ -1519,7 +1520,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     try {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
-      setState(() => dishes = g);
+      setState(() => dishes = DisplayPrefs.sortGoods(g, DisplayPrefs.goodsSort.value)); // 商品排序 v3.3.266
       // 多规格兜底预取（角标显示用；canyin 老版无 specs 时查 /api/goods/sku）
       prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
     } on ApiError {
@@ -2889,7 +2890,7 @@ class _PreorderDialogState extends State<_PreorderDialog> {
     try {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
-      setState(() => dishes = g);
+      setState(() => dishes = DisplayPrefs.sortGoods(g, DisplayPrefs.goodsSort.value)); // 商品排序 v3.3.266
       // 多规格兜底预取（角标显示用；canyin 老版无 specs 时查 /api/goods/sku）
       prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
     } on ApiError {

@@ -129,6 +129,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsFont.addListener(_onDisplayChanged);
     DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
+    DisplayPrefs.goodsSort.addListener(_onDisplayChanged); // 商品排序改动即时刷新（v3.3.266）
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
     // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
@@ -180,6 +181,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsFont.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
+    DisplayPrefs.goodsSort.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     ActivityStore.list.removeListener(_onActivityChanged);
     GiftMode.value.removeListener(_onGiftModeChanged);
@@ -366,7 +368,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           '${x['jianpin'] ?? ''}'.toLowerCase().contains(kw) ||
           '${x['code'] ?? x['bianma'] ?? ''}'.contains(keyword));
     }
-    return g.toList();
+    // 商品排序（v3.3.266）：设置页可选销量/添加时间/价格/名称，本机保存即时生效
+    return DisplayPrefs.sortGoods(g.toList(), DisplayPrefs.goodsSort.value);
   }
 
   double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.payNum);

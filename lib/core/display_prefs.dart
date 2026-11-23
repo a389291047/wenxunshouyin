@@ -29,6 +29,7 @@ class DisplayPrefs {
     goodsCols.value = sp.getInt(prefGoodsCols) ?? 0;
     goodsImage.value = sp.getBool(prefGoodsImage) ?? true;
     cartNewestFirst.value = sp.getBool(prefCartNewestFirst) ?? false;
+    await _loadGoodsSort(sp);
   }
 
   static Future<void> setFontScale(double v) async {
@@ -75,12 +76,88 @@ class DisplayPrefs {
     await sp.setBool(prefCartNewestFirst, v);
   }
 
+  // ===== 商品排序（v3.3.266）：收银页商品区展示顺序，本机保存 =====
+  // ''=默认(后台顺序=添加时间新→旧) sales=销量高→低 new=添加时间新→旧 old=旧→新
+  // price_asc=价格低→高 price_desc=高→低 name=名称(拼音首字母 A→Z)
+  static const prefGoodsSort = 'display_goods_sort';
+  static final ValueNotifier<String> goodsSort = ValueNotifier('');
+
+  /// 排序选项（key → 设置页显示）
+  static const List<Map<String, String>> goodsSortItems = [
+    {'key': '',          'label': '默认（后台排序）'},
+    {'key': 'sales',     'label': '按销量 高→低'},
+    {'key': 'new',       'label': '按添加时间 新→旧'},
+    {'key': 'old',       'label': '按添加时间 旧→新'},
+    {'key': 'price_asc', 'label': '按价格 低→高'},
+    {'key': 'price_desc','label': '按价格 高→低'},
+    {'key': 'name',      'label': '按名称 A→Z'},
+  ];
+
+  static Future<void> setGoodsSort(String v) async {
+    goodsSort.value = goodsSortItems.any((it) => it['key'] == v) ? v : '';
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(prefGoodsSort, goodsSort.value);
+  }
+
+  static Future<void> _loadGoodsSort(SharedPreferences sp) async {
+    goodsSort.value = sp.getString(prefGoodsSort) ?? '';
+  }
+
+  /// 商品列表排序（收银页展示用，不改原始数据）：
+  /// 销量/价格缺字段的按 0 兜底；名称排序优先用简拼首字母（jianpin），无则按名称码元比较
+  static List<Map> sortGoods(List goods, String mode) {
+    double numv(Object? v) => double.tryParse('${v ?? ''}') ?? 0;
+    int idOf(Map g) => numv(g['id']).toInt();
+    String createTimeOf(Map g) => '${g['create_time'] ?? ''}';
+    final list = List<Map>.from(goods);
+    switch (mode) {
+      case 'sales':
+        list.sort((a, b) {
+          final d = numv(b['sales'] ?? b['xiaoliang'] ?? 0).compareTo(numv(a['sales'] ?? a['xiaoliang'] ?? 0));
+          return d != 0 ? d : idOf(b).compareTo(idOf(a));
+        });
+        return list;
+      case 'new':
+        list.sort((a, b) {
+          final d = createTimeOf(b).compareTo(createTimeOf(a));
+          return d != 0 ? d : idOf(b).compareTo(idOf(a));
+        });
+        return list;
+      case 'old':
+        list.sort((a, b) {
+          final d = createTimeOf(a).compareTo(createTimeOf(b));
+          return d != 0 ? d : idOf(a).compareTo(idOf(b));
+        });
+        return list;
+      case 'price_asc':
+      case 'price_desc':
+        final desc = mode == 'price_desc';
+        list.sort((a, b) {
+          final pa = numv(a['amount'] ?? a['price'] ?? 0);
+          final pb = numv(b['amount'] ?? b['price'] ?? 0);
+          final d = desc ? pb.compareTo(pa) : pa.compareTo(pb);
+          return d != 0 ? d : idOf(a).compareTo(idOf(b));
+        });
+        return list;
+      case 'name':
+        String key(Map g) {
+          final jp = '${g['jianpin'] ?? ''}'.trim().toLowerCase();
+          return jp.isNotEmpty ? jp : '${g['title'] ?? ''}';
+        }
+        list.sort((a, b) => key(a).compareTo(key(b)));
+        return list;
+      default:
+        return list; // 默认：保持后台返回顺序，不重排
+    }
+  }
+
   static Future<void> resetAll() async {
     await setFontScale(1.0);
     await setFontWeight('normal');
     await setGoodsFont('');
     await setGoodsCols(0);
     await setGoodsImage(true);
+    await setGoodsSort('');
     await setCartNewestFirst(false);
   }
 

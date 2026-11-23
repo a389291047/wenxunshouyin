@@ -1619,7 +1619,27 @@ class _SettingsPageState extends State<SettingsPage> {
         ]),
       ),
       const SizedBox(height: 8),
-      // 3. 商品图片每行显示个数（零售收银页商品网格）
+      // 3. 商品排序（v3.3.266）：收银页商品区展示顺序
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('商品排序（收银页商品区）', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 3),
+          const Text('零售/生鲜收银页商品区的展示顺序：销量高的排前面方便快销品点单；按添加时间方便上新检查；价格排序适合按价位选货。改动即时生效，保存在本机。',
+              style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<String>(
+            valueListenable: DisplayPrefs.goodsSort,
+            builder: (context, cur, __) => Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final it in DisplayPrefs.goodsSortItems)
+                _sortOpt(it['key'] ?? '', it['label'] ?? '', cur),
+            ]),
+          ),
+        ]),
+      ),
+      const SizedBox(height: 8),
+      // 4. 商品图片每行显示个数（零售收银页商品网格）
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
@@ -1779,6 +1799,26 @@ class _SettingsPageState extends State<SettingsPage> {
       borderRadius: BorderRadius.circular(9),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: on ? PosTheme.accentLive : Colors.white,
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: on ? PosTheme.accentLive : PosTheme.line, width: on ? 1.5 : 1),
+        ),
+        child: Text(label, style: TextStyle(
+            fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500,
+            color: on ? Colors.white : PosTheme.textMain)),
+      ),
+    );
+  }
+
+  /// 商品排序选项 chip（v3.3.266）
+  Widget _sortOpt(String key, String label, String cur) {
+    final on = cur == key;
+    return InkWell(
+      onTap: () => DisplayPrefs.setGoodsSort(key),
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: on ? PosTheme.accentLive : Colors.white,
           borderRadius: BorderRadius.circular(9),

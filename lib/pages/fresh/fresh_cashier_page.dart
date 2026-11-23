@@ -107,6 +107,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     // 赠送计价模式（v3.3.235）：设置里切换后收银页即时生效
     GiftMode.load();
     GiftMode.value.addListener(_onGiftModeChanged);
+    // 商品排序（v3.3.266）：设置里改动即时刷新生鲜商品区
+    DisplayPrefs.goodsSort.addListener(_onGiftModeChanged);
   }
 
   void _onGiftModeChanged() {
@@ -144,6 +146,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     _cdTimer?.cancel();
     ActivityStore.list.removeListener(_onActivityChanged);
     GiftMode.value.removeListener(_onGiftModeChanged);
+    DisplayPrefs.goodsSort.removeListener(_onGiftModeChanged);
     searchKeeper.dispose();
     super.dispose();
   }
@@ -172,7 +175,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     if (keyword.isNotEmpty) {
       g = g.where((x) => '${x['title']}'.contains(keyword));
     }
-    return g.toList();
+    // 商品排序（v3.3.266）：设置页可选销量/添加时间/价格/名称
+    return DisplayPrefs.sortGoods(g.toList(), DisplayPrefs.goodsSort.value);
   }
 
   double get total => cart.fold<double>(0, (s, l) => s + l.unitPrice * l.payNum);
