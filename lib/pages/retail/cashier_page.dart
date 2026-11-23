@@ -953,10 +953,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       pickedMethod = picked;
     }
     // 扫码收款按星驿渠道落具体支付方式（v3.3.251 修复：之前落库成「其他支付」）：
-    // 桌面端直接映射，与后端 Order.php 口径一致（1支付宝 2微信，其余其他支付），
+    // 桌面端直接映射，与后端 Order.php 口径一致（1支付宝 2微信 9云闪付，其余其他支付），
     // 不再依赖服务端映射是否生效
     if (pickedMethod == '扫码收款' && xyfChannel > 0) {
-      pickedMethod = xyfChannel == 1 ? '支付宝' : (xyfChannel == 2 ? '微信支付' : '其他支付');
+      pickedMethod = xyfChannel == 1 ? '支付宝'
+          : (xyfChannel == 2 ? '微信支付'
+          : (xyfChannel == 9 ? '云闪付' : '其他支付'));
     }
     // 扫码类支付：未带支付流水时弹付款码（扫码枪扫顾客付款码，微信/支付宝自动识别）
     // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
