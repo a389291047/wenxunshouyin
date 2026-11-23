@@ -432,6 +432,26 @@ class _MemberPageState extends State<MemberPage> {
           const SizedBox(width: 12),
           Expanded(child: _kv('累计充值', '¥${Fmt.money(v['accumulation_recharge'])}', const Color(0xFF7C3AED))),
         ]),
+        // v3.3.261：注册时间（接口 /shouyin/vip/mac 返回整表 select，自带 create_time）
+        Builder(builder: (_) {
+          final ct = '${v['create_time'] ?? ''}'.trim();
+          // 'YYYY-MM-DD HH:II:SS' 截到分钟；兼容时间戳秒
+          String reg = ct;
+          final ts = int.tryParse(ct);
+          if (ts != null && ts > 0) {
+            final d = DateTime.fromMillisecondsSinceEpoch(ts * (ct.length >= 13 ? 1 : 1000));
+            reg = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')} '
+                '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+          } else if (reg.length > 16) {
+            reg = reg.substring(0, 16);
+          }
+          return Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Row(children: [
+              Expanded(child: _kv('注册时间', reg.isEmpty ? '—' : reg, const Color(0xFF0891B2))),
+            ]),
+          );
+        }),
         const SizedBox(height: 14),
         // v3.3.250：右侧空白区改为近期记录卡（全部/消费/充值 切换，最近5条）
         Expanded(child: _recordsCard()),
