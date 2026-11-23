@@ -12,6 +12,7 @@ import '../ui/widgets.dart';
 import 'retail/cashier_page.dart';
 import 'retail/member_page.dart';
 import 'retail/orders_page.dart';
+import 'shared/hexiao_page.dart'; // v3.3.262 核销管理
 import 'shared/shift_page.dart';
 import 'shared/settings_page.dart';
 import 'dining/dining_page.dart';
@@ -95,6 +96,7 @@ class _ShellPageState extends State<ShellPage> {
         _NavItem(Icons.event_available, '预约', _Retail.diningPreorder),
         _NavItem(Icons.badge_outlined, '会员', _Retail.member),
         _NavItem(Icons.receipt_long, '订单', _Retail.diningOrders),
+        _NavItem(Icons.fact_check_outlined, '核销', _Retail.hexiao), // v3.3.262 核销管理（小程序+抖音团购）
         _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
         _NavItem(Icons.swap_horiz, '交班', _Retail.shift),
         _NavItem(Icons.settings_outlined, '设置', _Retail.settings),
@@ -105,6 +107,7 @@ class _ShellPageState extends State<ShellPage> {
         _NavItem(Icons.eco, '收银', _Retail.freshCashier),
         _NavItem(Icons.badge_outlined, '会员', _Retail.member),
         _NavItem(Icons.receipt_long, '订单', _Retail.orders),
+        _NavItem(Icons.fact_check_outlined, '核销', _Retail.hexiao), // v3.3.262
         _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
         _NavItem(Icons.swap_horiz, '交班', _Retail.shift),
         _NavItem(Icons.settings_outlined, '设置', _Retail.settings),
@@ -114,6 +117,7 @@ class _ShellPageState extends State<ShellPage> {
       _NavItem(Icons.point_of_sale, '收银', _Retail.cashier),
       _NavItem(Icons.badge_outlined, '会员', _Retail.member),
       _NavItem(Icons.receipt_long, '订单', _Retail.orders),
+      _NavItem(Icons.fact_check_outlined, '核销', _Retail.hexiao), // v3.3.262
       _NavItem(Icons.local_shipping, '配送', _Retail.delivery),
       _NavItem(Icons.swap_horiz, '交班', _Retail.shift),
       _NavItem(Icons.settings_outlined, '设置', _Retail.settings),
@@ -127,8 +131,9 @@ class _ShellPageState extends State<ShellPage> {
         case 1: return const PreorderPage(); // 预约点餐（v3.3.104 移到左侧菜单）
         case 2: return const MemberPage(); // 餐饮版会员：复用零售会员界面
         case 3: return const DiningOrdersPage();
-        case 4: return const DeliveryPage();
-        case 5: return const ShiftPage();
+        case 4: return const HexiaoPage(); // 核销（v3.3.262，订单下面）
+        case 5: return const DeliveryPage();
+        case 6: return const ShiftPage();
         default: return const SettingsPage();
       }
     }
@@ -137,8 +142,9 @@ class _ShellPageState extends State<ShellPage> {
         case 0: return const FreshCashierPage(); // 生鲜专用收银界面
         case 1: return const MemberPage(); // 会员共用（会员等级表/会员表同零售）
         case 2: return const RetailOrdersPage(); // 订单共用
-        case 3: return const DeliveryPage();
-        case 4: return const ShiftPage();
+        case 3: return const HexiaoPage(); // 核销（v3.3.262）
+        case 4: return const DeliveryPage();
+        case 5: return const ShiftPage();
         default: return const SettingsPage();
       }
     }
@@ -146,8 +152,9 @@ class _ShellPageState extends State<ShellPage> {
       case 0: return const RetailCashierPage();
       case 1: return const MemberPage();
       case 2: return const RetailOrdersPage();
-      case 3: return const DeliveryPage();
-      case 4: return const ShiftPage();
+      case 3: return const HexiaoPage(); // 核销（v3.3.262）
+      case 4: return const DeliveryPage();
+      case 5: return const ShiftPage();
       default: return const SettingsPage();
     }
   }
@@ -344,5 +351,6 @@ class _Retail {
   static const diningHome = 'dining_home';
   static const diningPreorder = 'dining_preorder';
   static const diningOrders = 'dining_orders';
+  static const hexiao = 'hexiao'; // v3.3.262 核销管理
   static const delivery = 'delivery';
 }

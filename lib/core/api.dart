@@ -591,6 +591,121 @@ class Api {
     throw ApiError('${r['msg'] ?? '获取会员记录失败'}');
   }
 
+  // ==================== 核销管理（v3.3.262：小程序订单核销 + 抖音团购核销） ====================
+
+  /// 核销列表
+  /// platform: mini（小程序订单）| douyin（抖音团购流水）
+  /// tab: undone（未核销）| done（已核销）| refund（退款）
+  static Future<Map<String, dynamic>> hexiaoList({
+    required int wenxunId,
+    required String platform,
+    required String tab,
+    String day = 'today',
+    String kw = '',
+  }) async {
+    final r = await post('/shouyin/hexiao/list', {
+      'wenxun_id': wenxunId,
+      'platform': platform,
+      'tab': tab,
+      'day': day,
+      'kw': kw,
+    });
+    if ('${r['code']}' == '200') return r;
+    throw ApiError('${r['msg'] ?? '获取核销列表失败'}');
+  }
+
+  /// 小程序订单预检（扫码/输码，不核销）
+  static Future<Map<String, dynamic>> hexiaoCheck({required int wenxunId, required String code, String orderNo = ''}) async {
+    final r = await post('/shouyin/hexiao/check', {
+      'wenxun_id': wenxunId,
+      'code': code,
+      'order_no': orderNo,
+    });
+    if ('${r['code']}' == '200') return r['order'] as Map<String, dynamic>? ?? {};
+    throw ApiError('${r['msg'] ?? '核销码校验失败'}');
+  }
+
+  /// 小程序订单确认核销（CAS 20→40）
+  static Future<void> hexiaoVerifyMini({required int wenxunId, required int id, String code = '', String operatorName = ''}) async {
+    final r = await post('/shouyin/hexiao/verifyMini', {
+      'wenxun_id': wenxunId,
+      'id': id,
+      'code': code,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '核销失败'}');
+  }
+
+  /// 退款审核（agree / reject，仅推进状态）
+  static Future<String> hexiaoRefundAudit({required int wenxunId, required int id, required String action, String operatorName = ''}) async {
+    final r = await post('/shouyin/hexiao/refundAudit', {
+      'wenxun_id': wenxunId,
+      'id': id,
+      'action': action,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' == '200') return '${r['msg'] ?? '操作成功'}';
+    throw ApiError('${r['msg'] ?? '审核失败'}');
+  }
+
+  /// 抖音已授权门店列表
+  static Future<List> douyinShops(int wenxunId) async {
+    final r = await post('/shouyin/hexiao/douyinShops', {'wenxun_id': wenxunId});
+    if ('${r['code']}' == '200') return (r['list'] ?? []) as List;
+    throw ApiError('${r['msg'] ?? '获取抖音门店失败'}');
+  }
+
+  /// 抖音验券准备：code（明文券码）或 raw（扫码原文/短链）二选一
+  static Future<Map<String, dynamic>> douyinPrepare({required int wenxunId, required String poiId, String code = '', String raw = ''}) async {
+    final r = await post('/shouyin/hexiao/douyinPrepare', {
+      'wenxun_id': wenxunId,
+      'poi_id': poiId,
+      'code': code,
+      'raw': raw,
+    });
+    if ('${r['code']}' == '200') {
+      return {
+        'verify_token': '${r['verify_token'] ?? ''}',
+        'certificates': (r['certificates'] ?? []) as List,
+      };
+    }
+    throw ApiError('${r['msg'] ?? '验券失败'}');
+  }
+
+  /// 抖音确认核销
+  static Future<void> douyinVerify({
+    required int wenxunId,
+    required String poiId,
+    required String verifyToken,
+    required List<String> encryptedCodes,
+    required String code,
+    String skuInfo = '',
+    int operatorId = 0,
+    String operatorName = '',
+  }) async {
+    final r = await post('/shouyin/hexiao/douyinVerify', {
+      'wenxun_id': wenxunId,
+      'poi_id': poiId,
+      'verify_token': verifyToken,
+      'encrypted_codes': encryptedCodes,
+      'code': code,
+      'sku_info': skuInfo,
+      'operator_id': operatorId,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '核销失败'}');
+  }
+
+  /// 抖音撤销核销（验券 1 小时内有效）
+  static Future<void> douyinCancel({required int wenxunId, required int logId, String operatorName = ''}) async {
+    final r = await post('/shouyin/hexiao/douyinCancel', {
+      'wenxun_id': wenxunId,
+      'log_id': logId,
+      'operator_name': operatorName,
+    });
+    if ('${r['code']}' != '200') throw ApiError('${r['msg'] ?? '撤销失败'}');
+  }
+
   // ==================== 订单配送（美团/京东秒送/淘宝闪购） ====================
 
   /// 平台配置列表
