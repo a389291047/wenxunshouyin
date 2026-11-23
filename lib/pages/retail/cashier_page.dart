@@ -952,6 +952,35 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     } else {
       pickedMethod = picked;
     }
+    // 组合支付（v3.3.258）：弹窗带回 2-3 笔支付明细，走 combo_pay 落单，
+    // 会员部分由后端在落单时扣余额，扫码部分各自带星驿流水
+    final comboRaw = (picked is Map) ? picked['combo'] : null;
+    if (comboRaw is List && comboRaw.length >= 2) {
+      final lines = <Map<String, dynamic>>[];
+      for (final l in comboRaw) {
+        if (l is! Map) continue;
+        String m = '${l['method']}';
+        final ch = int.tryParse('${l['xyf_channel'] ?? 0}') ?? 0;
+        if (m == '扫码收款' && ch > 0) {
+          m = ch == 1 ? '支付宝'
+              : (ch == 2 ? '微信支付'
+              : (ch == 9 ? '云闪付' : '其他支付'));
+        }
+        lines.add({
+          'method': m,
+          'amount': double.tryParse('${l['amount'] ?? 0}') ?? 0,
+          'pay_order_no': '${l['xyf_order_no'] ?? ''}',
+          'pay_channel': ch,
+        });
+      }
+      if (lines.length >= 2) {
+        await _finishOrder(lines.first['method'] as String, t,
+            coupon: coupon,
+            wholeRate: wRate, wholeCutAmt: wCut, wholeReprice: wReprice,
+            comboLines: lines);
+        return;
+      }
+    }
     // 扫码收款按星驿渠道落具体支付方式（v3.3.251 修复：之前落库成「其他支付」）：
     // 桌面端直接映射，与后端 Order.php 口径一致（1支付宝 2微信 9云闪付，其余其他支付），
     // 不再依赖服务端映射是否生效
@@ -986,7 +1015,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _finishOrder(String picked, double t,
       {double coupon = 0, double mollen = 0,
        double wholeRate = 0, double wholeCutAmt = 0, bool wholeReprice = false,
-       String xyfOrderNo = '', int xyfChannel = 0}) async {
+       String xyfOrderNo = '', int xyfChannel = 0,
+       List<Map<String, dynamic>> comboLines = const []}) async {
     final act = activityResult; // 活动快照：清空购物车前取，小票与赠品行共用
     final cartPayload = <Map<String, dynamic>>[
       ...cart.map((l) => {
@@ -1014,7 +1044,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     ];
 
     // 会员余额支付：校验余额 → 后端扣款（联拓富会员走联拓富真实扣款）+ 落单
-    if (picked == '会员支付') {
+    // 组合支付（comboLines 非空）不走这里——会员部分由 order/add 后端扣（v3.3.258）
+    if (picked == '会员支付' && comboLines.isEmpty) {
       final bal = _vipBalance();
       if (bal < t) {
         toast(context, '会员余额不足（¥${Fmt.money(bal)}），请先充值', error: true);
@@ -1088,6 +1119,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         mollen: mollen, // 现金抹零落库（v3.3.239，交班统计/补打小票共用）
         wholeRate: wholeRate, // 整单折扣/改价落库（v3.3.246）
         wholeAmount: wholeCutAmt,
+        comboPay: comboLines, // 组合支付明细（v3.3.258，≥2 笔才传）
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -1097,10 +1129,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (t > 0) CashDrawer.autoOpen(picked);
 
       // 云打印（异步，不阻塞收银；小票开关 v3.3.77）
+      // 组合支付小票支付方式行：逐笔列出「微信支付¥60.00+现金¥20.00+…」（v3.3.258）
+      final payMethodText = comboLines.length >= 2
+          ? comboLines.map((l) => '${l['method']}¥${Fmt.money((l['amount'] as num?)?.toDouble() ?? 0)}').join('+')
+          : picked;
       if (await PrintPrefs.on('retail')) {
         CloudPrinter.printRetail(
           CloudPrinter.retailReceipt(
-            orderNo: orderNo, payMethod: picked, total: t, coupon: coupon,
+            orderNo: orderNo, payMethod: payMethodText, total: t, coupon: coupon,
             activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
             wholeDiscount: wholeCutAmt, // 整单折扣/改价小票行（v3.3.246）
             wholeLabel: wholeReprice ? '整单改价' : (wholeRate > 0 ? '整单折扣 ${_rateText(wholeRate)}折' : ''),
@@ -1118,7 +1154,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       }
 
       _clearCart();
-      showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: picked));
+      showDialog(context: context, builder: (_) => _SuccessDialog(orderNo: orderNo, total: t, method: comboLines.length >= 2 ? '组合支付' : picked));
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
@@ -2146,12 +2182,19 @@ class _PayDialogState extends State<RetailPayDialog> {
   bool needNewNo = false; // 上一笔已确认失败，重试换新单号
   Map? payOrder; // 成功后的支付流水行
 
+  // ===== v3.3.258 组合支付：最多 3 笔（现金/扫码收款/会员支付），合计=应收后确认 =====
+  bool comboMode = false;
+  int comboScanIdx = -1; // 当前待扫/支付中的组合行下标（-1=编辑阶段）
+  int comboActive = 0; // 键盘正在编辑金额的行下标
+  final comboLines = <Map<String, dynamic>>[]; // {method, amount(String), paid, xyfNo, xyfChan}
+
   final icons = {
     '现金': Icons.payments_outlined,
     '扫码收款': Icons.qr_code_scanner,
     '微信支付': Icons.chat,
     '支付宝': Icons.account_balance_wallet_outlined,
     '会员支付': Icons.badge_outlined,
+    '组合支付': Icons.layers_outlined,
   };
   final colors = {
     '现金': PosTheme.green,
@@ -2159,6 +2202,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     '微信支付': const Color(0xFF07C160),
     '支付宝': const Color(0xFF1677FF),
     '会员支付': PosTheme.accentLive,
+    '组合支付': const Color(0xFF8E6BF1),
   };
 
   // 映射缺失时给个兜底，避免再有 null 断言把整个收款弹窗打崩
@@ -2239,6 +2283,144 @@ class _PayDialogState extends State<RetailPayDialog> {
     super.dispose();
   }
 
+  // ==================== 组合支付（v3.3.258） ====================
+  bool _isComboScan(Map l) =>
+      '${l['method']}' == '扫码收款' || '${l['method']}' == '微信支付' || '${l['method']}' == '支付宝';
+
+  double _lineAmt(int i) => double.tryParse('${comboLines[i]['amount'] ?? ''}') ?? 0;
+
+  /// 各行合计（已付+未付）
+  double get comboSum {
+    var s = 0.0;
+    for (final l in comboLines) {
+      s += double.tryParse('${l['amount'] ?? ''}') ?? 0;
+    }
+    return double.parse(s.toStringAsFixed(2));
+  }
+
+  /// 待收差额（负数=超额）
+  double get comboRemaining =>
+      double.parse((payable - comboSum).toStringAsFixed(2));
+
+  /// 组合行可确认：≥2 笔、每笔方式+金额有效、合计=应收、会员行余额够
+  bool get comboValid {
+    if (comboLines.length < 2) return false;
+    for (final l in comboLines) {
+      if ('${l['method']}' == 'null' || '${l['method']}'.isEmpty) return false;
+      if ((double.tryParse('${l['amount'] ?? ''}') ?? 0) <= 0) return false;
+      if ('${l['method']}' == '会员支付' &&
+          (double.tryParse('${l['amount'] ?? ''}') ?? 0) > _dialogVipBalance) {
+        return false;
+      }
+    }
+    return (comboSum - payable).abs() < 0.005;
+  }
+
+  double get _dialogVipBalance {
+    final v = widget.vip;
+    if (v == null) return 0;
+    return (double.tryParse('${v['amount'] ?? 0}') ?? 0) +
+        (double.tryParse('${v['gift_balance'] ?? 0}') ?? 0);
+  }
+
+  /// 进入组合支付：预置两行（扫码收款 + 现金），金额待填
+  void _enterCombo() {
+    comboMode = true;
+    comboScanIdx = -1;
+    comboActive = 0;
+    comboLines
+      ..clear()
+      ..addAll([
+        {'method': '扫码收款', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+        {'method': '现金', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0},
+      ]);
+  }
+
+  /// 组合行金额键盘输入
+  void _keyCombo(String k) {
+    if (comboLines.isEmpty) return;
+    if (comboActive >= comboLines.length) comboActive = 0;
+    final l = comboLines[comboActive];
+    if (l['paid'] == true) return;
+    String cur = '${l['amount'] ?? ''}';
+    if (k == 'C') {
+      cur = '';
+    } else if (k == '<' || k == 'B') {
+      if (cur.isNotEmpty) cur = cur.substring(0, cur.length - 1);
+    } else if (k == '.') {
+      if (!cur.contains('.')) cur += '.';
+    } else {
+      final dot = cur.indexOf('.');
+      if (dot == -1) {
+        if (cur.length < 6) cur += k;
+      } else if (cur.length - dot - 1 < 2) {
+        cur += k;
+      }
+    }
+    setState(() => l['amount'] = cur);
+  }
+
+  /// 组合支付确认：有未扫的扫码行先进扫码阶段；纯现金/会员直接成功回传
+  Future<void> _payCombo() async {
+    if (!comboValid) return;
+    final nextScan = comboLines.indexWhere((l) => _isComboScan(l) && l['paid'] != true);
+    if (nextScan >= 0) {
+      setState(() {
+        comboScanIdx = nextScan;
+        comboActive = nextScan;
+        phase = 'input';
+        errorMsg = '';
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) codeFocus.requestFocus();
+      });
+      return;
+    }
+    _popComboResult();
+  }
+
+  /// 一笔扫码行成功后：还有未扫行→继续扫；全部完成→成功回传
+  void _afterComboLinePaid() {
+    final next = comboLines.indexWhere((l) => _isComboScan(l) && l['paid'] != true);
+    if (next >= 0) {
+      setState(() {
+        comboScanIdx = next;
+        comboActive = next;
+        phase = 'input';
+        payNo = '';
+        needNewNo = false;
+        errorMsg = '';
+      });
+      codeCtrl.clear();
+      codeFocus.requestFocus();
+    } else {
+      setState(() {
+        phase = 'success';
+        comboScanIdx = -1;
+      });
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (!mounted) return;
+        _popComboResult();
+      });
+    }
+  }
+
+  /// 组合支付完成，回传多笔明细（扫码行带星驿流水）
+  void _popComboResult() {
+    VoiceService.instance.pay('组合收款', payable);
+    final lines = <Map<String, dynamic>>[];
+    for (int i = 0; i < comboLines.length; i++) {
+      final l = comboLines[i];
+      lines.add({
+        'method': '${l['method']}',
+        'amount': _lineAmt(i),
+        'xyf_order_no': '${l['xyfNo'] ?? ''}',
+        'xyf_channel': (l['xyfChan'] as int?) ?? 0,
+      });
+    }
+    Navigator.pop(context, {'combo': lines});
+  }
+
   // ==================== 扫码支付（弹窗内直接执行） ====================
   bool get _isScan => method == '扫码收款' || method == '微信支付' || method == '支付宝';
   bool get _busy => phase == 'paying' || phase == 'success';
@@ -2283,6 +2465,14 @@ class _PayDialogState extends State<RetailPayDialog> {
     }
   }
 
+  /// 本次扫码金额：组合支付扫当前行金额，普通模式扫整单应收
+  double get _scanAmt {
+    if (comboMode && comboScanIdx >= 0 && comboScanIdx < comboLines.length) {
+      return _lineAmt(comboScanIdx);
+    }
+    return widget.total;
+  }
+
   /// 确认收款（扫码类）：弹窗内直接调星驿付付款码支付 + 轮询
   Future<void> _payScan() async {
     if (_busy) return;
@@ -2302,7 +2492,7 @@ class _PayDialogState extends State<RetailPayDialog> {
     _startElapsed();
     try {
       final o = await Api.xyfScanPay(
-        amount: widget.total,
+        amount: _scanAmt,
         authCode: code,
         orderNo: payNo,
         bizType: 'retail',
@@ -2311,7 +2501,16 @@ class _PayDialogState extends State<RetailPayDialog> {
         },
       );
       if (!mounted) return;
-      VoiceService.instance.pay('扫码', widget.total);
+      VoiceService.instance.pay('扫码', _scanAmt);
+      if (comboMode) {
+        final idx = comboScanIdx.clamp(0, comboLines.length - 1);
+        comboLines[idx]['paid'] = true;
+        comboLines[idx]['xyfNo'] = '${o['three_order_no'] ?? o['order_no'] ?? payNo}';
+        comboLines[idx]['xyfChan'] = int.tryParse('${o['pay_channel'] ?? 0}') ?? 0;
+        setState(() {});
+        _afterComboLinePaid();
+        return;
+      }
       setState(() {
         payOrder = o;
         phase = 'success';
@@ -2351,7 +2550,15 @@ class _PayDialogState extends State<RetailPayDialog> {
           final st = int.tryParse('${m['status'] ?? 0}') ?? 0;
           if (st == 3) {
             if (!mounted) return;
-            VoiceService.instance.pay('扫码', widget.total);
+            VoiceService.instance.pay('扫码', _scanAmt);
+            if (comboMode) {
+              final idx = comboScanIdx.clamp(0, comboLines.length - 1);
+              comboLines[idx]['paid'] = true;
+              comboLines[idx]['xyfNo'] = '${m['three_order_no'] ?? m['order_no'] ?? payNo}';
+              comboLines[idx]['xyfChan'] = int.tryParse('${m['pay_channel'] ?? 0}') ?? 0;
+              _afterComboLinePaid();
+              return;
+            }
             setState(() {
               payOrder = m;
               phase = 'success';
@@ -2389,6 +2596,11 @@ class _PayDialogState extends State<RetailPayDialog> {
   /// 已付款则按成功落单；仍在等待支付结果则阻止关闭并提示，防止旧单挂着顾客又扫新单造成双重收款；
   /// 确认未支付（关单/失败）才允许取消。纯输入阶段（payNo 为空）直接关闭，无资金风险。
   Future<void> _cancel() async {
+    // 组合支付已有扫码成功款项时不能取消（钱已收，须完成剩余收款后落单）
+    if (comboMode && comboLines.any((l) => l['paid'] == true)) {
+      setState(() => errorMsg = '组合支付已有扫码成功的款项，不能取消；请继续完成剩余收款');
+      return;
+    }
     if (payNo.isNotEmpty) {
       try {
         final q = await Api.xyfQueryOrder(payNo);
@@ -2452,11 +2664,17 @@ class _PayDialogState extends State<RetailPayDialog> {
     Widget panel() {
       Widget inner;
       if (phase == 'paying') {
-        inner = _payingPanel();
+        inner = _payingPanel(combo: comboMode && comboScanIdx >= 0);
       } else if (phase == 'success') {
         inner = _successPanel();
       } else if (phase == 'fail') {
         inner = _failPanel();
+      } else if (comboMode) {
+        // v3.3.258 组合支付：编辑阶段=行明细+键盘；扫码阶段=付款码输入
+        inner = comboScanIdx >= 0
+            ? _scanPanel(compact: compact,
+                comboHint: '组合支付第 ${comboScanIdx + 1} 笔 · ${comboLines[comboScanIdx]['method']} ¥${Fmt.money(_lineAmt(comboScanIdx))}')
+            : _comboPanel(compact: compact, gap: gap);
       } else if (method == '现金') {
         inner = _cashPanel(compact: compact, gap: gap, bigFont: bigFont);
       } else if (method == '会员支付') {
@@ -2500,6 +2718,8 @@ class _PayDialogState extends State<RetailPayDialog> {
             if (i > 0) SizedBox(width: compact ? 8.0 : 12.0),
             Expanded(child: SizedBox(height: tileH, child: _methodTile(widget.methods[i]))),
           ],
+          SizedBox(width: compact ? 8.0 : 12.0),
+          Expanded(child: SizedBox(height: tileH, child: _methodTile('组合支付'))),
         ]),
         SizedBox(height: gap),
         panel(),
@@ -2512,7 +2732,10 @@ class _PayDialogState extends State<RetailPayDialog> {
       // v3.3.251：点弹窗空白处不再丢焦点——扫码类自动把焦点还给付款码输入框，
       // 否则扫码枪失去焦点收不到码（点按钮/输入框等有自己手势的控件不受影响）
       onTap: () {
-        if (_isScan && phase == 'input') codeFocus.requestFocus();
+        // 组合支付扫码阶段同样保持付款码输入框焦点（扫码枪）
+        if ((_isScan || (comboMode && comboScanIdx >= 0)) && phase == 'input') {
+          codeFocus.requestFocus();
+        }
       },
       child: Dialog(
       backgroundColor: Colors.white,
@@ -2555,8 +2778,24 @@ class _PayDialogState extends State<RetailPayDialog> {
     }
     // v3.3.251：扫码类空码/无效码时禁用确认（防止误点抢焦点导致扫码枪失灵），扫完自动收款
     final codeClean = codeCtrl.text.replaceAll(RegExp(r'[\r\n\t\s]'), '').trim();
-    final codeOk = !_isScan || RegExp(r'^\d{16,32}$').hasMatch(codeClean);
-    final enabled = method != null && phase == 'input' && codeOk;
+    final codeOk = (!_isScan && !(comboMode && comboScanIdx >= 0)) ||
+        RegExp(r'^\d{16,32}$').hasMatch(codeClean);
+    final enabled = method != null && phase == 'input' && codeOk &&
+        (!comboMode || comboScanIdx >= 0 || comboValid);
+    if (comboMode && phase == 'input') {
+      final label = comboScanIdx >= 0
+          ? '扫第 ${comboScanIdx + 1} 笔 ¥${Fmt.money(_scanAmt)}'
+          : (comboValid
+              ? (comboLines.any((l) => _isComboScan(l) && l['paid'] != true)
+                  ? '开始扫码收款'
+                  : '确认收款 ¥${Fmt.money(payable)}')
+              : '确认收款（各行金额凑齐后可收）');
+      return BigButton(label,
+          onTap: !enabled
+              ? null
+              : (comboScanIdx >= 0 ? () => _payScan() : () => _payCombo()),
+          height: btnH);
+    }
     return BigButton(method == null ? '确认收款' : '确认收款 ¥${Fmt.money(payable)}',
         onTap: !enabled
             ? null
@@ -2569,7 +2808,7 @@ class _PayDialogState extends State<RetailPayDialog> {
   }
 
   // ---------- 右侧面板：扫码类 ----------
-  Widget _scanPanel({required bool compact}) {
+  Widget _scanPanel({required bool compact, String comboHint = ''}) {
     final c = _channelColor;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -2578,6 +2817,17 @@ class _PayDialogState extends State<RetailPayDialog> {
         mainAxisAlignment: MainAxisAlignment.center, // 固定高度面板内垂直居中
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (comboHint.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                  color: const Color(0xFFF3F0FF), borderRadius: BorderRadius.circular(10)),
+              child: Text(comboHint,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
+            ),
+            const SizedBox(height: 10),
+          ],
           TextField(
           controller: codeCtrl,
           focusNode: codeFocus,
@@ -2710,8 +2960,151 @@ class _PayDialogState extends State<RetailPayDialog> {
     );
   }
 
+  // ---------- 右侧面板：组合支付编辑（v3.3.258） ----------
+  Widget _comboPanel({required bool compact, required double gap}) {
+    final remaining = comboRemaining;
+    final chips = ['现金', '扫码收款', if (widget.vip != null) '会员支付'];
+    final activeLine = comboLines.isNotEmpty && comboActive < comboLines.length
+        ? comboLines[comboActive]
+        : null;
+    return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // 待收余额 + 添加一行
+      Row(children: [
+        Expanded(child: Container(
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+              color: remaining == 0 ? const Color(0xFFF0FFF6) : const Color(0xFFFFF7EC),
+              borderRadius: BorderRadius.circular(10)),
+          alignment: Alignment.centerLeft,
+          child: Text(
+            remaining == 0
+                ? '已凑齐 ¥${Fmt.money(comboSum)}'
+                : '待收 ¥${Fmt.money(remaining)}${remaining < 0 ? '（超出 ¥${Fmt.money(-remaining)}，请调减）' : ''}',
+            style: TextStyle(
+                fontSize: 16, fontWeight: FontWeight.w800,
+                color: remaining == 0 ? PosTheme.green : const Color(0xFFE8890C)),
+          ),
+        )),
+        const SizedBox(width: 8),
+        if (comboLines.length < 3)
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() {
+              comboLines.add({'method': '', 'amount': '', 'paid': false, 'xyfNo': '', 'xyfChan': 0});
+              comboActive = comboLines.length - 1;
+            }),
+            child: Container(
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFF8E6BF1), width: 1.2),
+                  borderRadius: BorderRadius.circular(10)),
+              alignment: Alignment.center,
+              child: const Text('+ 加一笔',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF8E6BF1))),
+            ),
+          ),
+      ]),
+      SizedBox(height: gap),
+      // 明细行（最多 3 笔）
+      for (int i = 0; i < comboLines.length; i++) _comboRow(i),
+      SizedBox(height: gap),
+      // 当前行支付方式选择
+      Row(children: [
+        for (int i = 0; i < chips.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(child: _comboChip(chips[i], activeLine)),
+        ],
+      ]),
+      SizedBox(height: gap),
+      NumKeypad(
+        onKey: _keyCombo,
+        showDot: true,
+        dotActive: activeLine != null && !('${activeLine['amount'] ?? ''}').contains('.'),
+        keyHeight: compact ? 44 : 46,
+        gap: 8,
+      ),
+    ]);
+  }
+
+  Widget _comboRow(int i) {
+    final l = comboLines[i];
+    final paid = l['paid'] == true;
+    final active = i == comboActive && !paid;
+    final m = '${l['method']}';
+    final amt = double.tryParse('${l['amount'] ?? ''}') ?? 0;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: paid ? null : () => setState(() => comboActive = i),
+      child: Container(
+        height: 38,
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+            color: paid ? const Color(0xFFF0FFF6) : (active ? const Color(0xFFF3F0FF) : const Color(0xFFF7F8FA)),
+            border: Border.all(
+                color: paid ? PosTheme.green : (active ? const Color(0xFF8E6BF1) : Colors.transparent),
+                width: 1.4),
+            borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          Icon(paid ? Icons.check_circle : _iconOf(m),
+              size: 18, color: paid ? PosTheme.green : (m.isEmpty ? PosTheme.textHint : _colorOf(m))),
+          const SizedBox(width: 8),
+          Expanded(child: Text(
+            m.isEmpty ? '第 ${i + 1} 笔 · 点下方选方式' : '第 ${i + 1} 笔 · $m',
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: 14, fontWeight: FontWeight.w700,
+                color: paid ? PosTheme.green : (m.isEmpty ? PosTheme.textHint : PosTheme.textMain)),
+          )),
+          Text('¥${Fmt.money(amt)}',
+              style: TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w800,
+                  color: paid ? PosTheme.green : PosTheme.textMain)),
+          if (!paid && comboLines.length > 1)
+            GestureDetector(
+              onTap: () => setState(() {
+                comboLines.removeAt(i);
+                if (comboActive >= comboLines.length) comboActive = comboLines.length - 1;
+              }),
+              child: const Padding(
+                padding: EdgeInsets.only(left: 6),
+                child: Icon(Icons.close, size: 16, color: PosTheme.textHint),
+              ),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  /// 当前行支付方式 chip
+  Widget _comboChip(String m, Map? activeLine) {
+    final sel = activeLine != null && '${activeLine['method']}' == m;
+    final locked = activeLine != null && activeLine['paid'] == true;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: locked
+          ? null
+          : () => setState(() {
+                if (activeLine != null) activeLine['method'] = m;
+              }),
+      child: Container(
+        height: 40,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+            color: sel ? const Color(0xFF8E6BF1).withOpacity(0.12) : const Color(0xFFF7F8FA),
+            border: Border.all(color: sel ? const Color(0xFF8E6BF1) : Colors.transparent, width: 1.5),
+            borderRadius: BorderRadius.circular(10)),
+        child: Text(m, style: TextStyle(
+            fontSize: 15, fontWeight: FontWeight.w700,
+            color: sel ? const Color(0xFF8E6BF1) : PosTheme.textMain)),
+      ),
+    );
+  }
+
   // ---------- 右侧面板：支付中 / 成功 / 失败 ----------
-  Widget _payingPanel() {
+  Widget _payingPanel({bool combo = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 10),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -2723,6 +3116,11 @@ class _PayDialogState extends State<RetailPayDialog> {
         ),
         const SizedBox(height: 16),
         Text(_payStatusText, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+        if (combo) ...[
+          const SizedBox(height: 4),
+          Text('组合支付第 ${comboScanIdx + 1} 笔 · ¥${Fmt.money(_scanAmt)}',
+              style: const TextStyle(fontSize: 14, color: Color(0xFF8E6BF1), fontWeight: FontWeight.w700)),
+        ],
         const SizedBox(height: 4),
         Text('已等待 $elapsedSec 秒 · 最长 60 秒', style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
       ]),
@@ -2764,7 +3162,17 @@ class _PayDialogState extends State<RetailPayDialog> {
   /// 选择支付方式（v3.3.251 改为只选中，扫码在弹窗内确认时执行）
   void _pick(String m) {
     if (m == '会员支付' && widget.vip == null) return;
+    // 组合支付已有成功款项时禁止切换方式（钱已收，须完成落单）
+    if (comboMode && comboLines.any((l) => l['paid'] == true)) return;
     setState(() {
+      if (m == '组合支付') {
+        _enterCombo();
+      } else {
+        comboMode = false;
+        comboScanIdx = -1;
+        comboLines.clear();
+        codeCtrl.clear();
+      }
       method = m;
       phase = 'input';
       errorMsg = '';

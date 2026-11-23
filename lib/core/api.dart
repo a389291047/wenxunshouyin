@@ -293,6 +293,7 @@ class Api {
     double mollen = 0, // 现金抹零金额（v3.3.239，落 wx_order.quiling 供交班统计/补打小票）
     double wholeRate = 0, // 整单折扣（8.5 = 8.5折，0 无；v3.3.246）
     double wholeAmount = 0, // 整单优惠总额（折扣优惠额或改价差额，v3.3.246）
+    List<Map<String, dynamic>> comboPay = const [], // 组合支付明细（v3.3.258，2-3 笔）
   }) async {
     return post('/shouyin/order/add', {
       'id': wenxunId,
@@ -307,6 +308,9 @@ class Api {
       if (mollen > 0) 'mollen': mollen,
       if (wholeRate > 0) 'whole_rate': wholeRate,
       if (wholeAmount > 0) 'whole_amount': wholeAmount,
+      // 组合支付（v3.3.258）：[{method, amount, pay_order_no, pay_channel}]，
+      // 第一笔为主支付方式，其余落 payment_method_2/3；含会员支付时后端先扣余额
+      if (comboPay.length >= 2) 'combo_pay': comboPay,
     });
   }
 

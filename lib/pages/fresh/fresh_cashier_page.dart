@@ -437,6 +437,32 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     } else {
       pickedMethod = picked;
     }
+    // 组合支付（v3.3.258）：弹窗带回 2-3 笔支付明细，走 combo_pay 落单
+    final comboRaw = (picked is Map) ? picked['combo'] : null;
+    if (comboRaw is List && comboRaw.length >= 2) {
+      final lines = <Map<String, dynamic>>[];
+      for (final l in comboRaw) {
+        if (l is! Map) continue;
+        String m = '${l['method']}';
+        final ch = int.tryParse('${l['xyf_channel'] ?? 0}') ?? 0;
+        if (m == '扫码收款' && ch > 0) {
+          m = ch == 1 ? '支付宝'
+              : (ch == 2 ? '微信支付'
+              : (ch == 9 ? '云闪付' : '其他支付'));
+        }
+        lines.add({
+          'method': m,
+          'amount': double.tryParse('${l['amount'] ?? 0}') ?? 0,
+          'pay_order_no': '${l['xyf_order_no'] ?? ''}',
+          'pay_channel': ch,
+        });
+      }
+      if (lines.length >= 2) {
+        await _createPaidOrder(lines.first['method'] as String, t,
+            comboLines: lines);
+        return;
+      }
+    }
     // 扫码类支付：未带支付流水时弹付款码（扫码枪扫顾客付款码，微信/支付宝自动识别）
     // 预生成我方单号：支付流水与订单 pay_order_no 关联，退款按此原路退
     if (xyfOrderNo.isEmpty &&
@@ -458,7 +484,8 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   /// 落单执行（v3.3.177 从 _checkout 拆出）：会员扣款 / 扫码 / 现金统一收口
   /// [mollen] 现金抹零金额（v3.3.238，小票打「抹零优惠」行）
   Future<void> _createPaidOrder(String picked, double t,
-      {double mollen = 0, String xyfOrderNo = '', int xyfChannel = 0}) async {
+      {double mollen = 0, String xyfOrderNo = '', int xyfChannel = 0,
+       List<Map<String, dynamic>> comboLines = const []}) async {
     final act = activityResult; // 活动快照（清空购物车前）
     final cartPayload = <Map<String, dynamic>>[
       ...cart.map((l) => {
@@ -485,7 +512,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         },
     ];
 
-    if (picked == '会员支付') {
+    if (picked == '会员支付' && comboLines.isEmpty) {
       final bal = _vipBalance();
       if (bal < t) {
         toast(context, '会员余额不足（¥${Fmt.money(bal)}），请先充值', error: true);
@@ -532,26 +559,30 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
         payOrderNo: xyfOrderNo,
         payChannel: xyfChannel,
         mollen: mollen, // 现金抹零落库（v3.3.239，交班统计/补打小票共用）
+        comboPay: comboLines, // 组合支付明细（v3.3.258，≥2 笔才传）
       );
       if (!mounted) return;
       Navigator.pop(context);
       final orderNo = '${r['orderNumber'] ?? r['order_number'] ?? ''}';
-      _afterPaid(orderNo, picked, t, mollen: mollen);
+      _afterPaid(orderNo, comboLines.length >= 2 ? '组合支付' : picked, t,
+          mollen: mollen, payMethodText: comboLines.length >= 2
+              ? comboLines.map((l) => '${l['method']}¥${Fmt.money((l['amount'] as num?)?.toDouble() ?? 0)}').join('+')
+              : picked);
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       toast(context, e.message, error: true);
     }
   }
 
-  Future<void> _afterPaid(String orderNo, String method, double t, {double mollen = 0}) async {
+  Future<void> _afterPaid(String orderNo, String method, double t, {double mollen = 0, String payMethodText = ''}) async {
     // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
-    CashDrawer.autoOpen(method);
+    CashDrawer.autoOpen(method == '组合支付' ? '现金' : method);
     final act = activityResult; // 清空购物车前取活动快照
     if (await PrintPrefs.on('retail')) {
       final hasWeigh = cart.any((l) => l.byWeight);
       CloudPrinter.printRetail(
         CloudPrinter.retailReceipt(
-          orderNo: orderNo, payMethod: method, total: t,
+          orderNo: orderNo, payMethod: payMethodText.isEmpty ? method : payMethodText, total: t,
           activityDiscount: act.discount, activityLines: act.labels, mollen: mollen,
           gifts: [
             for (final g in act.gifts)
