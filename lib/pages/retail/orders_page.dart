@@ -393,14 +393,18 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                       color: st.isEmpty ? PosTheme.textSub : (st == '未支付' ? PosTheme.amber : PosTheme.red))),
               // 整单折扣/改价徽标已移除（v3.3.268）：右侧详情已有「※ 整单折扣 8折 -¥3.20」，左侧不再重复
               // 优惠列（v3.3.250）：preferential_amount = 商品合计 − 实收（活动/券/整单折扣/抹零全含）
+              // v3.3.269：整单折扣/改价的订单直接显示这笔优惠金额（preferential_amount 未落时兜底）
               if (tab != 2) ...[
                 const SizedBox(width: 10),
                 SizedBox(
                   width: 76,
                   child: Builder(builder: (_) {
-                    final pref = double.tryParse('${o['preferential_amount'] ?? 0}') ??
-                        ((double.tryParse('${o['original_total'] ?? 0}') ?? 0) -
-                            (double.tryParse('${o['total'] ?? 0}') ?? 0));
+                    final whole = double.tryParse('${o['whole_discount_amount'] ?? 0}') ?? 0;
+                    final pref = whole > 0.001
+                        ? whole
+                        : (double.tryParse('${o['preferential_amount'] ?? 0}') ??
+                            ((double.tryParse('${o['original_total'] ?? 0}') ?? 0) -
+                                (double.tryParse('${o['total'] ?? 0}') ?? 0)));
                     final has = pref > 0.001 && '${o['payment_status']}' == '1';
                     return Text(has ? '-¥${Fmt.money(pref)}' : '—',
                         textAlign: TextAlign.right,
