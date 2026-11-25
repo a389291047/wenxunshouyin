@@ -1526,8 +1526,20 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         return;
       }
       try {
-        final r = await Api.goodsAll(Session.wenxunId);
+        // 方案 C（v3.3.276b）：有缓存先秒显，后台带指纹校验
+        final r = await Api.goodsAllCached(Session.wenxunId, onCache: (c) {
+          if (!mounted) return;
+          final g0 = (c['goods'] ?? []) as List;
+          setState(() {
+            allGoods = g0;
+            dishes = DisplayPrefs.sortGoods(g0, DisplayPrefs.goodsSort.value);
+          });
+        });
         if (!mounted) return;
+        if (r == null) {
+          prefetchDiningSpecs(allGoods, onUpdated: () { if (mounted) setState(() {}); });
+          return;
+        }
         final g = (r['goods'] ?? []) as List;
         setState(() {
           allGoods = g;
@@ -1559,9 +1571,18 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     if (allGoods.isEmpty && !allGoodsLoading) {
       allGoodsLoading = true;
       try {
-        final r = await Api.goodsAll(Session.wenxunId);
-        if (!mounted) return;
-        setState(() => allGoods = (r['goods'] ?? []) as List);
+        // 方案 C（v3.3.276b）：有缓存先秒显，后台带指纹校验
+        final r = await Api.goodsAllCached(Session.wenxunId, onCache: (c) {
+          if (!mounted) return;
+          setState(() => allGoods = (c['goods'] ?? []) as List);
+        });
+        if (!mounted) {
+          allGoodsLoading = false;
+          return;
+        }
+        if (r != null) {
+          setState(() => allGoods = (r['goods'] ?? []) as List);
+        }
         prefetchDiningSpecs(allGoods, onUpdated: () { if (mounted) setState(() {}); });
       } on ApiError {
         // 拉取失败则搜索只作用于当前分类商品

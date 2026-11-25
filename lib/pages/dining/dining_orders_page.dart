@@ -38,7 +38,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
 
   // 小程序
   List xcxAll = []; // order_from=1 全量
-  int xcxTimeTab = 0; // 0 今天 1 昨天 2 上周
+  int xcxTimeTab = 0; // 0 今天 1 昨天 2 本周 3 上周
   Map? xcxSelected;
 
   // 退款 / 充值
@@ -974,7 +974,16 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
         final s = _day(today.subtract(const Duration(days: 1)));
         l = l.where((o) => '${o['create_time']}'.startsWith(s));
         break;
-      case 2:
+      case 2: // 本周（本周一 ~ 今天）
+        final thisMonday = today.subtract(Duration(days: now.weekday - 1));
+        final ss = _day(thisMonday);
+        l = l.where((o) {
+          final t = '${o['create_time']}';
+          final dd = t.length >= 10 ? t.substring(0, 10) : t;
+          return dd.compareTo(ss) >= 0;
+        });
+        break;
+      case 3: // 上周（上一个自然周 周一 ~ 周日）
         final thisMonday = today.subtract(Duration(days: now.weekday - 1));
         final ss = _day(thisMonday.subtract(const Duration(days: 7)));
         final ee = _day(thisMonday.subtract(const Duration(days: 1)));
@@ -1021,7 +1030,9 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                   const SizedBox(width: 6),
                   _timeSeg('昨天', 1),
                   const SizedBox(width: 6),
-                  _timeSeg('上周', 2),
+                  _timeSeg('本周', 2),
+                  const SizedBox(width: 6),
+                  _timeSeg('上周', 3),
                   const Spacer(),
                   Text('共 ${f.length} 单',
                       style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),

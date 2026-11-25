@@ -17,7 +17,8 @@ import 'widgets.dart';
 class OrderDetailPanel extends StatefulWidget {
   final Map order;
   final VoidCallback onRefunded;
-  const OrderDetailPanel({super.key, required this.order, required this.onRefunded});
+  final bool alignRecharge; // v3.3.276b：退款时限与充值口径一致（扫码仅当天 / 现金·会员余额 7 天）
+  const OrderDetailPanel({super.key, required this.order, required this.onRefunded, this.alignRecharge = false});
 
   @override
   State<OrderDetailPanel> createState() => _OrderDetailPanelState();
@@ -44,8 +45,60 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
   /// 已部分退款（退过一部分但未退完，refund_status 保持 0）
   bool get partialRefunded => refunded > 0 && refundable > 0;
 
+  /// 退款时限与充值口径一致（v3.3.276b，alignRecharge 开启时生效）：
+  /// 任一笔含扫码（微信/支付宝/云闪付，或带星驿付流水号且非会员）→ 渠道已结算仅当天可退；
+  /// 纯现金 / 会员余额支付 → 7 天内可退
+  bool get refundInWindow {
+    if (!widget.alignRecharge) return true;
+    final t = '${o['create_time']}';
+    final dt = DateTime.tryParse(t);
+    if (dt == null) return false;
+    final now = DateTime.now();
+    final day = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final isToday = t.length >= 10 && t.substring(0, 10) == day;
+    if (isToday) return true;
+
+    // 是否含扫码笔（与后端 refund 口径一致）
+    bool vip(String m) => m.contains('会员');
+    bool scan(String m, String no) {
+      m = m.trim();
+      no = no.trim();
+      if (m.isEmpty || m == 'null') return false;
+      if (['微信支付', '支付宝', '云闪付'].contains(m)) return true;
+      return no.isNotEmpty && no != 'null' && !vip(m);
+    }
+
+    final hasScan = scan('${o['payment_method'] ?? ''}', '${o['pay_order_no'] ?? ''}') ||
+        scan('${o['payment_method_2'] ?? ''}', '${o['pay_order_no_2'] ?? ''}') ||
+        scan('${o['payment_method_3'] ?? ''}', '');
+    if (hasScan) return false; // 含扫码且非当天 → 不支持
+    return now.difference(dt).inDays < 7; // 纯现金/会员余额：7 天内（与充值 strtotime('-7 day') 同口径）
+  }
+
+  /// 不可退原因（与充值列表文案一致）
+  String get refundBlockReason {
+    final t = '${o['create_time']}';
+    final now = DateTime.now();
+    final day = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final isToday = t.length >= 10 && t.substring(0, 10) == day;
+    if (isToday) return '订单状态异常'; // 不可达：refundInWindow 为 false 时必非当天
+    bool vip(String m) => m.contains('会员');
+    bool scan(String m, String no) {
+      m = m.trim();
+      no = no.trim();
+      if (m.isEmpty || m == 'null') return false;
+      if (['微信支付', '支付宝', '云闪付'].contains(m)) return true;
+      return no.isNotEmpty && no != 'null' && !vip(m);
+    }
+
+    final hasScan = scan('${o['payment_method'] ?? ''}', '${o['pay_order_no'] ?? ''}') ||
+        scan('${o['payment_method_2'] ?? ''}', '${o['pay_order_no_2'] ?? ''}') ||
+        scan('${o['payment_method_3'] ?? ''}', '');
+    return hasScan ? '扫码支付已结算，仅当天支持退款' : '超过7天，不支持退款';
+  }
+
   /// 退款中（refund_status=1）不可操作；其余只要还有剩余可退就能退
-  bool get canRefund => payOk && refundSt != 1 && refundable > 0 && orderId > 0;
+  bool get canRefund => payOk && refundSt != 1 && refundable > 0 && orderId > 0 && refundInWindow;
 
   /// 已退商品明细：{行索引: 已退件数}（wx_order.refund_goods JSON）
   Map<int, int> get refundedGoods {
@@ -488,15 +541,26 @@ class _OrderDetailPanelState extends State<OrderDetailPanel> {
         const SizedBox(height: 12),
         // ---- 操作按钮（补打：弹窗选择云打印 / USB 直连） ----
         BigButton('补打小票', onTap: busy ? null : _pickPrint, height: 48),
-        const SizedBox(height: 9),
-        BigButton(
-          canRefund
-              ? (refunded > 0
-                  ? '继续退款 · 剩余可退 ¥${Fmt.money(refundable)}'
-                  : '退款 ¥${Fmt.money(total)}')
-              : (refundSt == 1 ? '退款中…' : '已退款'),
-          onTap: (busy || !canRefund) ? null : _refund,
-          color: const Color(0xFFFDEEEE), textColor: PosTheme.red, height: 46),
+        // 退款按钮：可退才显示；超时限（扫码仅当天/现金·余额7天）隐藏按钮，改为下方灰色提示（与充值订单一致）
+        if (canRefund) ...[
+          const SizedBox(height: 9),
+          BigButton(
+            refunded > 0
+                ? '继续退款 · 剩余可退 ¥${Fmt.money(refundable)}'
+                : '退款 ¥${Fmt.money(total)}',
+            onTap: busy ? null : _refund,
+            color: const Color(0xFFFDEEEE), textColor: PosTheme.red, height: 46),
+        ] else if (refundSt == 1) ...[
+          const SizedBox(height: 9),
+          BigButton('退款中…', onTap: null,
+              color: const Color(0xFFFDEEEE), textColor: PosTheme.red, height: 46),
+        ] else if (refundSt != 2 && refundable > 0) ...[
+          // 时限不可退（含「已退款」refund_status=2 不再提示）
+          const SizedBox(height: 10),
+          Text('该笔暂不支持退款：${refundBlockReason}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+        ],
       ]),
     );
   }

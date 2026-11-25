@@ -154,8 +154,13 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   Future<void> _load() async {
     setState(() { loading = true; error = null; });
     try {
-      final r = await Api.goodsAll(Session.wenxunId); // 与零售共用商品接口
+      // 方案 C（v3.3.276b）：有缓存先秒显，后台带指纹校验（与零售共用缓存层）
+      final r = await Api.goodsAllCached(Session.wenxunId, onCache: (c) {
+        if (!mounted) return;
+        setState(() { cats = c['cat']; goods = c['goods']; loading = false; });
+      });
       if (!mounted) return;
+      if (r == null) return;
       setState(() {
         cats = r['cat'] ?? [];
         goods = r['goods'] ?? [];

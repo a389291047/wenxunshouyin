@@ -20,6 +20,11 @@ class _MemberPageState extends State<MemberPage> {
   String kw = '';
   Map? selected;
 
+  // 分页加载（v3.3.276b）：每页 10 条，底部分页按钮手动翻页（同餐饮堂食订单），减轻服务器压力
+  int page = 1;
+  int totalPages = 1;
+  Map? summary; // 聚合统计 {count, total_amount}（后端 SQL 聚合，分页后总数/合计仍准确）
+
   // 会员搜索触屏键盘（v3.3.231）：复用收银页 TouchKeyboard，点键盘图标展开/收起
   final searchCtrl = TextEditingController();
   bool kbOpen = false;
@@ -51,14 +56,29 @@ class _MemberPageState extends State<MemberPage> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _load() async {
+  /// 拉取指定页（v3.3.276b 手动分页）：goto=0 用当前页，搜索时传 1 回到第一页
+  Future<void> _load({int goto = 0}) async {
     setState(() => loading = true);
     try {
-      final r = kw.isEmpty
-          ? await Api.vipList(Session.wenxunId)
-          : await Api.vipSearch(Session.wenxunId, kw);
+      // 搜索词去空格（v3.3.276b）：列表手机号分组显示（182 0019 2012），照显示输入也能搜到
+      final k = kw.replaceAll(RegExp(r'\s+'), '');
+      final p = goto > 0 ? goto : page;
+      final r = await Api.vipPage(
+        wenxunId: Session.wenxunId,
+        page: p,
+        limit: 10,
+        kw: k,
+      );
       if (!mounted) return;
-      setState(() { list = r; loading = false; });
+      final l = (r['list'] ?? []) as List;
+      final cnt = int.tryParse('${(r['summary'] ?? {})['count']}') ?? 0;
+      setState(() {
+        page = p;
+        totalPages = cnt <= 0 ? 1 : (cnt + 9) ~/ 10;
+        summary = r['summary'];
+        list = l;
+        loading = false;
+      });
       if (list.isNotEmpty && selected == null) {
         selected = list.first;
         _loadRecords(); // 默认选中第一个会员时同步拉记录
@@ -70,7 +90,11 @@ class _MemberPageState extends State<MemberPage> {
     }
   }
 
-  double _sumAmount() => list.fold(0, (s, v) => s + (double.tryParse('${v['amount']}') ?? 0));
+  /// 余额合计：用后端聚合值（分页后前端只有部分数据，本地 fold 会偏小）
+  double _sumAmount() {
+    final v = double.tryParse('${summary?['total_amount'] ?? ''}');
+    return v ?? list.fold(0, (s, v) => s + (double.tryParse('${v['amount']}') ?? 0));
+  }
 
   // ==================== 会员搜索触屏键盘（v3.3.231，复用收银页 TouchKeyboard） ====================
   /// 键盘写入：直接改 controller 并实时搜索（点键盘是离散点击，频率低，实时出结果）
@@ -80,7 +104,7 @@ class _MemberPageState extends State<MemberPage> {
       selection: TextSelection.collapsed(offset: text.length),
     );
     kw = text.trim();
-    _load();
+    _load(goto: 1); // 搜索词变化回到第一页
   }
 
   void _kbInput(String ch) => _kbWrite(searchCtrl.text + ch);
@@ -292,14 +316,14 @@ class _MemberPageState extends State<MemberPage> {
                         hint: '搜索手机号',
                         icon: Icons.search,
                         onChanged: (v) => kw = v.trim(),
-                        onSubmitted: (_) => _load(),
+                        onSubmitted: (_) => _load(goto: 1),
                       )),
                       const SizedBox(width: 10),
                       _kbBtn(),
                       const SizedBox(width: 10),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(backgroundColor: PosTheme.accent, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 18)),
-                        onPressed: _load,
+                        onPressed: () => _load(goto: 1),
                         child: const Text('搜索'),
                       ),
                     ]),
@@ -307,7 +331,8 @@ class _MemberPageState extends State<MemberPage> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                     child: Row(children: [
-                      Expanded(child: _statCard('会员总数', '${list.length}', Icons.groups, PosTheme.blue)),
+                      // v3.3.276b：总数用后端聚合（分页后 list.length 只是已加载条数）
+                      Expanded(child: _statCard('会员总数', '${summary?['count'] ?? list.length}', Icons.groups, PosTheme.blue)),
                       const SizedBox(width: 10),
                       Expanded(child: _statCard('余额合计', '¥${Fmt.money(_sumAmount())}', Icons.account_balance_wallet_outlined, PosTheme.green)),
                     ]),
@@ -318,67 +343,93 @@ class _MemberPageState extends State<MemberPage> {
                         ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
                         : list.isEmpty
                             ? const EmptyView('暂无会员')
-                            : ListView.builder(
-                                padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
-                                itemCount: list.length,
-                                itemBuilder: (_, i) {
-                                  final v = list[i];
-                                  final on = selected != null && '${selected!['id']}' == '${v['id']}';
-                                  // 卡片式行（v3.3.120）：固定圆角头像 + 昵称/手机号/金额三段平分
-                                  return InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: () => _select(v),
-                                    child: Container(
-                                      margin: const EdgeInsets.only(bottom: 8),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                                      decoration: BoxDecoration(
-                                        gradient: on
-                                            ? const LinearGradient(begin: Alignment.centerLeft, end: Alignment.centerRight, colors: [Color(0xFFFFF1E8), Color(0xFFFFF8F3)])
-                                            : null,
-                                        color: on ? null : Colors.white,
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: on ? PosTheme.accent.withOpacity(0.4) : PosTheme.line.withOpacity(0.7),
-                                          width: on ? 1.4 : 1,
-                                        ),
-                                        boxShadow: on
-                                            ? [BoxShadow(color: PosTheme.accent.withOpacity(0.10), blurRadius: 10, offset: const Offset(0, 3))]
-                                            : null,
-                                      ),
-                                      child: Row(children: [
-                                        VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 19, rounded: true, fallbackText: vipAvatarChar(v), highlight: on),
-                                        const SizedBox(width: 12),
-                                        // 昵称 / 手机号 / 金额 三段平分（超出省略号）
-                                        Expanded(
-                                          child: Text(
-                                            '${v['name'] ?? ''}',
-                                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                            : Column(children: [
+                                // 表头（v3.3.276b）：与订单页表头同款样式
+                                _listHeader(),
+                                Expanded(
+                                  child: ListView.builder(
+                                      padding: const EdgeInsets.fromLTRB(10, 2, 10, 12),
+                                      itemCount: list.length,
+                                      itemBuilder: (_, i) {
+                                        final v = list[i];
+                                        final on = selected != null && '${selected!['id']}' == '${v['id']}';
+                                        // 卡片式行（v3.3.120）：固定圆角头像 + 姓名/昵称 + 手机号 + 余额
+                                        // v3.3.276b：与订单页表头对齐——姓名居左省略、手机号居中分组美化、余额居中
+                                        return InkWell(
+                                          borderRadius: BorderRadius.circular(12),
+                                          onTap: () => _select(v),
+                                          child: Container(
+                                            margin: const EdgeInsets.only(bottom: 8),
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                                            decoration: BoxDecoration(
+                                              gradient: on
+                                                  ? const LinearGradient(begin: Alignment.centerLeft, end: Alignment.centerRight, colors: [Color(0xFFFFF1E8), Color(0xFFFFF8F3)])
+                                                  : null,
+                                              color: on ? null : Colors.white,
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: on ? PosTheme.accent.withOpacity(0.4) : PosTheme.line.withOpacity(0.7),
+                                                width: on ? 1.4 : 1,
+                                              ),
+                                              boxShadow: on
+                                                  ? [BoxShadow(color: PosTheme.accent.withOpacity(0.10), blurRadius: 10, offset: const Offset(0, 3))]
+                                                  : null,
+                                            ),
+                                            child: Row(children: [
+                                              VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 19, rounded: true, fallbackText: vipAvatarChar(v), highlight: on),
+                                              const SizedBox(width: 12),
+                                              // 姓名(xm)/昵称：居左，超出省略号
+                                              Expanded(
+                                                child: Text(
+                                                  _vipDisplay(v),
+                                                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              // 手机号：垂直居中 + 3-4-4 分组美化（182 0019 2012）
+                                              Expanded(
+                                                child: Text(
+                                                  _fmtPhone('${v['phone'] ?? ''}'),
+                                                  maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700, letterSpacing: 0.3),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              // 可用余额：居中
+                                              Expanded(
+                                                child: Text(
+                                                  '¥${Fmt.money(v['amount'])}',
+                                                  maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                                                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent),
+                                                ),
+                                              ),
+                                            ]),
                                           ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            '${v['phone'] ?? ''}',
-                                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                                            // v3.3.251：列表手机号 18 号粗体
-                                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            '¥${Fmt.money(v['amount'])}',
-                                            maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.right,
-                                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.accent),
-                                          ),
-                                        ),
-                                      ]),
-                                    ),
-                                  );
-                                },
-                              ),
+                                        );
+                                      },
+                                  ),
+                                ),
+                              ]),
                   ),
+                  // 底部分页栏（v3.3.276b，同餐饮堂食订单样式）：手动点击翻页
+                  if (!loading && list.isNotEmpty && totalPages > 1)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        IconButton.outlined(
+                            onPressed: page > 1 ? () => _load(goto: page - 1) : null,
+                            icon: const Icon(Icons.chevron_left, size: 20)),
+                        Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('$page / $totalPages 页',
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        ),
+                        IconButton.outlined(
+                            onPressed: page < totalPages ? () => _load(goto: page + 1) : null,
+                            icon: const Icon(Icons.chevron_right, size: 20)),
+                      ]),
+                    ),
                 ]),
               ),
             ),
@@ -408,6 +459,44 @@ class _MemberPageState extends State<MemberPage> {
     ]);
   }
 
+  /// 显示名（v3.3.276b）：会员姓名(xm)在前，微信昵称在后；xm 为空只显示昵称
+  String _vipDisplay(Map v) {
+    final xm = '${v['xm'] ?? ''}'.trim();
+    final nm = '${v['name'] ?? ''}'.trim();
+    if (xm.isEmpty) return nm.isEmpty ? '未命名会员' : nm;
+    return nm.isEmpty ? xm : '$xm　$nm';
+  }
+
+  /// 表头（v3.3.276b）：样式与订单页表头一致（灰底圆角卡 + 细字）
+  /// 列对齐行布局：头像占位 + 姓名/昵称居左 + 手机号居中 + 可用余额居中
+  Widget _listHeader() {
+    const segStyle = TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: PosTheme.textSub);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F8FA),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: PosTheme.line.withOpacity(0.7)),
+      ),
+      child: const Row(children: [
+        SizedBox(width: 50), // 头像列占位（38 + 间距 12）
+        Expanded(child: Text('姓名/昵称', style: segStyle)),
+        Expanded(child: Text('手机号', textAlign: TextAlign.center, style: segStyle)),
+        Expanded(child: Text('可用余额', textAlign: TextAlign.center, style: segStyle)),
+      ]),
+    );
+  }
+
+  /// 手机号分组美化（v3.3.276b）：11 位 → 182 0019 2012（3-4-4 空格分组）
+  String _fmtPhone(String p) {
+    final d = p.trim();
+    if (d.length == 11 && RegExp(r'^\d{11}$').hasMatch(d)) {
+      return '${d.substring(0, 3)} ${d.substring(3, 7)} ${d.substring(7)}';
+    }
+    return d;
+  }
+
   Widget _detailPanel() {
     final v = selected!;
     return AppCard(
@@ -416,7 +505,8 @@ class _MemberPageState extends State<MemberPage> {
           VipAvatar(avatarUrl: vipAvatarUrl(v), radius: 28, rounded: true, fallbackText: vipAvatarChar(v), showRing: true),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('${v['name'] ?? '未命名会员'}', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
+            // v3.3.276b：会员姓名(xm)显示在微信昵称前面
+            Text(_vipDisplay(v), style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700)),
             const SizedBox(height: 2),
             // v3.3.250：手机号粗体加大，收银员一眼核对
             Text('${v['phone'] ?? ''}${('${v['chepai'] ?? ''}'.trim().isNotEmpty) ? '　${v['chepai']}' : ''}',

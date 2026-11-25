@@ -5,6 +5,7 @@ import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/order_card.dart';
+import '../../ui/touch_keyboard.dart';
 import '../../ui/widgets.dart';
 import '../../ui/xyf_orphan_check.dart';
 
@@ -19,13 +20,15 @@ class RetailOrdersPage extends StatefulWidget {
 
 class _RetailOrdersPageState extends State<RetailOrdersPage> {
   int tab = 0; // 0 店内 1 小程序 2 充值订单（v3.3.218）
-  int timeTab = 0; // 0 今天 1 昨天 2 上周
+  int timeTab = 0; // 0 今天 1 昨天 2 本周 3 上周
   List all = [];
   List czAll = []; // 会员充值流水（wx_vip_chongzhika 近300条，切到充值页签时加载）
   bool loading = true;
   String? error;
   Map? selected;
   String kw = ''; // 订单号 / 支付方式 / 金额 搜索（本页内过滤）
+  final kwCtrl = TextEditingController(); // 搜索框控制器（数字键盘写入用，v3.3.276b）
+  bool kbOpen = false; // 搜索数字键盘开合
 
   /// 订单数据权限（v3.3.214）：收银员/服务员只能看当天，店长/商户主账号可看全部
   bool get canSeeAll => Session.canSeeAllOrders;
@@ -81,7 +84,16 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
         final s = _day(today.subtract(const Duration(days: 1)));
         l = l.where((o) => '${o['create_time']}'.startsWith(s));
         break;
-      case 2: // 上周（上一个自然周 周一 ~ 周日）
+      case 2: // 本周（本周一 ~ 今天）
+        final thisMonday = today.subtract(Duration(days: now.weekday - 1));
+        final ss = _day(thisMonday);
+        l = l.where((o) {
+          final t = '${o['create_time']}';
+          final dd = t.length >= 10 ? t.substring(0, 10) : t;
+          return dd.compareTo(ss) >= 0;
+        });
+        break;
+      case 3: // 上周（上一个自然周 周一 ~ 周日）
         final thisMonday = today.subtract(Duration(days: now.weekday - 1));
         final ss = _day(thisMonday.subtract(const Duration(days: 7)));
         final ee = _day(thisMonday.subtract(const Duration(days: 1)));
@@ -122,7 +134,12 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
         final s = _day(today.subtract(const Duration(days: 1)));
         l = l.where((r) => dayOf(r['pay_time']) == s);
         break;
-      case 2:
+      case 2: // 本周（本周一 ~ 今天，按 pay_time）
+        final thisMonday = today.subtract(Duration(days: now.weekday - 1));
+        final ss = _day(thisMonday);
+        l = l.where((r) => dayOf(r['pay_time']).compareTo(ss) >= 0);
+        break;
+      case 3: // 上周（上一个自然周 周一 ~ 周日）
         final thisMonday = today.subtract(Duration(days: now.weekday - 1));
         final ss = _day(thisMonday.subtract(const Duration(days: 7)));
         final ee = _day(thisMonday.subtract(const Duration(days: 1)));
@@ -147,7 +164,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
 
   /// 切换页签时清空选中，避免上一页签的行数据被下一页签的面板误用
   void _switchTab(int v) {
-    setState(() { tab = v; selected = null; kw = ''; });
+    setState(() { tab = v; selected = null; kw = ''; kwCtrl.clear(); kbOpen = false; });
     _load();
   }
 
@@ -206,22 +223,31 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                         const SizedBox(width: 6),
                         _timeSeg('昨天', 1),
                         const SizedBox(width: 6),
-                        _timeSeg('上周', 2),
+                        _timeSeg('本周', 2),
+                        const SizedBox(width: 6),
+                        _timeSeg('上周', 3),
                       ] else
                         const Text('收银员仅可查看当天订单',
                             style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
                     ]),
                   ),
-                  // 搜索行（v3.3.216）：订单号 / 支付方式 / 金额
+                  // 搜索行（v3.3.216）：订单号 / 支付方式 / 金额；右侧数字键盘开关（v3.3.276b）
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
-                    child: PosField(
-                      compact: true,
-                      cleanScan: true, // 支持扫码枪扫订单号搜索
-                      hint: '搜索订单号 / 支付方式 / 金额',
-                      icon: Icons.search,
-                      onChanged: (v) => setState(() { kw = v; _ensureSelected(); }),
-                    ),
+                    child: Row(children: [
+                      Expanded(
+                        child: PosField(
+                          controller: kwCtrl,
+                          compact: true,
+                          cleanScan: true, // 支持扫码枪扫订单号搜索
+                          hint: '搜索订单号 / 支付方式 / 金额',
+                          icon: Icons.search,
+                          onChanged: (v) => setState(() { kw = v; _ensureSelected(); }),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _kbBtn(),
+                    ]),
                   ),
                   const Divider(height: 14, color: PosTheme.line),
                   // 列表表头：与单行布局对齐（订单号 / 时间 / 支付方式 / 金额）
@@ -257,11 +283,24 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                           key: ValueKey('${selected!['id']}'),
                           order: selected!,
                           onRefunded: _load,
+                          // v3.3.276b：店内订单退款时限与充值口径一致（扫码仅当天 / 现金·会员余额 7 天）；小程序订单不限制
+                          alignRecharge: tab == 0,
                         ),
             ),
           ]),
         ),
       ),
+      // 搜索虚拟键盘（v3.3.276b）：会员管理同款 TouchKeyboard，展开时贴页面底部
+      if (kbOpen)
+        TouchKeyboard(
+          hintText: kwCtrl.text.isEmpty
+              ? '输入订单号 / 金额搜索'
+              : '已输入「${kwCtrl.text}」· 匹配 ${f.length} 单',
+          onInput: _kbInput,
+          onBackspace: _kbBackspace,
+          onClear: _kbClear,
+          onClose: () => setState(() => kbOpen = false),
+        ),
     ]);
   }
 
@@ -702,6 +741,45 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
         ),
         child: Text(text,
             style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: on ? PosTheme.accent : PosTheme.textHint)),
+      ),
+    );
+  }
+
+  // ==================== 搜索虚拟键盘（v3.3.276b，会员管理同款 TouchKeyboard） ====================
+  /// 键盘写入：统一走 kwCtrl，保持光标在末尾并同步过滤
+  void _kbWrite(String text) {
+    kwCtrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    setState(() { kw = text; _ensureSelected(); });
+  }
+
+  void _kbInput(String ch) => _kbWrite(kwCtrl.text + ch);
+
+  void _kbBackspace() {
+    final t = kwCtrl.text;
+    if (t.isNotEmpty) _kbWrite(t.substring(0, t.length - 1));
+  }
+
+  void _kbClear() => _kbWrite('');
+
+  /// 键盘开合按钮（同点餐弹窗/会员管理样式 44×44）
+  Widget _kbBtn() {
+    return SizedBox(
+      width: 44, height: 44,
+      child: Material(
+        color: kbOpen ? PosTheme.accentLive : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: kbOpen ? Colors.transparent : PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => kbOpen = !kbOpen),
+          child: Icon(Icons.keyboard_alt_outlined,
+              size: 22, color: kbOpen ? Colors.white : PosTheme.textSub),
+        ),
       ),
     );
   }

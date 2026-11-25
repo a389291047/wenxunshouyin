@@ -340,8 +340,14 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _load() async {
     setState(() { loading = true; error = null; });
     try {
-      final r = await Api.goodsAll(Session.wenxunId);
+      // 方案 C（v3.3.276b）：有缓存先秒显（loading 提前结束），后台带指纹校验；
+      // 数据没变零流量保持缓存，变了返回全量刷新
+      final r = await Api.goodsAllCached(Session.wenxunId, onCache: (c) {
+        if (!mounted) return;
+        setState(() { cats = c['cat']; goods = c['goods']; loading = false; });
+      });
       if (!mounted) return;
+      if (r == null) return;
       setState(() {
         cats = r['cat'] ?? [];
         goods = r['goods'] ?? [];

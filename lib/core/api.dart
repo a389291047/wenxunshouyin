@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'goods_store.dart';
 import 'session.dart';
 
 /// 稳讯后端 API 客户端
@@ -260,10 +261,41 @@ class Api {
 
   // ==================== 商品 ====================
 
-  /// 分类 + 商品一次拉全（零售点单页用）
-  static Future<Map<String, dynamic>> goodsAll(int wenxunId) async {
-    final r = await post('/shouyin/goodscat/index', {'wenxun_id': wenxunId});
-    return {'cat': r['cat'] ?? [], 'goods': r['goods'] ?? []};
+  /// 分类 + 商品一次拉全（零售点单页用）。
+  /// v3.3.276b 方案 C：fingerprint 非空时带指纹校验，服务器数据没变只回 unchanged
+  static Future<Map<String, dynamic>> goodsAll(int wenxunId, {String fingerprint = ''}) async {
+    final r = await post('/shouyin/goodscat/index', {
+      'wenxun_id': wenxunId,
+      if (fingerprint.isNotEmpty) 'fingerprint': fingerprint,
+    });
+    return {
+      'unchanged': r['unchanged'] == true,
+      'fingerprint': '${r['fingerprint'] ?? ''}',
+      'cat': r['cat'] ?? [],
+      'goods': r['goods'] ?? [],
+    };
+  }
+
+  /// 商品加载（本地缓存 + 指纹后台校验，v3.3.276b 方案 C）：
+  /// 有缓存先 onCache 秒显（loading 提前结束，页面可操作）；
+  /// 随后带指纹请求——unchanged 返回 null（保持缓存即可）；
+  /// 有变化返回新数据（已写缓存）；无缓存走全量；
+  /// 网络失败但有缓存时静默返回 null（缓存兜底，不阻塞页面）
+  static Future<Map<String, dynamic>?> goodsAllCached(
+      int wenxunId, {void Function(Map<String, dynamic>)? onCache}) async {
+    final cached = await GoodsStore.load(wenxunId);
+    if (cached != null) {
+      onCache?.call({'cat': cached['cat'], 'goods': cached['goods']});
+    }
+    try {
+      final r = await goodsAll(wenxunId, fingerprint: '${cached?['fp'] ?? ''}');
+      if (r['unchanged'] == true) return null;
+      await GoodsStore.save(wenxunId, '${r['fingerprint']}', r['cat'], r['goods']);
+      return {'cat': r['cat'], 'goods': r['goods']};
+    } on ApiError {
+      if (cached != null) return null;
+      rethrow;
+    }
   }
 
   /// 商户分类列表
@@ -428,6 +460,27 @@ class Api {
   static Future<List> vipList(int wenxunId) async {
     final r = await post('/shouyin/vip/mac', {'wenxun_id': wenxunId});
     return (r['data'] ?? []) as List;
+  }
+
+  /// 会员分页列表（v3.3.276b，会员管理页专用）：page 从 1 起；
+  /// 返回 {list, summary:{count,total_amount}, hasMore}；kw 支持手机号/姓名/微信昵称模糊
+  static Future<Map<String, dynamic>> vipPage({
+    required int wenxunId,
+    required int page,
+    int limit = 50,
+    String kw = '',
+  }) async {
+    final r = await post('/shouyin/vip/mac', {
+      'wenxun_id': wenxunId,
+      'page': page,
+      'limit': limit,
+      'kw': kw,
+    });
+    return {
+      'list': (r['data'] ?? []) as List,
+      'summary': (r['summary'] ?? {}) as Map,
+      'hasMore': r['has_more'] == true,
+    };
   }
 
   static Future<List> vipSearch(int wenxunId, String kw) async {
