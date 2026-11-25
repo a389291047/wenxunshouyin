@@ -82,6 +82,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
   int selectedCat = -1; // -1 全部
   String keyword = '';
   bool loading = true;
+  bool refreshing = false; // 手动刷新商品中（v3.3.277，改价后强拉全量）
   String? error;
 
   // 搜索框始终聚焦（v3.3.187，扫码枪适配）
@@ -169,6 +170,28 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() { loading = false; error = e.message; });
+    }
+  }
+
+  /// 手动刷新商品（v3.3.277）：改价/改库存后强拉全量，跳过缓存直取最新并回写
+  Future<void> _refreshGoods() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      final r = await Api.goodsAllCached(Session.wenxunId, force: true);
+      if (!mounted) return;
+      if (r != null) {
+        setState(() {
+          cats = r['cat'] ?? [];
+          goods = r['goods'] ?? [];
+        });
+      }
+      toast(context, '商品已刷新');
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      toast(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => refreshing = false);
     }
   }
 
@@ -743,6 +766,9 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
             ),
           ),
         ),
+        // 刷新商品（v3.3.277）：改价后点此同步最新价格
+        const SizedBox(width: 16),
+        _refreshBtn(),
         const SizedBox(width: 16),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -750,6 +776,28 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
           child: Text(t, style: const TextStyle(fontSize: 13.5, color: Colors.white)),
         ),
       ]),
+    );
+  }
+
+  /// 刷新按钮（v3.3.277，绿底白图标与顶栏风格一致）
+  Widget _refreshBtn() {
+    return Tooltip(
+      message: '刷新商品（改价后点此同步最新价格）',
+      child: InkWell(
+        onTap: _refreshGoods,
+        borderRadius: BorderRadius.circular(11),
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(color: Colors.white.withOpacity(0.18), borderRadius: BorderRadius.circular(11)),
+          child: refreshing
+              ? const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                )
+              : const Icon(Icons.refresh, color: Colors.white, size: 24),
+        ),
+      ),
     );
   }
 

@@ -1396,6 +1396,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   String keyword = '';
   List allGoods = []; // 全部商品缓存（首次搜索时拉取）
   bool allGoodsLoading = false;
+  bool refreshing = false; // 手动刷新商品中（v3.3.277，改价后强拉全量）
   // 待传后厨清单（v3.3.99）：点菜/加菜只入账不出票，
   // 点「传后厨」才统一打印（后厨按分类路由 + 前台整单一张）
   // v3.3.115：待传状态持久化到后端 is_xiachu 字段（下单=0，打印传后厨=1），
@@ -1591,6 +1592,31 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     }
   }
 
+  /// 手动刷新商品（v3.3.277）：改价/改库存后强拉最新，跳过缓存直取并回写
+  Future<void> _refreshGoods() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      if (catId == 0) {
+        final r = await Api.goodsAllCached(Session.wenxunId, force: true);
+        if (!mounted) return;
+        if (r != null) {
+          setState(() {
+            allGoods = (r['goods'] ?? []) as List;
+            dishes = DisplayPrefs.sortGoods(allGoods, DisplayPrefs.goodsSort.value);
+          });
+        }
+      } else {
+        await _loadDishes(); // 分类直拉本来就实时
+      }
+      if (mounted) toast(context, '商品已刷新');
+    } on ApiError catch (e) {
+      if (mounted) toast(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => refreshing = false);
+    }
+  }
+
   // ==================== 搜索触屏键盘（v3.3.274，复用会员管理逻辑） ====================
   void _kbWrite(String text) {
     searchCtrl.value = TextEditingValue(
@@ -1625,6 +1651,33 @@ class _TableBillDialogState extends State<_TableBillDialog> {
           onTap: () => setState(() => kbOpen = !kbOpen),
           child: Icon(Icons.keyboard_alt_outlined,
               size: 22, color: kbOpen ? Colors.white : PosTheme.textSub),
+        ),
+      ),
+    );
+  }
+
+  /// 商品刷新按钮（v3.3.277，改价后同步最新价格；同 _kbBtn 44×44 样式）
+  Widget _refreshBtn() {
+    return SizedBox(
+      width: 44, height: 44,
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _refreshGoods,
+          child: refreshing
+              ? Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: CircularProgressIndicator(strokeWidth: 2.2, color: PosTheme.accentLive),
+                )
+              : Tooltip(
+                  message: '刷新商品（改价后点此同步最新价格）',
+                  child: Icon(Icons.refresh, size: 22, color: PosTheme.textSub),
+                ),
         ),
       ),
     );
@@ -2457,6 +2510,8 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         ),
         const SizedBox(width: 10),
         _kbBtn(),
+        const SizedBox(width: 10),
+        _refreshBtn(),
         const SizedBox(width: 16), // 与关闭按钮拉开距离防误点（v3.3.274）
         // 右上角关闭按钮（v3.3.274 恢复：弹窗外点击关闭已禁用，只能点此退出）
         IconButton(

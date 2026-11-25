@@ -280,20 +280,24 @@ class Api {
   /// 有缓存先 onCache 秒显（loading 提前结束，页面可操作）；
   /// 随后带指纹请求——unchanged 返回 null（保持缓存即可）；
   /// 有变化返回新数据（已写缓存）；无缓存走全量；
-  /// 网络失败但有缓存时静默返回 null（缓存兜底，不阻塞页面）
+  /// 网络失败但有缓存时静默返回 null（缓存兜底，不阻塞页面）；
+  /// force=true（v3.3.277 收银台刷新按钮）：跳过缓存直拉全量并回写缓存（改价后手动刷新）
   static Future<Map<String, dynamic>?> goodsAllCached(
-      int wenxunId, {void Function(Map<String, dynamic>)? onCache}) async {
-    final cached = await GoodsStore.load(wenxunId);
-    if (cached != null) {
-      onCache?.call({'cat': cached['cat'], 'goods': cached['goods']});
+      int wenxunId, {void Function(Map<String, dynamic>)? onCache, bool force = false}) async {
+    Map<String, dynamic>? cached;
+    if (!force) {
+      cached = await GoodsStore.load(wenxunId);
+      if (cached != null) {
+        onCache?.call({'cat': cached['cat'], 'goods': cached['goods']});
+      }
     }
     try {
-      final r = await goodsAll(wenxunId, fingerprint: '${cached?['fp'] ?? ''}');
+      final r = await goodsAll(wenxunId, fingerprint: force ? '' : '${cached?['fp'] ?? ''}');
       if (r['unchanged'] == true) return null;
       await GoodsStore.save(wenxunId, '${r['fingerprint']}', r['cat'], r['goods']);
       return {'cat': r['cat'], 'goods': r['goods']};
     } on ApiError {
-      if (cached != null) return null;
+      if (!force && cached != null) return null;
       rethrow;
     }
   }

@@ -86,6 +86,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   String keyword = '';
   bool loading = true;
   String? error;
+  bool refreshing = false; // 手动刷新商品中（v3.3.277，改价后强拉全量）
 
   // 搜索框始终聚焦（v3.3.187，扫码枪适配）
   final searchKeeper = SearchFocusKeeper();
@@ -357,6 +358,56 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       if (!mounted) return;
       setState(() { loading = false; error = e.message; });
     }
+  }
+
+  /// 手动刷新商品（v3.3.277）：改价/改库存后强拉全量，跳过缓存直取最新并回写
+  Future<void> _refreshGoods() async {
+    if (refreshing) return;
+    setState(() => refreshing = true);
+    try {
+      final r = await Api.goodsAllCached(Session.wenxunId, force: true);
+      if (!mounted) return;
+      if (r != null) {
+        setState(() {
+          cats = r['cat'] ?? [];
+          goods = r['goods'] ?? [];
+        });
+      }
+      toast(context, '商品已刷新');
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      toast(context, e.message, error: true);
+    } finally {
+      if (mounted) setState(() => refreshing = false);
+    }
+  }
+
+  /// 刷新按钮（v3.3.277，搜索框右侧与触屏键盘按钮同款 48×48）
+  Widget _refreshBtn() {
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _refreshGoods,
+          child: refreshing
+              ? Padding(
+                  padding: const EdgeInsets.all(13),
+                  child: CircularProgressIndicator(strokeWidth: 2.4, color: PosTheme.accentLive),
+                )
+              : Tooltip(
+                  message: '刷新商品（改价后点此同步最新价格）',
+                  child: Icon(Icons.refresh, size: 24, color: PosTheme.textSub),
+                ),
+        ),
+      ),
+    );
   }
 
   List get filtered {
@@ -1263,6 +1314,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           _noCodeBtn(),
           const SizedBox(width: 10),
           _kbBtn(),
+          const SizedBox(width: 10),
+          _refreshBtn(),
           const SizedBox(width: 14),
           Expanded(child: _searchBox()),
           if (_showScaleBar) ...[
