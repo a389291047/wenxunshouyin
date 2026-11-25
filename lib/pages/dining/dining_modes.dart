@@ -748,22 +748,23 @@ class _GuazhangDialogState extends State<GuazhangDialog> {
       Navigator.pop(context); // loading
       if ('${r['code']}' == '200') {
         toast(context, '核销成功 ¥${Fmt.money(amount)}');
-        // 打印结清小票
+        // 挂账结清小票（v3.3.275）：注明原挂账单号/结清金额（大写可配）/剩余未结
         final d = (r['data'] ?? {}) as Map;
-        if (await PrintPrefs.on('dining')) {
-          final gzName = '${row['name'] ?? ''}'.trim();
-          final gzPhone = '${row['phone'] ?? ''}'.trim();
-          CloudPrinter.print(CloudPrinter.diningReceipt(
-          orderSn: '${d['order_sn'] ?? row['order_sn'] ?? ''}',
-          tableTitle: '${row['table_title'] ?? ''}（挂账结清）',
-          peopleNum: 1,
-          payMethod: pay,
-          goodsTotal: double.tryParse('${row['amount']}') ?? 0,
-          finalTotal: double.tryParse('${row['amount']}') ?? 0,
-          cart: const [],
-          extraLines: gzName.isEmpty
-              ? const []
-              : ['挂账人: $gzName${gzPhone.isNotEmpty ? '　电话: $gzPhone' : ''}'],
+        if (await PrintPrefs.on('gzsettle')) {
+          final opts = await PrintPrefs.guazhangOpts();
+          var remain = 0.0;
+          try {
+            final gl = await Api.guazhangLst();
+            remain = double.tryParse('${gl['unsettled_sum']}') ?? 0;
+          } catch (_) {}
+          CloudPrinter.print(CloudPrinter.guazhangSettleTicket(
+            orderSn: '${d['order_sn'] ?? row['order_sn'] ?? ''}',
+            gzName: '${row['name'] ?? ''}'.trim(),
+            gzPhone: '${row['phone'] ?? ''}'.trim(),
+            amount: double.tryParse('${row['amount']}') ?? 0,
+            payMethod: pay,
+            remainUnsettled: remain,
+            opts: opts,
           )).catchError((_) => <String, dynamic>{});
         }
         _load();

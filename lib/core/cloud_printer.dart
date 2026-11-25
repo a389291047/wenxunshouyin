@@ -440,6 +440,171 @@ class CloudPrinter {
     return sb.toString();
   }
 
+  /// 组挂账消费单小票（v3.3.275）：挂账结算时打印，商户留存联（可带签字栏）+ 可选客户联
+  /// copy='shop' 商户留存联（签字栏按 opts）/ copy='customer' 客户联（不带签字栏）
+  static String guazhangTicket({
+    required String orderSn,
+    required String tableTitle,
+    required int peopleNum,
+    required String gzName,
+    String gzPhone = '',
+    String gzUnit = '',
+    required double goodsTotal,
+    required double finalTotal,
+    required List<Map<String, dynamic>> cart,
+    List<String> extraLines = const [],
+    double balance = 0, // 该挂账人当前累计未结清余额（含本单）
+    Map<String, bool> opts = const {}, // signature/upper/balance/qr
+    String copy = 'shop',
+  }) {
+    final sb = StringBuffer();
+    final shopCopy = copy == 'shop';
+    sb.writeln('<FS2><center>$shopTitle</center></FS2>');
+    sb.writeln('门店编号: ${Session.wenxunId}${Session.shopPhone.trim().isNotEmpty ? '   电话: ${Session.shopPhone.trim()}' : ''}');
+    sb.writeln('<FS2><center>【挂账消费单】</center></FS2>');
+    sb.writeln('<center>${shopCopy ? '—— 商户留存联 ——' : '—— 客户留存联 ——'}</center>');
+    sb.writeln('--------------------------------');
+    sb.writeln('单号: $orderSn');
+    if (tableTitle.isNotEmpty) sb.writeln('桌台: $tableTitle   人数: $peopleNum');
+    sb.writeln('时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('收银: ${Session.staffName}');
+    sb.writeln('--------------------------------');
+    sb.writeln('挂账人: $gzName');
+    if (gzPhone.isNotEmpty) sb.writeln('电话: $gzPhone');
+    if (gzUnit.isNotEmpty) sb.writeln('单位: $gzUnit');
+    sb.writeln('--------------------------------');
+    for (final g in cart) {
+      final note = '${g['remark'] ?? ''}'.trim();
+      final name = '${g['goods_name'] ?? g['goods_title'] ?? ''}';
+      sb.writeln('$name');
+      sb.writeln('  ¥${Fmt.money(g['unit_price'])} x${g['quantity']}   ¥${Fmt.money((double.tryParse('${g['unit_price']}') ?? 0) * (double.tryParse('${g['quantity']}') ?? 1))}');
+      if (note.isNotEmpty) sb.writeln('  做法: $note');
+    }
+    sb.writeln('--------------------------------');
+    sb.writeln('商品合计: ¥${Fmt.money(goodsTotal)}');
+    for (final line in extraLines) {
+      sb.writeln(line);
+    }
+    sb.writeln('<FS>本次挂账: ¥${Fmt.money(finalTotal)}</FS>');
+    if (opts['upper'] == true) sb.writeln('大写: ${rmbUpper(finalTotal)}');
+    if (opts['balance'] == true && balance > 0) {
+      sb.writeln('该账户累计未结: ¥${Fmt.money(balance)}');
+    }
+    sb.writeln('支付方式: 挂账（未付款）');
+    sb.writeln('--------------------------------');
+    sb.writeln('备注: 本单据为挂账消费凭证，顾客确认');
+    sb.writeln('上述商品及欠款金额无误，承诺按期');
+    sb.writeln('结清款项。消费未付款。');
+    if (shopCopy && opts['signature'] == true) {
+      sb.writeln('--------------------------------');
+      sb.writeln('欠款人签字: ______________');
+      sb.writeln('');
+      sb.writeln('签字日期: ____年__月__日');
+      sb.writeln('');
+      sb.writeln('收银员签字: ______________');
+    }
+    sb.writeln('--------------------------------');
+    if (opts['qr'] == true && orderSn.isNotEmpty) sb.writeln('<QR>$orderSn</QR>');
+    sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');
+    return sb.toString();
+  }
+
+  /// 组挂账结清单小票（v3.3.275）：核销收款后打印，注明原单号/还款金额/剩余未结
+  static String guazhangSettleTicket({
+    required String orderSn,
+    required String gzName,
+    String gzPhone = '',
+    required double amount,
+    required String payMethod,
+    double remainUnsettled = 0,
+    Map<String, bool> opts = const {},
+  }) {
+    final sb = StringBuffer();
+    sb.writeln('<FS2><center>$shopTitle</center></FS2>');
+    sb.writeln('<FS2><center>【挂账结清单】</center></FS2>');
+    sb.writeln('<center>—— 原欠款已结清 ——</center>');
+    sb.writeln('--------------------------------');
+    sb.writeln('原挂账单号: $orderSn');
+    sb.writeln('结清时间: ${DateTime.now().toString().substring(0, 19)}');
+    sb.writeln('收银: ${Session.staffName}');
+    sb.writeln('--------------------------------');
+    sb.writeln('挂账人: $gzName');
+    if (gzPhone.isNotEmpty) sb.writeln('电话: $gzPhone');
+    sb.writeln('--------------------------------');
+    sb.writeln('<FS>本次结清: ¥${Fmt.money(amount)}</FS>');
+    if (opts['upper'] == true) sb.writeln('大写: ${rmbUpper(amount)}');
+    sb.writeln('支付方式: $payMethod');
+    if (remainUnsettled > 0) sb.writeln('该账户剩余未结: ¥${Fmt.money(remainUnsettled)}');
+    sb.writeln('--------------------------------');
+    sb.writeln('上述挂账欠款已全部结清，特此为凭。');
+    sb.writeln('--------------------------------');
+    sb.writeln('打印时间: ${DateTime.now().toString().substring(0, 19)}');
+    return sb.toString();
+  }
+
+  /// 人民币大写（v3.3.275）：268 → 人民币贰佰陆拾捌元整；0.53 → 人民币伍角叁分
+  static const _rmbDigits = ['零', '壹', '贰', '叁', '肆', '伍', '陆', '柒', '捌', '玖'];
+  static const _rmbUnits = ['', '拾', '佰', '仟'];
+  static const _rmbGroups = ['', '万', '亿'];
+
+  /// 4 位组内部转大写（组内压零：1005→壹仟零伍，1050→壹仟零伍拾，1100→壹仟壹佰）
+  static String _rmbFour(int g) {
+    var s = '', zero = false, started = false, u = 0, x = g;
+    while (x > 0) {
+      final d = x % 10;
+      if (d == 0) {
+        if (started) zero = true;
+      } else {
+        if (zero) { s = '${_rmbDigits[0]}$s'; zero = false; }
+        s = '${_rmbDigits[d]}${_rmbUnits[u]}$s';
+        started = true;
+      }
+      x ~/= 10;
+      u++;
+    }
+    return s;
+  }
+
+  static String rmbUpper(double v) {
+    var n = ((v.abs() * 100).round()); // 转成分，避免浮点误差
+    final neg = v < 0;
+    if (n == 0) return '人民币零元整';
+    final fen = n % 10;
+    n ~/= 10;
+    final jiao = n % 10;
+    n ~/= 10;
+    // 整数部分：按 4 位分组，从高位向低位拼
+    final groups = <int>[];
+    while (n > 0) {
+      groups.add(n % 10000);
+      n ~/= 10000;
+    }
+    var yuan = '';
+    var needZero = false; // 上方组整组为零时需要补零
+    for (int gi = groups.length - 1; gi >= 0; gi--) {
+      final g = groups[gi];
+      if (g == 0) {
+        if (yuan.isNotEmpty) needZero = true;
+        continue;
+      }
+      var gs = _rmbFour(g);
+      if (yuan.isNotEmpty && (needZero || g < 1000)) gs = '零$gs';
+      yuan += gs + _rmbGroups[gi];
+      needZero = false;
+    }
+    if (yuan.isNotEmpty) yuan = '$yuan元';
+    // 小数部分
+    var dec = '';
+    if (jiao > 0) dec = '${_rmbDigits[jiao]}角';
+    if (fen > 0) {
+      if (jiao == 0 && yuan.isNotEmpty) dec += '${_rmbDigits[0]}';
+      dec += '${_rmbDigits[fen]}分';
+    }
+    if (yuan.isEmpty && dec.isEmpty) return '人民币零元整';
+    final tail = (jiao == 0 && fen == 0 && yuan.isNotEmpty) ? '整' : '';
+    return '人民币${neg ? '负' : ''}$yuan$dec$tail';
+  }
+
   /// 组堂食结账小票
   static String diningReceipt({
     required String orderSn,

@@ -99,6 +99,9 @@ class _SettingsPageState extends State<SettingsPage> {
   bool routeLoading = false;
   Map<String, PrinterCfg> printerCfgs = {}; // machine_code → 绑定配置
   Map<String, bool> kitchenTicketOpts = {}; // 后厨小票明细行开关（v3.3.135 云端）
+  Map<String, bool> gzOpts = const {
+    'signature': true, 'upper': true, 'balance': true, 'customer': false, 'qr': false,
+  }; // 挂账小票配置（v3.3.275 本机）
   List<String> zuofaItems = []; // 常用做法列表（v3.3.141 云端，商户自定义）
   final zuofaCtrl = TextEditingController();
   bool cloudSyncing = false; // 正在与云端同步
@@ -117,6 +120,10 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadStaffs();
     _loadRoute();
     _loadCloudOn();
+    // 挂账小票配置（v3.3.275）
+    if (Session.hangye == 2) {
+      PrintPrefs.guazhangOpts().then((o) { if (mounted) setState(() => gzOpts = o); });
+    }
     // 显示自定义设置（v3.3.193）：改完即时反映到设置页自身（整体字体缩放直接生效）
     DisplayPrefs.fontScale.addListener(_onDisplayChanged);
     DisplayPrefs.fontWeight.addListener(_onDisplayChanged);
@@ -264,12 +271,17 @@ class _SettingsPageState extends State<SettingsPage> {
         final members = g['members']!;
         final keys = members.split(',');
         final isKitchenGroup = keys.contains('kitchen');
+        final isGzGroup = keys.contains('guazhang');
         rows.add(ticketRow(
           label: g['label']!,
           desc: g['desc']!,
           on: keys.every((k) => printOn[k] ?? true),
           previewKey: g['preview']!,
-          onSettings: isKitchenGroup ? () => _showKitchenDetailDialog(g['label']!) : null,
+          onSettings: isKitchenGroup
+              ? () => _showKitchenDetailDialog(g['label']!)
+              : isGzGroup
+                  ? () => _showGuazhangOptsDialog()
+                  : null,
           onToggle: (v) async {
             setState(() {
               for (final k in keys) {
@@ -426,6 +438,66 @@ class _SettingsPageState extends State<SettingsPage> {
     await _zuofaSave(List<String>.from(PrinterRoute.defaultZuofa));
   }
 
+  /// 挂账小票组 · 配置弹窗（v3.3.275）：签字栏/大写金额/累计欠款/客户联/二维码，存本机
+  Future<void> _showGuazhangOptsDialog() async {
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setD) {
+        Widget opt(String k) {
+          final def = PrintPrefs.guazhangOptDefs.firstWhere((e) => e['key'] == k);
+          final on = gzOpts[k] ?? false;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 2),
+            decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+            child: Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const SizedBox(height: 7),
+                Text('${def['label']}', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600,
+                    color: on ? PosTheme.textMain : PosTheme.textHint)),
+                Text('${def['desc']}', style: const TextStyle(fontSize: 11, color: PosTheme.textHint)),
+                const SizedBox(height: 7),
+              ])),
+              Switch(
+                value: on,
+                activeColor: PosTheme.accent,
+                onChanged: (v) async {
+                  setD(() {
+                    final next = Map<String, bool>.from(gzOpts);
+                    next[k] = v;
+                    gzOpts = next;
+                  });
+                  await PrintPrefs.setGuazhangOpt(k, v);
+                  if (mounted) setState(() {}); // 即时反映到样票
+                },
+              ),
+            ]),
+          );
+        }
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('挂账小票配置', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          content: SizedBox(
+            width: 420,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: Text('挂账消费单为赊销欠款凭证，商户留存联建议开启签字栏（欠款人签字是核心纸质凭证）；客户联不带签字栏。',
+                    style: TextStyle(fontSize: 12, color: PosTheme.textHint)),
+              ),
+              ...PrintPrefs.guazhangOptDefs.map((e) => opt('${e['key']}')),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('完成')),
+          ],
+        );
+      }),
+    );
+  }
+
   /// 后厨单组 · 明细行开关弹窗（菜品行、做法备注必打无开关；存云端随门店同步）
   Future<void> _showKitchenDetailDialog(String label) async {
     await showDialog(
@@ -577,6 +649,37 @@ class _SettingsPageState extends State<SettingsPage> {
           cart: const [{'goods_name': '水煮牛肉', 'quantity': 1}, {'goods_name': '米饭', 'quantity': 4}], title: '后厨单重打', font: _fontOfRole('kitchen'),
           showTable: kitchenTicketOpts['table'] ?? true, showTime: kitchenTicketOpts['time'] ?? true,
           showStaff: kitchenTicketOpts['staff'] ?? true, showCount: kitchenTicketOpts['count'] ?? true);
+      case 'guazhang':
+        // 挂账消费单样票（v3.3.275）：商户留存联，含大写金额/累计欠款/签字栏（按当前配置）
+        return CloudPrinter.guazhangTicket(
+          orderSn: 'CT$now示例',
+          tableTitle: '大厅8',
+          peopleNum: 4,
+          gzName: '张老板',
+          gzPhone: '13800001234',
+          goodsTotal: 268.00,
+          finalTotal: 268.00,
+          cart: [
+            {'goods_name': '水煮牛肉', 'unit_price': '58.00', 'quantity': 1, 'remark': '少辣'},
+            {'goods_name': '清蒸鲈鱼', 'unit_price': '68.00', 'quantity': 2},
+            {'goods_name': '米饭', 'unit_price': '2.00', 'quantity': 8},
+          ],
+          extraLines: ['茶位费: ¥4.00', '整单折扣: 9.5 折'],
+          balance: 1318.00,
+          opts: gzOpts,
+          copy: 'shop',
+        );
+      case 'gzsettle':
+        // 挂账结清单样票（v3.3.275）
+        return CloudPrinter.guazhangSettleTicket(
+          orderSn: 'CT$now示例',
+          gzName: '张老板',
+          gzPhone: '13800001234',
+          amount: 268.00,
+          payMethod: '扫码收款',
+          remainUnsettled: 1050.00,
+          opts: gzOpts,
+        );
       case 'queue':
         return '<FS2><center>排队号</center></FS2>\n--------------------------------\n您的号码：\n<FS2><center>** 12 **</center></FS2>\n2 位 · 前方 3 桌\n时间: $now\n请留意叫号，过号重排\n';
       case 'booking':

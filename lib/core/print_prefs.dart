@@ -16,6 +16,8 @@ class PrintPrefs {
     {'key': 'urge',    'label': '催菜单',        'desc': '催菜时自动通知后厨', 'scope': 'dining'},
     {'key': 'reprint', 'label': '传后厨重打单',   'desc': '账单「传后厨」按钮重打', 'scope': 'dining'},
     {'key': 'queue',   'label': '排队号票',      'desc': '排队取号小票', 'scope': 'dining'},
+    {'key': 'guazhang', 'label': '挂账消费单',   'desc': '挂账结算自动打印商户留存联（签字栏/大写金额可配）', 'scope': 'dining'},
+    {'key': 'gzsettle', 'label': '挂账结清单',   'desc': '挂账核销收款后自动打印结清凭证', 'scope': 'dining'},
     {'key': 'shift',   'label': '交班单',        'desc': '交接班统计小票', 'scope': 'all'},
     {'key': 'order',   'label': '订单重打小票',   'desc': '订单管理页手动重打', 'scope': 'retail'},
     {'key': 'refund',  'label': '退款单',        'desc': '订单退款小票', 'scope': 'retail'},
@@ -46,9 +48,41 @@ class PrintPrefs {
      'members': 'kitchen,retreat,urge,reprint', 'preview': 'kitchen'},
     {'label': '预约单', 'desc': '顾客提交预约后出单备菜核对；预约详情页可开「自动打印」',
      'members': 'booking', 'preview': 'booking'},
+    {'label': '挂账小票（消费单/结清单）', 'desc': '挂账结算打印消费单（商户留存联，可带签字栏）；核销后打印结清单',
+     'members': 'guazhang,gzsettle', 'preview': 'guazhang'},
     {'label': '排队号票', 'desc': '排队取号小票',
      'members': 'queue', 'preview': 'queue'},
   ];
+
+  // ==================== 挂账小票配置（v3.3.275） ====================
+  static const _gzOptPrefix = 'print_gzopt_';
+
+  /// 挂账小票可选项：signature 签字栏 / upper 大写金额 / balance 累计欠款 / customer 客户联 / qr 挂账二维码
+  static const List<Map<String, String>> guazhangOptDefs = [
+    {'key': 'signature', 'label': '底部打印签字栏', 'desc': '欠款人签字/签字日期/收银员签字（商户留存联）'},
+    {'key': 'upper',     'label': '打印欠款大写金额', 'desc': '如：大写 人民币贰佰陆拾捌元整（防篡改）'},
+    {'key': 'balance',   'label': '打印账户累计欠款余额', 'desc': '该挂账人当前未结清合计，方便对账'},
+    {'key': 'customer',  'label': '同时打印客户联', 'desc': '交给顾客留存，不带签字栏'},
+    {'key': 'qr',        'label': '打印挂账二维码', 'desc': '二维码内容为挂账单号；若打印机不支持会打出字面 QR 字样，请关闭'},
+  ];
+
+  /// 读挂账小票配置（默认：签字栏/大写/累计欠款开，客户联/二维码关）
+  static Future<Map<String, bool>> guazhangOpts() async {
+    final sp = await SharedPreferences.getInstance();
+    bool f(String k, bool d) => sp.getBool('$_gzOptPrefix$k') ?? d;
+    return {
+      'signature': f('signature', true),
+      'upper': f('upper', true),
+      'balance': f('balance', true),
+      'customer': f('customer', false),
+      'qr': f('qr', false),
+    };
+  }
+
+  static Future<void> setGuazhangOpt(String key, bool value) async {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool('$_gzOptPrefix$key', value);
+  }
 
   /// 合并组开关状态：全部成员开才显示开
   static Future<bool> groupOn(String members) async {
