@@ -9,7 +9,7 @@ import '../../ui/widgets.dart';
 import '../../ui/xyf_orphan_check.dart';
 
 /// 餐饮版 · 订单页（v3.3.83 重构：右侧导航 + 左侧内容）
-/// 开台订单（就餐中）/ 堂食订单（已结算，可退款）/ 小程序订单 / 退款订单 / 充值订单
+/// 开台订单（就餐中）/ 堂食订单（已结算）/ 挂账订单（待核销）/ 小程序订单 / 退款订单 / 充值订单
 class DiningOrdersPage extends StatefulWidget {
   const DiningOrdersPage({super.key});
   @override
@@ -17,12 +17,13 @@ class DiningOrdersPage extends StatefulWidget {
 }
 
 class _DiningOrdersPageState extends State<DiningOrdersPage> {
-  // 0 开台订单(就餐中) 1 堂食订单(已结算) 2 小程序订单 3 退款订单 4 充值订单
+  // 0 开台订单(就餐中) 1 堂食订单(已结算) 2 小程序订单 3 退款订单 4 充值订单 5 挂账订单(待核销)
   int tab = 0;
 
   static const List<Map<String, Object>> _navDefs = [
     {'key': 0, 'icon': Icons.restaurant, 'label': '开台订单', 'desc': '就餐中'},
     {'key': 1, 'icon': Icons.receipt_long, 'label': '堂食订单', 'desc': '已结算'},
+    {'key': 5, 'icon': Icons.account_balance_wallet_outlined, 'label': '挂账订单', 'desc': '挂账待核销'},
     {'key': 2, 'icon': Icons.smartphone, 'label': '小程序订单', 'desc': '线上订单'},
     {'key': 3, 'icon': Icons.assignment_return, 'label': '退款订单', 'desc': '退款记录'},
     {'key': 4, 'icon': Icons.savings_outlined, 'label': '充值订单', 'desc': '会员充值'},
@@ -55,10 +56,31 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   }
 
   Future<void> _load() async {
-    if (tab > 2) return; // 退款/充值各自加载
+    if (tab > 2 && tab != 5) return; // 退款/充值各自加载
     setState(() => loading = true);
     try {
-      if (tab <= 1) {
+      if (tab == 5) {
+        // 挂账订单（v3.3.274）：遍历堂食已结算分页，收集挂账未核销的单
+        final all = <Map<String, dynamic>>[];
+        int p = 1, tp = 1;
+        do {
+          final r = await Api.diningOrders(Session.wenxunId, p, 50, 1);
+          final d = (r['data'] ?? {}) as Map;
+          tp = int.tryParse('${d['pages']}') ?? 1;
+          all.addAll(((d['list'] ?? []) as List)
+              .whereType<Map<String, dynamic>>()
+              .where(_gzPending)
+              .toList());
+          p++;
+        } while (p <= tp && p <= 40); // 上限 40 页 × 50 条兜底，防死循环
+        if (!mounted) return;
+        setState(() {
+          diningList = all;
+          pages = 1;
+          loading = false;
+        });
+        _ensureDiningSelected();
+      } else if (tab <= 1) {
         final Map<String, dynamic> r;
         if (tab == 0) {
           // 开台订单：数据源是就餐中桌台（wx_zhuotai status=2），未结算的主订单表里没有
@@ -126,7 +148,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   void _switchTab(int v) {
     if (tab == v) return;
     setState(() { tab = v; loading = true; page = 1; diningSelected = null; });
-    if (v <= 2) {
+    if (v <= 2 || v == 5) {
       _load();
     } else {
       setState(() => loading = false);
@@ -199,6 +221,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
       case 2: return _xcxBody();
       case 3: return _refundBody();
       case 4: return _chongzhiBody();
+      case 5: return _tableBody(5);
       case 0:
       case 1:
       default: return _tableBody(tab == 0 ? 0 : 1);
@@ -214,6 +237,10 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
   }
 
   Widget _tableBody(int status) {
+    // 堂食订单（status=1）隐藏挂账未核销单（v3.3.274 移入「挂账订单」页签）；挂账页只显示挂账单
+    final shown = status == 1
+        ? diningList.where((o) => !_gzPending(o as Map)).toList()
+        : diningList;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 0, 0, 24),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -224,24 +251,32 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
               child: Row(children: [
-                Text(status == 0 ? '开台订单（就餐中）' : '堂食订单（已结算）',
+                Text(status == 0
+                        ? '开台订单（就餐中）'
+                        : status == 5
+                            ? '挂账订单（待核销）'
+                            : '堂食订单（已结算）',
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
                 const Spacer(),
-                Text('共 ${diningList.length} 单', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                Text('共 ${shown.length} 单', style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
               ]),
             ),
             const Divider(height: 1, color: PosTheme.line),
             Expanded(child: loading
                 ? const Center(child: CircularProgressIndicator(color: PosTheme.accent))
-                : diningList.isEmpty
-                    ? EmptyView(status == 0 ? '暂无就餐中的订单' : '暂无已结算订单')
+                : shown.isEmpty
+                    ? EmptyView(status == 0
+                        ? '暂无就餐中的订单'
+                        : status == 5
+                            ? '暂无挂账订单'
+                            : '暂无已结算订单')
                     : RefreshIndicator(
                         onRefresh: _load,
                         color: PosTheme.accent,
                         child: ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                          itemCount: diningList.length,
-                          itemBuilder: (_, i) => _tableRow(diningList[i]),
+                          itemCount: shown.length,
+                          itemBuilder: (_, i) => _tableRow(shown[i] as Map),
                         ),
                       )),
             if (diningList.isNotEmpty) ...[

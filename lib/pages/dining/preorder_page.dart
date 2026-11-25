@@ -10,6 +10,7 @@ import '../../core/preorder_badge.dart';
 import '../../core/print_prefs.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
+import '../../ui/touch_keyboard.dart';
 import '../../ui/widgets.dart';
 
 /// 手机号脱敏：18381789954 → 183****9954（非 11 位原样返回）
@@ -41,6 +42,7 @@ class _PreorderPageState extends State<PreorderPage> {
   int? selectedId;
   bool bookingAuto = false; // 预约单自动打印开关（v3.3.139，PrintPrefs.booking_auto）
   final _searchCtrl = TextEditingController();
+  bool kbOpen = false; // 搜索触屏键盘（v3.3.274，同会员管理）
 
   @override
   void initState() {
@@ -291,13 +293,12 @@ class _PreorderPageState extends State<PreorderPage> {
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-          child: SizedBox(
-            height: 38,
-            child: PosField(
+          child: Row(children: [
+            Expanded(child: PosField(
               controller: _searchCtrl,
               textInputAction: TextInputAction.search,
-              fontSize: 14.5, // v3.3.273：搜索框字缩小（默认沿用付款码 23 号大字，在这里太大不协调）
-              hint: '搜手机号 / 称呼',
+              compact: true, // v3.3.274：复用会员管理搜索框样式与高度（去固定高度，取 compact 原生尺寸）
+              hint: '搜索手机号码',
               icon: Icons.search,
               iconColor: PosTheme.textHint,
               suffix: keyword.isEmpty
@@ -314,11 +315,65 @@ class _PreorderPageState extends State<PreorderPage> {
                 keyword = v.trim();
                 _load();
               },
-            ),
-          ),
+            )),
+            const SizedBox(width: 10),
+            _kbBtn(),
+          ]),
         ),
         Expanded(child: _listArea()),
+        // 搜索触屏键盘（v3.3.274）：同会员管理，展开时贴在左栏底部
+        if (kbOpen)
+          TouchKeyboard(
+            keyHeight: MediaQuery.of(context).size.height < 680 ? 34 : 40,
+            hintText: _searchCtrl.text.isEmpty
+                ? '输入手机号后回车或点搜索'
+                : '已输入「${_searchCtrl.text}」· 匹配 ${rows.length} 条预约',
+            onInput: _kbInput,
+            onBackspace: _kbBackspace,
+            onClear: _kbClear,
+            onClose: () => setState(() => kbOpen = false),
+          ),
       ]),
+    );
+  }
+
+  // ==================== 搜索触屏键盘（v3.3.274，复用会员管理逻辑） ====================
+  void _kbWrite(String text) {
+    _searchCtrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    keyword = text.trim();
+    _load();
+  }
+
+  void _kbInput(String ch) => _kbWrite(_searchCtrl.text + ch);
+
+  void _kbBackspace() {
+    final t = _searchCtrl.text;
+    if (t.isEmpty) return;
+    _kbWrite(t.substring(0, t.length - 1));
+  }
+
+  void _kbClear() => _kbWrite('');
+
+  /// 键盘开合按钮（同会员管理/收银页样式）
+  Widget _kbBtn() {
+    return SizedBox(
+      width: 44, height: 44,
+      child: Material(
+        color: kbOpen ? PosTheme.accentLive : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: kbOpen ? Colors.transparent : PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => kbOpen = !kbOpen),
+          child: Icon(Icons.keyboard_alt_outlined,
+              size: 22, color: kbOpen ? Colors.white : PosTheme.textSub),
+        ),
+      ),
     );
   }
 

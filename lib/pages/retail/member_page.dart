@@ -289,7 +289,7 @@ class _MemberPageState extends State<MemberPage> {
                         controller: searchCtrl,
                         compact: true,
                         cleanScan: true, // 支持扫码枪扫会员卡号/手机号
-                        hint: '手机号搜索后回车',
+                        hint: '搜索手机号',
                         icon: Icons.search,
                         onChanged: (v) => kw = v.trim(),
                         onSubmitted: (_) => _load(),

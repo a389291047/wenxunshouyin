@@ -16,6 +16,7 @@ import '../../core/voice.dart';
 import '../../ui/brand_logos.dart';
 import '../../ui/no_code_goods.dart';
 import '../../ui/receipt_preview.dart';
+import '../../ui/touch_keyboard.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 import '../../ui/xyf_scan_pay.dart';
@@ -1083,7 +1084,8 @@ class _DiningPageState extends State<DiningPage> {
 
   // ==================== 点菜 / 账单面板 ====================
   Future<void> _dishPanel(Map t, String kaitaiId) async {
-    await showDialog(context: context, builder: (_) => _TableBillDialog(table: t, kaitaiId: kaitaiId));
+    // v3.3.274：禁止点击弹窗外空白关闭（防误触丢菜），只能点右上角 ✕ 退出
+    await showDialog(context: context, barrierDismissible: false, builder: (_) => _TableBillDialog(table: t, kaitaiId: kaitaiId));
     _load();
   }
 
@@ -1383,11 +1385,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   bool loading = true;
   List cats = [];
   List dishes = [];
-  int catId = -1;
+  int catId = 0; // 0=全部（v3.3.274 默认显示所有商品），>0 为具体分类 id
   Map? vip; // 结账选中的会员（会员余额支付用）
   String orderRemark = ''; // 整单备注（v3.3.71）
   // 商品搜索（名称/简拼，v3.3.75）
   final searchCtrl = TextEditingController();
+  bool kbOpen = false; // 搜索触屏键盘（v3.3.274，同会员管理）
   // 搜索框始终聚焦（v3.3.187，扫码枪适配）
   final searchKeeper = SearchFocusKeeper();
   String keyword = '';
@@ -1508,15 +1511,36 @@ class _TableBillDialogState extends State<_TableBillDialog> {
     try {
       final c = await Api.goodsCats(Session.wenxunId);
       if (!mounted || c.isEmpty) return;
-      setState(() { cats = c; catId = int.tryParse('${c.first['id']}') ?? -1; });
+      setState(() { cats = c; catId = 0; }); // v3.3.274 默认「全部」
       _loadDishes();
     } on ApiError {
       // 忽略，分类加载失败不阻塞账单
     }
   }
 
+  /// 加载当前分类商品；catId=0 为「全部」（v3.3.274）：拉全量商品显示
   Future<void> _loadDishes() async {
-    if (catId <= 0) return;
+    if (catId == 0) {
+      if (allGoods.isNotEmpty) {
+        setState(() => dishes = DisplayPrefs.sortGoods(allGoods, DisplayPrefs.goodsSort.value));
+        return;
+      }
+      try {
+        final r = await Api.goodsAll(Session.wenxunId);
+        if (!mounted) return;
+        final g = (r['goods'] ?? []) as List;
+        setState(() {
+          allGoods = g;
+          dishes = DisplayPrefs.sortGoods(g, DisplayPrefs.goodsSort.value);
+        });
+        prefetchDiningSpecs(g, onUpdated: () { if (mounted) setState(() {}); });
+      } on ApiError {
+        if (!mounted) return;
+        setState(() => dishes = []);
+      }
+      return;
+    }
+    if (catId < 0) return;
     try {
       final g = await Api.goodsByCat(Session.wenxunId, catId);
       if (!mounted) return;
@@ -1544,6 +1568,45 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       }
       allGoodsLoading = false;
     }
+  }
+
+  // ==================== 搜索触屏键盘（v3.3.274，复用会员管理逻辑） ====================
+  void _kbWrite(String text) {
+    searchCtrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    _onSearch(text);
+  }
+
+  void _kbInput(String ch) => _kbWrite(searchCtrl.text + ch);
+
+  void _kbBackspace() {
+    final t = searchCtrl.text;
+    if (t.isEmpty) return;
+    _kbWrite(t.substring(0, t.length - 1));
+  }
+
+  void _kbClear() => _kbWrite('');
+
+  /// 键盘开合按钮（同会员管理/收银页样式）
+  Widget _kbBtn() {
+    return SizedBox(
+      width: 44, height: 44,
+      child: Material(
+        color: kbOpen ? PosTheme.accentLive : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: kbOpen ? Colors.transparent : PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => setState(() => kbOpen = !kbOpen),
+          child: Icon(Icons.keyboard_alt_outlined,
+              size: 22, color: kbOpen ? Colors.white : PosTheme.textSub),
+        ),
+      ),
+    );
   }
 
   /// 网格展示的商品：搜索模式=全量过滤（名称/简拼，忽略大小写），否则=当前分类
@@ -1766,7 +1829,12 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   String _catOf(dynamic goodsId) {
     for (final src in [allGoods, dishes]) {
       for (final g in src) {
-        if ('${g['id']}' == '$goodsId') return '${g['cat_id'] ?? catId}';
+        if ('${g['id']}' == '$goodsId') {
+          final cid = g['cat_id'];
+          if (cid != null && '$cid'.isNotEmpty && '$cid' != 'null') return '$cid';
+          // 「全部」等无上下文分类时返回空 → 走默认后厨机（v3.3.274）
+          return catId > 0 ? '$catId' : '';
+        }
       }
     }
     return '';
@@ -2278,6 +2346,18 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                 ),
               ]),
             ),
+            // 搜索触屏键盘（v3.3.274）：同会员管理，展开时贴在弹窗底部
+            if (kbOpen)
+              TouchKeyboard(
+                keyHeight: MediaQuery.of(context).size.height < 680 ? 34 : 40,
+                hintText: searchCtrl.text.isEmpty
+                    ? '输入商品名称 / 简拼'
+                    : '已输入「${searchCtrl.text}」· 匹配 ${_gridGoods.length} 个商品',
+                onInput: _kbInput,
+                onBackspace: _kbBackspace,
+                onClear: _kbClear,
+                onClose: () => setState(() => kbOpen = false),
+              ),
             _footer(),
           ]),
         ),
@@ -2327,20 +2407,28 @@ class _TableBillDialogState extends State<_TableBillDialog> {
         ],
         const Spacer(),
         // 商品搜索（名称/简拼，v3.3.75；合计只在底部显示）
+        // v3.3.274：复用会员管理搜索框样式与高度（compact，去固定高度取原生尺寸）
         SizedBox(
-          width: 260,
-          height: 40,
+          width: 240,
           child: PosField(
             controller: searchCtrl,
             focusNode: searchKeeper.node,
+            compact: true,
             onChanged: _onSearch,
             hint: '搜索商品名称 / 简拼',
             icon: Icons.search,
             iconColor: PosTheme.textHint,
           ),
         ),
-        const SizedBox(width: 8),
-        // 右上角关闭按钮已移除（v3.3.76），点击弹窗外空白即关闭
+        const SizedBox(width: 10),
+        _kbBtn(),
+        const SizedBox(width: 16), // 与关闭按钮拉开距离防误点（v3.3.274）
+        // 右上角关闭按钮（v3.3.274 恢复：弹窗外点击关闭已禁用，只能点此退出）
+        IconButton(
+          tooltip: '关闭',
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.close, size: 22, color: PosTheme.textSub),
+        ),
       ]),
     );
   }
@@ -2503,7 +2591,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
       color: const Color(0xFFF7F8FA),
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        itemCount: cats.length + 1, // 第 0 位固定「无码菜品」（v3.3.147 从底部移入）
+        itemCount: cats.length + 2, // 第 0 位固定「无码菜品」，第 1 位「全部」（v3.3.274）
         itemBuilder: (_, i) {
           if (i == 0) {
             // 无码菜品（临时菜/时价菜手动录入）：固定在分类第一位，功能不变
@@ -2529,7 +2617,36 @@ class _TableBillDialogState extends State<_TableBillDialog> {
               ),
             );
           }
-          final c = cats[i - 1];
+          if (i == 1) {
+            // 「全部」分类（v3.3.274）：显示所有商品，catId=0
+            final on = catId == 0;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () {
+                  setState(() {
+                    catId = 0;
+                    if (keyword.isNotEmpty) { keyword = ''; searchCtrl.clear(); }
+                  });
+                  _loadDishes();
+                },
+                child: Container(
+                  height: 46,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: on ? PosTheme.accent : Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: on ? PosTheme.accent : PosTheme.line),
+                  ),
+                  child: Text('全部',
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 13.5, fontWeight: on ? FontWeight.w700 : FontWeight.w500, color: on ? Colors.white : PosTheme.textSub)),
+                ),
+              ),
+            );
+          }
+          final c = cats[i - 2];
           final on = catId == c['id'];
           return Padding(
             padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
