@@ -12,6 +12,13 @@ import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/widgets.dart';
 
+/// 手机号脱敏：18381789954 → 183****9954（非 11 位原样返回）
+/// v3.3.273：预约列表/详情/安排开台弹窗统一脱敏展示，避免顾客手机号全量暴露
+String maskPhone(String phone) {
+  final p = phone.trim();
+  return p.length == 11 ? '${p.substring(0, 3)}****${p.substring(7)}' : p;
+}
+
 /// 餐饮版 · 预约点餐（v3.3.104 左右布局）
 ///
 /// 左侧：顾客提交的下单信息（待安排 / 已安排 / 已拒绝 + 搜索）
@@ -289,6 +296,7 @@ class _PreorderPageState extends State<PreorderPage> {
             child: PosField(
               controller: _searchCtrl,
               textInputAction: TextInputAction.search,
+              fontSize: 14.5, // v3.3.273：搜索框字缩小（默认沿用付款码 23 号大字，在这里太大不协调）
               hint: '搜手机号 / 称呼',
               icon: Icons.search,
               iconColor: PosTheme.textHint,
@@ -409,7 +417,7 @@ class _PreorderPageState extends State<PreorderPage> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 4),
-                      Text(phone.isNotEmpty ? phone : '未留手机号',
+                      Text(phone.isNotEmpty ? maskPhone(phone) : '未留手机号',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
@@ -510,7 +518,7 @@ class _PreorderPageState extends State<PreorderPage> {
                 Row(children: [
                   if (phone.isNotEmpty)
                     Flexible(
-                      child: Text(phone,
+                      child: Text(maskPhone(phone),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 13, color: PosTheme.textHint)),
@@ -1013,7 +1021,7 @@ class _AssignDialogState extends State<_AssignDialog> {
             const Text('安排开台', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
             const SizedBox(width: 10),
             Text(
-              [if (name.isNotEmpty) name, if (phone.isNotEmpty) phone, if (people > 0) '$people 人']
+              [if (name.isNotEmpty) name, if (phone.isNotEmpty) maskPhone(phone), if (people > 0) '$people 人']
                   .join(' · '),
               style: const TextStyle(fontSize: 13, color: PosTheme.textSub),
             ),

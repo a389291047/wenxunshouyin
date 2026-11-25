@@ -125,4 +125,11 @@ class Fmt {
     final s = '$v';
     return s.length >= 16 ? s.substring(0, 16) : s;
   }
+
+  /// 商品单位清洗：空 / 'null' / 'undefined'（历史脏数据）→ 默认单位（缺省 kg）
+  static String unit(dynamic v, [String def = 'kg']) {
+    final u = '$v'.trim();
+    if (u.isEmpty || u == 'null' || u == 'undefined') return def;
+    return u;
+  }
 }

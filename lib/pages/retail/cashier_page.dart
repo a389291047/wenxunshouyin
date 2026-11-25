@@ -75,8 +75,7 @@ class _CartLine {
   }
 
   static String _unitOf(Map g) {
-    final u = '${g['danwei'] ?? ''}'.trim();
-    return u.isEmpty ? 'kg' : u;
+    return Fmt.unit(g['danwei']); // 空/'null'/'undefined' 一律兜底 kg
   }
 }
 
@@ -469,8 +468,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   /// 称重商品单位（商品 danwei，缺省 kg）
   String _unitOf(Map g) {
-    final u = '${g['danwei'] ?? ''}'.trim();
-    return u.isEmpty ? 'kg' : u;
+    return Fmt.unit(g['danwei']); // 空/'null'/'undefined' 一律兜底 kg
   }
 
   /// 数量展示：按件整数 / 称重 3 位小数去尾零

@@ -689,7 +689,7 @@ class _GoodsPickDialogState extends State<_GoodsPickDialog> {
                                   const SizedBox(height: 2),
                                   Text(
                                     '¥${Fmt.money(double.tryParse('${g['amount'] ?? 0}') ?? 0)}'
-                                    '${weighted ? '/${('${g['danwei'] ?? ''}'.trim().isEmpty ? 'kg' : g['danwei'])}' : ''}'
+                                    '${weighted ? '/${Fmt.unit(g['danwei'])}' : ''}'
                                     '${weighted ? ' · 称重' : ''}',
                                     style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub),
                                   ),

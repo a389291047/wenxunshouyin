@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wenxun/core/theme.dart';
 
 /// 店铺营销活动（v3.3.222）
 ///
@@ -191,8 +192,7 @@ class ActivityGift {
   int get goodsId => int.tryParse('${goods['id'] ?? 0}') ?? 0;
 
   String get unit {
-    final u = '${goods['danwei'] ?? ''}'.trim();
-    return u.isEmpty ? 'kg' : u;
+    return Fmt.unit(goods['danwei']); // 空/'null'/'undefined' 一律兜底 kg
   }
 
   String get qtyText {

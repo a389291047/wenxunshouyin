@@ -860,8 +860,7 @@ class _FreshCashierPageState extends State<FreshCashierPage> {
 
   /// 单位：商品有 guige 备注时展示，否则默认「份」
   String _unit(Map g) {
-    final u = '${g['unit'] ?? g['danwei'] ?? ''}'.trim();
-    return u.isEmpty ? '份' : u;
+    return Fmt.unit(g['unit'] ?? g['danwei'], '份'); // 空/'null'/'undefined' 兜底「份」
   }
 
   // ===== 购物车 =====
