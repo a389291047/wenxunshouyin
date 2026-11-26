@@ -104,14 +104,15 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
         });
         break;
     }
-    // 搜索过滤（不区分大小写，匹配订单号 / 支付方式 / 金额）
+    // 搜索过滤（不区分大小写，匹配订单号 / 手机号 / 支付方式 / 金额；v3.3.279 加手机号）
     final k = kw.trim().toLowerCase();
     if (k.isNotEmpty) {
       l = l.where((o) {
         final no = '${o['order_number'] ?? ''}'.toLowerCase();
+        final ph = '${o['phone'] ?? ''}'; // wx_order 自带 phone（会员支付时写入）
         final pm = _payMethods(o).toLowerCase(); // 含组合支付 _2/_3（v3.3.260）
         final amt = Fmt.money(o['total']);
-        return no.contains(k) || pm.contains(k) || amt.contains(k);
+        return no.contains(k) || ph.contains(k) || pm.contains(k) || amt.contains(k);
       });
     }
     return l.toList();
@@ -240,7 +241,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
                           controller: kwCtrl,
                           compact: true,
                           cleanScan: true, // 支持扫码枪扫订单号搜索
-                          hint: '搜索订单号 / 支付方式 / 金额',
+                          hint: '搜索订单号 / 手机号 / 支付方式 / 金额',
                           icon: Icons.search,
                           onChanged: (v) => setState(() { kw = v; _ensureSelected(); }),
                         ),
@@ -294,7 +295,7 @@ class _RetailOrdersPageState extends State<RetailOrdersPage> {
       if (kbOpen)
         TouchKeyboard(
           hintText: kwCtrl.text.isEmpty
-              ? '输入订单号 / 金额搜索'
+              ? '输入订单号 / 手机号 / 金额搜索'
               : '已输入「${kwCtrl.text}」· 匹配 ${f.length} 单',
           onInput: _kbInput,
           onBackspace: _kbBackspace,
