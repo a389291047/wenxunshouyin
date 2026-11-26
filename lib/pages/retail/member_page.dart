@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/api.dart';
+import '../../core/cloud_printer.dart';
 import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/touch_keyboard.dart';
@@ -264,6 +265,7 @@ class _MemberPageState extends State<MemberPage> {
           'time': '${o['create_time'] ?? ''}',
           'amount': double.tryParse('${o['total']}') ?? 0,
           'sub': '${o['payment_method'] ?? ''}${refunded ? ' · 已退款' : ''}',
+          'order': o, // v3.3.279：保留完整订单，点击弹窗看商品明细 + 补打小票
         });
       }
     }
@@ -619,6 +621,125 @@ class _MemberPageState extends State<MemberPage> {
     );
   }
 
+  /// 消费明细弹窗（v3.3.279）：点击最近消费记录 → 商品清单 + 补打小票
+  Future<void> _showConsumeDetail(Map<String, dynamic> o) async {
+    final goods = CloudPrinter.parseGoods(o);
+    String gName(Map g) => '${g['title'] ?? g['name'] ?? g['goods_name'] ?? ''}';
+    double gPrice(Map g) => double.tryParse('${g['price'] ?? g['unit_price'] ?? 0}') ?? 0;
+    double gQty(Map g) => double.tryParse('${g['quantity'] ?? g['num'] ?? 1}') ?? 1;
+    double f(String k) => double.tryParse('${o[k] ?? 0}') ?? 0;
+    final t = '${o['create_time'] ?? ''}';
+    final time = t.length >= 16 ? t.substring(0, 16) : t;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // 含补打等动作，防误点空白关闭
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        titlePadding: const EdgeInsets.fromLTRB(22, 18, 22, 0),
+        contentPadding: const EdgeInsets.fromLTRB(22, 12, 22, 4),
+        actionsPadding: const EdgeInsets.fromLTRB(22, 4, 22, 14),
+        title: Row(children: [
+          const Text('消费明细', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const Spacer(),
+          if (f('refund_amount') > 0 || (int.tryParse('${o['refund_status']}') ?? 0) == 2)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: PosTheme.blue.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
+              child: const Text('已退款', style: TextStyle(fontSize: 11.5, color: PosTheme.blue, fontWeight: FontWeight.w700)),
+            ),
+        ]),
+        content: SizedBox(
+          width: 380,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            // 单号/时间/支付方式
+            Text('单号 ${o['order_number'] ?? ''}',
+                style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+            const SizedBox(height: 3),
+            Text('$time · ${o['payment_method'] ?? ''}',
+                style: const TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
+            const Divider(height: 18),
+            // 商品清单
+            if (goods.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Text('暂无商品明细', textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: PosTheme.textHint)),
+              )
+            else
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (final g in goods)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Expanded(child: Text(gName(g), maxLines: 2, overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+                          const SizedBox(width: 10),
+                          Text(gQty(g) == gQty(g).roundToDouble()
+                              ? 'x${gQty(g).round()}'
+                              : '${gQty(g).toStringAsFixed(3)}',
+                              style: const TextStyle(fontSize: 13, color: PosTheme.textSub)),
+                          const SizedBox(width: 10),
+                          SizedBox(width: 64,
+                              child: Text('¥${Fmt.money(gPrice(g) * gQty(g))}', textAlign: TextAlign.right,
+                                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700))),
+                        ]),
+                      ),
+                  ]),
+                ),
+              ),
+            const Divider(height: 18),
+            // 金额行
+            if (f('preferential_amount') > 0)
+              _detailMoneyRow('优惠', -f('preferential_amount')),
+            if (f('refund_amount') > 0) _detailMoneyRow('退款', -f('refund_amount')),
+            _detailMoneyRow('实付', double.tryParse('${o['total']}') ?? 0, bold: true),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: PosTheme.accent, foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11)),
+            icon: const Icon(Icons.print_outlined, size: 17),
+            label: const Text('补打小票', style: TextStyle(fontWeight: FontWeight.w700)),
+            onPressed: () async {
+              loadingDialog(ctx, '发送云打印…');
+              try {
+                await CloudPrinter.printManual(CloudPrinter.orderTicket(o));
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) toast(context, '云打印已发送');
+              } on ApiError catch (e) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) toast(context, e.message, error: true);
+              } catch (e) {
+                if (ctx.mounted) Navigator.pop(ctx);
+                if (mounted) toast(context, '打印失败：$e', error: true);
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailMoneyRow(String label, double v, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(children: [
+        Text(label, style: TextStyle(fontSize: 13, color: PosTheme.textSub, fontWeight: bold ? FontWeight.w800 : FontWeight.w400)),
+        const Spacer(),
+        Text('¥${Fmt.money(v)}',
+            style: TextStyle(fontSize: bold ? 15.5 : 13.5,
+                fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                color: v < 0 ? PosTheme.blue : PosTheme.accent)),
+      ]),
+    );
+  }
+
   /// 单条记录卡片（v3.3.251）：前置圆角胶囊类型标签（充值/消费）+ 时间/说明 + 金额，
   /// Material+InkWell 触屏按压墨水纹；固定高度，不随条数撑满
   Widget _recRow(Map<String, dynamic> r, {bool last = false, required double height}) {
@@ -636,7 +757,12 @@ class _MemberPageState extends State<MemberPage> {
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () {}, // 占位：保留触屏按压反馈
+            onTap: () {
+              // v3.3.279：消费记录点击弹窗（商品明细 + 补打小票）；充值记录保留按压反馈
+              if (r['kind'] == '消费' && r['order'] != null) {
+                _showConsumeDetail(Map<String, dynamic>.from(r['order'] as Map));
+              }
+            },
             splashColor: c.withOpacity(0.10),
             highlightColor: c.withOpacity(0.05),
             hoverColor: c.withOpacity(0.04),
