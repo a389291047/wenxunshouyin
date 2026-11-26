@@ -239,10 +239,26 @@ class _PreorderPageState extends State<PreorderPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: PosTheme.bg,
-      body: Row(children: [
-        SizedBox(width: 392, child: _leftPanel()),
-        Container(width: 1, color: PosTheme.line),
-        Expanded(child: _rightPanel()),
+      // 搜索触屏键盘（v3.3.278）：同会员管理，挂在页面根级底部通栏全宽
+      body: Column(children: [
+        Expanded(
+          child: Row(children: [
+            SizedBox(width: 392, child: _leftPanel()),
+            Container(width: 1, color: PosTheme.line),
+            Expanded(child: _rightPanel()),
+          ]),
+        ),
+        if (kbOpen)
+          TouchKeyboard(
+            keyHeight: MediaQuery.of(context).size.height < 680 ? 34 : 40,
+            hintText: _searchCtrl.text.isEmpty
+                ? '输入手机号后回车或点搜索'
+                : '已输入「${_searchCtrl.text}」· 匹配 ${rows.length} 条预约',
+            onInput: _kbInput,
+            onBackspace: _kbBackspace,
+            onClear: _kbClear,
+            onClose: () => setState(() => kbOpen = false),
+          ),
       ]),
     );
   }
@@ -321,18 +337,6 @@ class _PreorderPageState extends State<PreorderPage> {
           ]),
         ),
         Expanded(child: _listArea()),
-        // 搜索触屏键盘（v3.3.274）：同会员管理，展开时贴在左栏底部
-        if (kbOpen)
-          TouchKeyboard(
-            keyHeight: MediaQuery.of(context).size.height < 680 ? 34 : 40,
-            hintText: _searchCtrl.text.isEmpty
-                ? '输入手机号后回车或点搜索'
-                : '已输入「${_searchCtrl.text}」· 匹配 ${rows.length} 条预约',
-            onInput: _kbInput,
-            onBackspace: _kbBackspace,
-            onClear: _kbClear,
-            onClose: () => setState(() => kbOpen = false),
-          ),
       ]),
     );
   }
