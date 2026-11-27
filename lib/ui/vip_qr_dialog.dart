@@ -186,7 +186,7 @@ class _VipQrDialogState extends State<_VipQrDialog> {
                   borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: () => Navigator.pop(context),
-            child: const Text('关闭', style: TextStyle(fontSize: 14.5)),
+            child: const Text('我知道了', style: TextStyle(fontSize: 14.5)),
           ),
         ),
       ],

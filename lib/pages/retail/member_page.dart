@@ -299,6 +299,14 @@ class _MemberPageState extends State<MemberPage> {
   Widget build(BuildContext context) {
     return Column(children: [
       PageHeader('会员管理', actions: [
+        // v3.3.282：激活码入口（复用副屏客显会员激活码），置于添加会员前
+        OutlinedButton.icon(
+          onPressed: () => showVipQrDialog(context),
+          style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
+          icon: const Icon(Icons.qr_code_2, size: 18),
+          label: const Text('激活码', style: TextStyle(color: PosTheme.accent)),
+        ),
+        const SizedBox(width: 10),
         OutlinedButton.icon(
           onPressed: Session.vipadd ? _addVip : null,
           style: OutlinedButton.styleFrom(foregroundColor: PosTheme.accent, side: const BorderSide(color: PosTheme.accent), padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14)),
@@ -561,18 +569,7 @@ class _MemberPageState extends State<MemberPage> {
         // v3.3.250：右侧空白区改为近期记录卡（全部/消费/充值 切换，最近5条）
         Expanded(child: _recordsCard()),
         const SizedBox(height: 12),
-        // v3.3.282：激活码入口（复用副屏客显会员激活码）+ 充值
-        Row(children: [
-          Expanded(
-            child: BigButton('激活码',
-                onTap: () => showVipQrDialog(context),
-                color: PosTheme.tint,
-                textColor: PosTheme.accentLive,
-                height: 50),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: BigButton('充值', onTap: _recharge, height: 50)),
-        ]),
+        BigButton('充值', onTap: _recharge, height: 50),
       ]),
     );
   }
