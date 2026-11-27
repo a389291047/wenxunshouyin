@@ -256,7 +256,8 @@ class CloudPrinter {
   static Future<Map<String, dynamic>> printReorder(String content) => printManual(content);
 
   /// 堂食订单补打小票模板（v3.3.87）：从订单行重组结账单，含附加费/优惠明细
-  static String diningReprintTicket(Map o) {
+  /// v3.3.281：标题统一「结账单」；printNo 传重打次序时小票加「第N次打印」行
+  static String diningReprintTicket(Map o, {int? printNo}) {
     final cart = parseGoods(o).map((g) => {
           'goods_name': '${g['goods_title'] ?? g['goods_name'] ?? g['title'] ?? g['name'] ?? ''}',
           'unit_price': double.tryParse('${g['unit_price'] ?? g['price'] ?? 0}') ?? 0,
@@ -298,9 +299,23 @@ class CloudPrinter {
       goodsTotal: f('goods_total'),
       finalTotal: f('final_total'),
       cart: cart,
-      extraLines: ['补打时间: ${DateTime.now().toString().substring(0, 19)}', ...extra],
-      title: '补打小票', // 与首次打印「结账单」区分（v3.3.236）
+      extraLines: [
+        '补打时间: ${DateTime.now().toString().substring(0, 19)}',
+        if (printNo != null) '第$printNo次打印', // 原单=第1次，重打从第2次起（v3.3.281）
+        ...extra,
+      ],
+      title: '结账单', // v3.3.281：重打不再显示「补打小票」，统一「结账单」+ 第N次打印
     );
+  }
+
+  /// 重打次数计数（v3.3.281，本地按单号累计）：返回本次是第几次打印（原单算第 1 次）
+  static Future<int> bumpReprintCount(String orderSn) async {
+    final sp = await SharedPreferences.getInstance();
+    if (orderSn.isEmpty) return 2;
+    final k = 'reprint_cnt_$orderSn';
+    final n = (sp.getInt(k) ?? 1) + 1;
+    await sp.setInt(k, n);
+    return n;
   }
 
   /// 小票标题店铺名：登录商户名，未取到回退「稳讯收银」（v3.3.156）

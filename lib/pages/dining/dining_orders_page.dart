@@ -510,7 +510,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
               ),
           ],
         )),
-        // 底部操作：已结算单可补打小票；可退单再显示申请退款
+        // 底部操作：已结算单可重打小票；可退单再显示申请退款（v3.3.281 改「重打」）
         if ('${o['order_status']}' == '1')
           Container(
             padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
@@ -532,7 +532,7 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
                 icon: const Icon(Icons.print_outlined, size: 17),
-                label: const Text('补打小票', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
+                label: const Text('重打', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600)),
               ),
               if (canRefund) ...[
                 const SizedBox(width: 12),
@@ -605,18 +605,19 @@ class _DiningOrdersPageState extends State<DiningOrdersPage> {
     );
   }
 
-  /// 补打堂食小票（v3.3.87）：USB 直连优先，云打印默认前台收银小票机
+  /// 重打堂食小票（v3.3.87；v3.3.281 改「重打」，小票统一「结账单」+ 第N次打印）
   Future<void> _reprintDining(Map o) async {
     if (!await PrintPrefs.on('reorder')) {
-      toast(context, '订单补打小票已关闭（设置 → 小票打印设置）');
+      toast(context, '订单小票打印已关闭（设置 → 小票打印设置）');
       return;
     }
-    loadingDialog(context, '发送补打小票…');
+    final printNo = await CloudPrinter.bumpReprintCount('${o['order_sn'] ?? ''}');
+    loadingDialog(context, '发送重打…');
     try {
-      await CloudPrinter.printReorder(CloudPrinter.diningReprintTicket(o));
+      await CloudPrinter.printReorder(CloudPrinter.diningReprintTicket(o, printNo: printNo));
       if (!mounted) return;
       Navigator.pop(context);
-      toast(context, '补打小票已发送');
+      toast(context, '重打已发送（第$printNo次打印）');
     } on ApiError catch (e) {
       if (mounted) Navigator.pop(context);
       if (mounted) toast(context, e.message, error: true);
