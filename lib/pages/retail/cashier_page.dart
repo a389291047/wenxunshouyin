@@ -130,6 +130,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
     DisplayPrefs.goodsSort.addListener(_onDisplayChanged); // 商品排序改动即时刷新（v3.3.266）
+    DisplayPrefs.scanMode.addListener(_onDisplayChanged); // 超市便利店视图切换即时生效（v3.3.282）
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
     // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
@@ -182,6 +183,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsSort.removeListener(_onDisplayChanged);
+    DisplayPrefs.scanMode.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     ActivityStore.list.removeListener(_onActivityChanged);
     GiftMode.value.removeListener(_onGiftModeChanged);
@@ -1271,19 +1273,27 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
               : error != null
                   ? _errorView()
-                  : Row(
-                      children: cartSide == 'left'
-                          ? [
-                              _cartPanel(), // 购物车在左（v3.3.189 可配置）
-                              Expanded(child: _goodsGrid()),
-                              _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
-                            ]
-                          : [
-                              _catRail(),
-                              Expanded(child: _goodsGrid()),
-                              _cartPanel(), // 购物车在右（默认）
-                            ],
-                    ),
+                  : ValueListenableBuilder<bool>(
+                  valueListenable: DisplayPrefs.scanMode,
+                  builder: (ctx, sm, __) => Row(
+                    children: sm
+                        ? [
+                            // 超市便利店视图（v3.3.282）：无分类栏/商品列表，扫码即加购
+                            if (cartSide == 'left') ...[_cartPanel(), Expanded(child: _scanPanel())] else ...[Expanded(child: _scanPanel()), _cartPanel()],
+                          ]
+                        : cartSide == 'left'
+                            ? [
+                                _cartPanel(), // 购物车在左（v3.3.189 可配置）
+                                Expanded(child: _goodsGrid()),
+                                _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
+                              ]
+                            : [
+                                _catRail(),
+                                Expanded(child: _goodsGrid()),
+                                _cartPanel(), // 购物车在右（默认）
+                              ],
+                  ),
+                ),
         ),
         // 自带触屏键盘（v3.3.221）：展开时挤压上方内容，不遮挡商品/底栏
         if (kbOpen)
@@ -1316,6 +1326,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           _kbBtn(),
           const SizedBox(width: 10),
           _refreshBtn(),
+          const SizedBox(width: 10),
+          _scanModeBtn(),
           const SizedBox(width: 14),
           Expanded(child: _searchBox()),
           if (_showScaleBar) ...[
@@ -1423,18 +1435,115 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         icon: Icons.search_rounded,
         iconColor: PosTheme.textSub,
         onChanged: _onSearchChanged,
+        // 便利店视图（v3.3.282）：手输条码回车立即加购（不等防抖）
+        onSubmitted: (v) {
+          final t = v.trim();
+          if (DisplayPrefs.scanMode.value && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
+            scanDebounce?.cancel();
+            _tryScanAdd(t);
+          }
+        },
         suffix: keyword.isEmpty ? null : _clearBtn(),
       ),
     );
   }
 
   /// 搜索/扫码输入：普通关键词直接过滤；扫到条码秤标签（2 前缀 13 位）自动解析入购物车
+  /// 超市便利店视图（v3.3.282）：纯数字 ≥6 位防抖精确匹配条码，直接加购
   void _onSearchChanged(String v) {
     setState(() => keyword = v.trim());
     scanDebounce?.cancel();
     final t = v.trim();
-    if (!RegExp(r'^2\d{12}$').hasMatch(t)) return; // 不是条码秤标签格式，走普通搜索
+    if (!RegExp(r'^2\d{12}$').hasMatch(t)) {
+      // 不是条码秤标签格式；便利店视图下按条码精确匹配
+      if (DisplayPrefs.scanMode.value && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
+        scanDebounce = Timer(const Duration(milliseconds: 180), () => _tryScanAdd(t));
+      }
+      return; // 走普通搜索
+    }
     scanDebounce = Timer(const Duration(milliseconds: 180), () => _tryScaleBarcode(t));
+  }
+
+  /// 超市便利店视图（v3.3.282）：扫条码精确匹配商品 → 直接加入购物车
+  /// 秤标签已在 _onSearchChanged 单独走秤解析；这里兜普通商品条码。
+  /// 称重商品（非秤标签扫码）弹称重面板；多规格商品提示回列表点选。
+  Future<void> _tryScanAdd(String code) async {
+    if (!DisplayPrefs.scanMode.value || !mounted) return;
+    Map? hit;
+    for (final g in goods) {
+      final c = '${g['code'] ?? g['bianma'] ?? g['barcode'] ?? ''}'.trim();
+      if (c.isNotEmpty && c == code) {
+        hit = g;
+        break;
+      }
+    }
+    if (hit == null) {
+      toast(context, '条码 $code 未匹配到商品', error: true);
+      searchKeeper.node.requestFocus();
+      return;
+    }
+    if (_hasSpecs(hit)) {
+      toast(context, '「${hit['title']}」是多规格商品，请切换回商品列表手动点选', error: true);
+      return;
+    }
+    searchCtrl.clear();
+    setState(() => keyword = '');
+    searchKeeper.node.requestFocus();
+    if (_isWeighted(hit)) {
+      await _weighAndAdd(hit);
+      _clearKeywordAfterAdd();
+    } else {
+      _add(hit);
+      toast(context, '已加入：${hit['title']}');
+    }
+  }
+
+  /// 超市便利店视图：视图切换按钮（顶栏，扫码即收银 / 商品列表两态）
+  Widget _scanModeBtn() {
+    final on = DisplayPrefs.scanMode.value;
+    return SizedBox(
+      width: 48,
+      height: 48,
+      child: Material(
+        color: on ? PosTheme.accentLive : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: on ? Colors.transparent : PosTheme.line),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Tooltip(
+          message: on ? '退出便利店视图（恢复商品列表）' : '超市便利店视图（隐藏商品列表，扫码即加购）',
+          child: InkWell(
+            onTap: () {
+              DisplayPrefs.setScanMode(!on);
+              searchKeeper.node.requestFocus();
+            },
+            child: Icon(Icons.storefront_rounded,
+                size: 24, color: on ? Colors.white : PosTheme.textSub),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 超市便利店视图主面板：无分类栏/商品列表，只留扫码提示
+  Widget _scanPanel() {
+    return Container(
+      color: PosTheme.bg,
+      alignment: Alignment.center,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.qr_code_scanner_rounded, size: 76, color: PosTheme.accentLive.withOpacity(0.35)),
+        const SizedBox(height: 18),
+        const Text('超市便利店 · 扫码收银',
+            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
+        const SizedBox(height: 10),
+        Text('扫码枪对准商品条码直接扫，商品自动加入购物车',
+            style: TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
+        const SizedBox(height: 6),
+        Text('无条码商品点左上角「无码商品」手动录入；秤标签照常自动称重',
+            style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+      ]),
+    );
   }
 
   /// 条码秤标签：扫标签 → 按编码匹配商品 → 标签重量直接入购物车
