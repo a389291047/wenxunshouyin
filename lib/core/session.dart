@@ -11,7 +11,7 @@ class Session {
   static String staffName = '';
   static int roleId = 0;
   static String roleName = '';
-  static int hangye = 1; // 1零售 2餐饮 3生鲜 4商超
+  static int hangye = 1; // 1零售 2餐饮 3生鲜 4商超 5服装
   static bool vipadd = false; // 添加会员权限
 
   static bool get isCashierOnly => roleId != 0;

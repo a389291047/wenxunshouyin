@@ -18,7 +18,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final _phone = TextEditingController();
   final _pwd = TextEditingController();
   final _pwd2 = TextEditingController();
-  int _hangye = 1; // 1零售 2餐饮 3生鲜 4商超
+  int _hangye = 1; // 1零售 2餐饮 3生鲜 4商超 5服装
   bool _agree = false;
   bool _showPwd = false;
   bool _busy = false;
@@ -28,6 +28,7 @@ class _RegisterPageState extends State<RegisterPage> {
     (2, '餐饮版', Icons.restaurant_outlined),
     (3, '生鲜版', Icons.eco_outlined),
     (4, '商超版', Icons.storefront_outlined),
+    (5, '服装版', Icons.checkroom_outlined),
   ];
 
   @override

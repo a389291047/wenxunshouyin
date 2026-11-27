@@ -24,7 +24,7 @@ import 'login_page.dart';
 
 /// 主框架：深色侧边栏 + 内容区
 /// 按商户行业 hangye 路由：1零售 → 零售收银版；2餐饮 → 餐饮收银版；3生鲜 → 生鲜收银版；
-/// 4商超 → 零售收银页强制商超布局（全扫码收银，v3.3.282）
+/// 4商超 → 零售收银页强制商超布局（全扫码收银，v3.3.282）；5服装 → 零售收银版（服装版专用界面待建）
 /// 生鲜版与零售共用后端（商品分类/商品/会员等级/会员），仅界面独立（生鲜绿主题）
 class ShellPage extends StatefulWidget {
   const ShellPage({super.key});
@@ -88,6 +88,7 @@ class _ShellPageState extends State<ShellPage> {
     if (_isDining) return '餐饮版';
     if (_isFresh) return '生鲜版';
     if (Session.hangye == 4) return '商超版';
+    if (Session.hangye == 5) return '服装版';
     return '零售版';
   }
 

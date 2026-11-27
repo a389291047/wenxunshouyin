@@ -2307,7 +2307,7 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 12),
       Row(children: [
         _info('店铺名称', Session.shopName),
-        _info('行业版本', Session.hangye == 2 ? '餐饮版' : (Session.hangye == 3 ? '生鲜版（零售）' : (Session.hangye == 4 ? '商超版' : '零售版'))),
+        _info('行业版本', Session.hangye == 2 ? '餐饮版' : (Session.hangye == 3 ? '生鲜版（零售）' : (Session.hangye == 4 ? '商超版' : (Session.hangye == 5 ? '服装版（零售）' : '零售版')))),
         _info('店铺电话', Session.shopPhone.isEmpty ? '-' : Session.shopPhone),
       ]),
     ]));
