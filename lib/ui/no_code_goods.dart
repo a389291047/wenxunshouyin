@@ -13,7 +13,7 @@ import 'widgets.dart';
 /// 返回 {'name': String, 'amount': double, 'num': int}；取消返回 null
 class NoCodeGoodsDialog extends StatefulWidget {
   final String title; // '无码商品' / '无码菜品'
-  const NoCodeGoodsDialog({super.key, this.title = '无码商品'});
+  const NoCodeGoodsDialog({super.key, this.title = '无码'});
   @override
   State<NoCodeGoodsDialog> createState() => _NoCodeGoodsDialogState();
 }

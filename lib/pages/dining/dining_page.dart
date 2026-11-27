@@ -1856,7 +1856,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
   Future<void> _noCodeDish() async {
     final r = await showDialog<Map>(
       context: context,
-      builder: (_) => const NoCodeGoodsDialog(title: '无码菜品'),
+      builder: (_) => const NoCodeGoodsDialog(title: '无码'),
     );
     if (r == null || !mounted) return;
     await _pushDishes([{
@@ -2700,7 +2700,7 @@ class _TableBillDialogState extends State<_TableBillDialog> {
                   child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Icon(Icons.keyboard_outlined, size: 17, color: Colors.white),
                     SizedBox(width: 5),
-                    Text('无码菜品', maxLines: 1,
+                    Text('无码', maxLines: 1,
                         style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white)),
                   ]),
                 ),

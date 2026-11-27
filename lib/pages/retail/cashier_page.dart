@@ -946,7 +946,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   Future<void> _noCodeGoods() async {
     final r = await showDialog<Map>(
       context: context,
-      builder: (_) => const NoCodeGoodsDialog(title: '无码商品'),
+      builder: (_) => const NoCodeGoodsDialog(title: '无码'),
     );
     if (r == null || !mounted) return;
     _add({
@@ -1352,7 +1352,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.35)),
             ),
-            child: Text('无码商品',
+            child: Text('无码',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -1600,7 +1600,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                 Text('扫码枪对准条码直接扫；也可在上方搜索框手输条码按回车',
                     style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
                 const SizedBox(height: 6),
-                Text('无条码商品点左上角「无码商品」；秤标签自动称重',
+                Text('无条码商品点左上角「无码」；秤标签自动称重',
                     style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
               ])
             : ListView.separated(
