@@ -241,7 +241,7 @@ class Api {
   }
 
   /// 商家自助注册（一次建齐：商户 + 默认分类 + 会员等级 + 店长账号）
-  /// hangye: 1零售 2餐饮 3生鲜
+  /// hangye: 1零售 2餐饮 3生鲜 4商超
   static Future<Map<String, dynamic>> register({
     required String name,
     required String phone,

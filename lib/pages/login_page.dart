@@ -10,7 +10,7 @@ import 'shell_page.dart';
 /// 收银端登录页（触摸屏版）
 /// 左侧：渐变 + 气泡动画品牌区（零售版 / 餐饮版）
 /// 右侧：纯触摸交互——手机号数字键盘 / 密码全键盘，适配无物理键盘的安卓收银机
-/// 登录成功按商户行业 hangye 路由：1零售 → 零售收银；2餐饮 → 餐饮收银；3生鲜 → 零售收银
+/// 登录成功按商户行业 hangye 路由：1零售 → 零售收银；2餐饮 → 餐饮收银；3生鲜 → 零售收银；4商超 → 零售收银（商超布局）
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
   @override

@@ -1508,7 +1508,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   /// 商超版判定
-  bool get isMarket => DisplayPrefs.cashierVersion.value == 'market';
+  /// 商超版判定：行业=4 商户固定商超布局；行业=1 商户可在设置里切「收银版本」
+  bool get isMarket => Session.hangye == 4 || DisplayPrefs.cashierVersion.value == 'market';
 
   /// 商超版会员按钮（顶栏，无码商品后面，文字+图标，v3.3.282）
   Widget _marketVipBtn() {

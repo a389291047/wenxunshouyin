@@ -1721,39 +1721,41 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
       ),
-      const SizedBox(height: 8),
-      // 2.6 收银版本（v3.3.282）：零售版 / 商超版（大型超市）
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
-        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-        child: Row(children: [
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(height: 10),
-            Text('收银版本', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            SizedBox(height: 3),
-            Text('零售版：商品列表点单 + 购物车收银。商超版：大型超市扫码收银布局，'
-                '无商品列表，扫码枪扫条码直接加入全宽明细表，右侧结算栏收款；也可在收银页顶栏临时切换。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-            SizedBox(height: 10),
-          ])),
-          ValueListenableBuilder<String>(
-            valueListenable: DisplayPrefs.cashierVersion,
-            builder: (context, ver, __) => SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: '', label: Text('零售版', style: TextStyle(fontSize: 13))),
-                ButtonSegment(value: 'market', label: Text('商超版（大型超市）', style: TextStyle(fontSize: 13))),
-              ],
-              selected: {ver == 'market' ? 'market' : ''},
-              showSelectedIcon: false,
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor: PosTheme.accentLive,
-                selectedForegroundColor: Colors.white,
-                foregroundColor: PosTheme.textSub,
+      // 2.6 收银版本（v3.3.282）：零售版 / 商超版（大型超市）；行业=4 商户固定商超版，不显示此卡
+      if (Session.hangye != 4) ...[
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 10),
+              Text('收银版本', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              SizedBox(height: 3),
+              Text('零售版：商品列表点单 + 购物车收银。商超版：大型超市扫码收银布局，'
+                  '无商品列表，扫码枪扫条码直接加入全宽明细表，扫顾客付款码直接收款。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              SizedBox(height: 10),
+            ])),
+            ValueListenableBuilder<String>(
+              valueListenable: DisplayPrefs.cashierVersion,
+              builder: (context, ver, __) => SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: '', label: Text('零售版', style: TextStyle(fontSize: 13))),
+                  ButtonSegment(value: 'market', label: Text('商超版（大型超市）', style: TextStyle(fontSize: 13))),
+                ],
+                selected: {ver == 'market' ? 'market' : ''},
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: PosTheme.accentLive,
+                  selectedForegroundColor: Colors.white,
+                  foregroundColor: PosTheme.textSub,
+                ),
+                onSelectionChanged: (sel) => DisplayPrefs.setCashierVersion(sel.first),
               ),
-              onSelectionChanged: (sel) => DisplayPrefs.setCashierVersion(sel.first),
             ),
-          ),
-        ]),
-      ),
+          ]),
+        ),
+      ],
       const SizedBox(height: 8),
       // 2.7 商超版 · 扫码直接收款（v3.3.282，商户自定义开关）
       Container(
@@ -2305,7 +2307,7 @@ class _SettingsPageState extends State<SettingsPage> {
       const SizedBox(height: 12),
       Row(children: [
         _info('店铺名称', Session.shopName),
-        _info('行业版本', Session.hangye == 2 ? '餐饮版' : (Session.hangye == 3 ? '生鲜版（零售）' : '零售版')),
+        _info('行业版本', Session.hangye == 2 ? '餐饮版' : (Session.hangye == 3 ? '生鲜版（零售）' : (Session.hangye == 4 ? '商超版' : '零售版'))),
         _info('店铺电话', Session.shopPhone.isEmpty ? '-' : Session.shopPhone),
       ]),
     ]));
