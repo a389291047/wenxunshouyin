@@ -71,6 +71,14 @@ class Session {
     await p.setBool('vipadd', vipadd);
   }
 
+  /// 更新商户 logo（登录返回/云端拉取共用），同步内存与持久化
+  /// v3.3.282 补：logo 在登录之后才通过小程序上传的商户，无需重新登录即可生效
+  static Future<void> setLogo(String v) async {
+    logo = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('logo', v);
+  }
+
   static Future<void> clear() async {
     token = '';
     wenxunId = 0;

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../core/api.dart';
 import '../core/pending_recharge.dart';
 import '../core/preorder_auto_print.dart';
 import '../core/preorder_badge.dart';
@@ -60,6 +61,23 @@ class _ShellPageState extends State<ShellPage> {
     _rechargeRetryTimer = Timer.periodic(const Duration(minutes: 5), (_) {
       if (mounted) _retryPendingRecharge();
     });
+    // v3.3.282 补：商户 logo 在登录之后才通过小程序上传时，本地缓存仍是空 →
+    // 侧边栏一直显示商户名首字。启动时若本地无 logo，异步拉一次云端最新值
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLogo());
+  }
+
+  /// 本地无 logo 时从云端拉一次（/shezhi/getLogo），成功后刷新侧边栏品牌位
+  Future<void> _refreshLogo() async {
+    if (!mounted || Session.logo.trim().isNotEmpty || Session.wenxunId <= 0) return;
+    try {
+      final r = await Api.post('/shezhi/getLogo', {'wenxun_id': Session.wenxunId});
+      if (!mounted) return;
+      final v = (r['logo'] ?? '').toString().trim();
+      if ('${r['code']}' == '200' && v.isNotEmpty) {
+        await Session.setLogo(v);
+        if (mounted) setState(() {});
+      }
+    } catch (_) {} // 接口未部署/网络异常：静默，保持首字回落
   }
 
   /// 待补入账核对：补成一笔 toast 提示一笔；无待补记录时静默
