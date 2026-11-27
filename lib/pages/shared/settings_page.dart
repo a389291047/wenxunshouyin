@@ -1721,39 +1721,41 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
       ),
-      // 2.6 商超版 · 扫码直接收款（v3.3.282，商户自定义开关；行业=4 固定商超版）
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
-        decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-        child: Row(children: [
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(height: 10),
-            Text('商超版 · 扫码直接收款', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            SizedBox(height: 3),
-            Text('仅商超版生效：扫完商品条码后，收银员直接扫顾客付款码（微信/支付宝/云闪付），'
-                '按当前购物车应收自动收款，不进结算页面。关闭后需点底部「收款」按钮结算。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-            SizedBox(height: 10),
-          ])),
-          ValueListenableBuilder<bool>(
-            valueListenable: DisplayPrefs.marketDirectPay,
-            builder: (context, on, __) => SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: true, label: Text('开启', style: TextStyle(fontSize: 13))),
-                ButtonSegment(value: false, label: Text('关闭', style: TextStyle(fontSize: 13))),
-              ],
-              selected: {on},
-              showSelectedIcon: false,
-              style: SegmentedButton.styleFrom(
-                selectedBackgroundColor: PosTheme.accentLive,
-                selectedForegroundColor: Colors.white,
-                foregroundColor: PosTheme.textSub,
+      // 2.6 商超版 · 扫码直接收款（v3.3.282，商户自定义开关；只有商超版 hangye=4 显示）
+      if (Session.hangye == 4) ...[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
+          child: Row(children: [
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(height: 10),
+              Text('商超版 · 扫码直接收款', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              SizedBox(height: 3),
+              Text('扫完商品条码后，收银员直接扫顾客付款码（微信/支付宝/云闪付），'
+                  '按当前购物车应收自动收款，不进结算页面。关闭后需点底部「收款」按钮结算。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+              SizedBox(height: 10),
+            ])),
+            ValueListenableBuilder<bool>(
+              valueListenable: DisplayPrefs.marketDirectPay,
+              builder: (context, on, __) => SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(value: true, label: Text('开启', style: TextStyle(fontSize: 13))),
+                  ButtonSegment(value: false, label: Text('关闭', style: TextStyle(fontSize: 13))),
+                ],
+                selected: {on},
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  selectedBackgroundColor: PosTheme.accentLive,
+                  selectedForegroundColor: Colors.white,
+                  foregroundColor: PosTheme.textSub,
+                ),
+                onSelectionChanged: (sel) => DisplayPrefs.setMarketDirectPay(sel.first),
               ),
-              onSelectionChanged: (sel) => DisplayPrefs.setMarketDirectPay(sel.first),
             ),
-          ),
-        ]),
-      ),
-      const SizedBox(height: 8),
+          ]),
+        ),
+        const SizedBox(height: 8),
+      ],
       // 3. 商品排序（v3.3.266）：收银页商品区展示顺序
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
