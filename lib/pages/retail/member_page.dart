@@ -281,21 +281,20 @@ class _MemberPageState extends State<MemberPage> {
       for (final r in recRecharge) {
         final refunded = int.tryParse('${r['pay_status']}') == 2;
         final gift = double.tryParse('${r['zengsong'] ?? 0}') ?? 0;
-        // v3.3.282：pay_type=initial 为添加会员的初始金额流水（wx_vip_order，显示备注）
+        // v3.3.282：pay_type=initial 为添加会员的初始金额流水（wx_vip_order），
+        // 类型标签动态显示「初始」，说明文字取数据库备注
         final pt = '${r['pay_type'] ?? ''}';
-        final src = pt == 'initial'
-            ? (() {
-                final rk = '${r['remark'] ?? ''}'.trim();
-                return rk.isEmpty ? '初始金额' : rk;
-              })()
-            : (pt == 'cash' ? '现金' : '扫码');
+        final isInit = pt == 'initial';
+        final rk = '${r['remark'] ?? ''}'.trim();
         items.add({
-          'kind': '充值',
+          'kind': isInit ? '初始' : '充值',
           'time': '${r['pay_time'] ?? r['create_time'] ?? ''}',
           'amount': double.tryParse('${r['czamount']}') ?? 0,
-          'sub': '$src'
-              '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
-              '${refunded ? ' · 已退款' : ''}',
+          'sub': isInit
+              ? (rk.isEmpty ? '初始金额' : rk)
+              : '${pt == 'cash' ? '现金' : '扫码'}'
+                  '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
+                  '${refunded ? ' · 已退款' : ''}',
         });
       }
     }
@@ -769,7 +768,8 @@ class _MemberPageState extends State<MemberPage> {
   /// 单条记录卡片（v3.3.251）：前置圆角胶囊类型标签（充值/消费）+ 时间/说明 + 金额，
   /// Material+InkWell 触屏按压墨水纹；固定高度，不随条数撑满
   Widget _recRow(Map<String, dynamic> r, {bool last = false, required double height}) {
-    final isCz = r['kind'] == '充值';
+    // v3.3.282：「初始」（添加会员初始金额）与充值一样为入账，+金额绿色
+    final isCz = r['kind'] == '充值' || r['kind'] == '初始';
     final c = isCz ? PosTheme.green : PosTheme.accent;
     final t = '${r['time']}';
     final time = t.length >= 16 ? t.substring(0, 16) : (t.isEmpty ? '—' : t);
