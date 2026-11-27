@@ -207,6 +207,20 @@ class Api {
     }, headers: {'merchant-no': '${Session.wenxunId}'});
   }
 
+  /// 未落单流水「已成功收款」确认（v3.3.282，需权限密码）：
+  /// 收银员核实顾客已拿货后标记为正常收款，该笔不再弹窗提示、无需退款
+  static Future<Map<String, dynamic>> xyfOrphanConfirm({
+    required String threeOrderNo,
+    required String password,
+    required int operatorId,
+  }) {
+    return postJson('/api/v1.payment/orphanConfirm', {
+      'three_order_no': threeOrderNo,
+      'password': password,
+      'operator_id': operatorId,
+    }, headers: {'merchant-no': '${Session.wenxunId}'});
+  }
+
   /// 退款中轮询：until success/fail 或超时（约 40 秒），返回最终 refundStatus
   static Future<String> pollRefundStatus({
     required bool dining,

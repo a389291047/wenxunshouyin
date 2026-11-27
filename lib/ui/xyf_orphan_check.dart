@@ -40,6 +40,7 @@ class _OrphanDialogState extends State<_OrphanDialog> {
   final pwdCtrl = TextEditingController();
   final focusNode = FocusNode();
   bool refunding = false;
+  bool confirming = false;
   List orphans = [];
 
   @override
@@ -85,6 +86,39 @@ class _OrphanDialogState extends State<_OrphanDialog> {
       if (!mounted) return;
       setState(() => refunding = false);
       toast(context, '退款失败：$e', error: true);
+    }
+  }
+
+  Future<void> _confirm(Map o) async {
+    final pwd = pwdCtrl.text.trim();
+    if (pwd.length < 4) {
+      toast(context, '请输入权限密码', error: true);
+      return;
+    }
+    setState(() => confirming = true);
+    try {
+      final r = await Api.xyfOrphanConfirm(
+        threeOrderNo: '${o['three_order_no'] ?? ''}',
+        password: pwd,
+        operatorId: Session.staffId,
+      );
+      if (!mounted) return;
+      setState(() => confirming = false);
+      if ('${r['code']}' == '0') {
+        toast(context, '${r['message'] ?? '已确认收款，不再提示'}');
+        setState(() => orphans.remove(o));
+        if (orphans.isEmpty && mounted) Navigator.pop(context);
+      } else {
+        toast(context, '${r['message'] ?? '确认失败'}', error: true);
+      }
+    } on ApiError catch (e) {
+      if (!mounted) return;
+      setState(() => confirming = false);
+      toast(context, e.message, error: true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => confirming = false);
+      toast(context, '确认失败：$e', error: true);
     }
   }
 
@@ -141,7 +175,8 @@ class _OrphanDialogState extends State<_OrphanDialog> {
         child: Column(mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const Text(
-              '以下扫码收款已成功，但对应订单未创建（收银机可能中途异常）。可选择原路退款给顾客，或联系管理员核对。',
+              '以下扫码收款已成功，但对应订单未创建（收银机可能中途异常）。可原路退款给顾客；'
+              '若已核实顾客确实拿货/商品已交付，点「已成功收款」确认后该笔不再提示。',
               style: TextStyle(fontSize: 12.5, color: PosTheme.textSub)),
           const SizedBox(height: 12),
           for (final o in orphans) ...[
@@ -167,21 +202,43 @@ class _OrphanDialogState extends State<_OrphanDialog> {
                                 fontSize: 11, color: PosTheme.textHint)),
                       ]),
                 ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: PosTheme.red,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                Row(children: [
+                  // 已成功收款确认（v3.3.282）：核实拿货后标记正常，不再弹窗；
+                  // 会员充值不给确认入口（余额未到账需人工核实，只走退款）
+                  if ('${o['biz'] ?? ''}' != '会员充值')
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: PosTheme.green,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: confirming ? null : () => _confirm(o),
+                      child: Text(confirming ? '确认中…' : '已成功收款',
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700)),
+                    ),
+                  if ('${o['biz'] ?? ''}' != '会员充值')
+                    const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: PosTheme.red,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    onPressed: refunding ? null : () => _refund(o),
+                    child: Text(refunding ? '退款中…' : '原路退款',
+                        style: const TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w700)),
                   ),
-                  onPressed: refunding ? null : () => _refund(o),
-                  child: Text(refunding ? '退款中…' : '原路退款',
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w700)),
-                ),
+                ]),
               ]),
             ),
             const SizedBox(height: 8),
@@ -195,7 +252,7 @@ class _OrphanDialogState extends State<_OrphanDialog> {
             keyboardType: TextInputType.number,
             maxLength: 6,
             compact: true,
-            label: '权限密码（退款需验证，防止误退）',
+            label: '权限密码（退款/确认收款需验证，防止误操作）',
             icon: Icons.lock_outline,
           ),
         ]),
