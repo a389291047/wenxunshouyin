@@ -5,6 +5,7 @@ import '../../core/session.dart';
 import '../../core/theme.dart';
 import '../../ui/touch_keyboard.dart';
 import '../../ui/vip_avatar.dart';
+import '../../ui/vip_qr_dialog.dart';
 import '../../ui/vip_recharge.dart';
 import '../../ui/widgets.dart';
 
@@ -560,7 +561,18 @@ class _MemberPageState extends State<MemberPage> {
         // v3.3.250：右侧空白区改为近期记录卡（全部/消费/充值 切换，最近5条）
         Expanded(child: _recordsCard()),
         const SizedBox(height: 12),
-        BigButton('充值', onTap: _recharge, height: 50),
+        // v3.3.282：激活码入口（复用副屏客显会员激活码）+ 充值
+        Row(children: [
+          Expanded(
+            child: BigButton('激活码',
+                onTap: () => showVipQrDialog(context),
+                color: PosTheme.tint,
+                textColor: PosTheme.accentLive,
+                height: 50),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: BigButton('充值', onTap: _recharge, height: 50)),
+        ]),
       ]),
     );
   }
