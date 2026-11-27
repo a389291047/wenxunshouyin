@@ -1722,34 +1722,34 @@ class _SettingsPageState extends State<SettingsPage> {
         ]),
       ),
       const SizedBox(height: 8),
-      // 2.6 超市便利店视图（v3.3.282）：隐藏商品列表/图片，扫码枪扫条码直接加购
+      // 2.6 收银版本（v3.3.282）：零售版 / 商超版（大型超市）
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
         child: Row(children: [
           const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SizedBox(height: 10),
-            Text('超市便利店视图', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            Text('收银版本', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             SizedBox(height: 3),
-            Text('开启后零售收银页隐藏分类栏和商品列表，扫码枪扫商品条码直接加入购物车；'
-                '适合便利店/超市全扫码收银，也支持收银页顶栏按钮临时切换。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
+            Text('零售版：商品列表点单 + 购物车收银。商超版：大型超市扫码收银布局，'
+                '无商品列表，扫码枪扫条码直接加入全宽明细表，右侧结算栏收款；也可在收银页顶栏临时切换。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
             SizedBox(height: 10),
           ])),
-          ValueListenableBuilder<bool>(
-            valueListenable: DisplayPrefs.scanMode,
-            builder: (context, on, __) => SegmentedButton<bool>(
+          ValueListenableBuilder<String>(
+            valueListenable: DisplayPrefs.cashierVersion,
+            builder: (context, ver, __) => SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: false, label: Text('关闭', style: TextStyle(fontSize: 13))),
-                ButtonSegment(value: true, label: Text('开启', style: TextStyle(fontSize: 13))),
+                ButtonSegment(value: '', label: Text('零售版', style: TextStyle(fontSize: 13))),
+                ButtonSegment(value: 'market', label: Text('商超版（大型超市）', style: TextStyle(fontSize: 13))),
               ],
-              selected: {on},
+              selected: {ver == 'market' ? 'market' : ''},
               showSelectedIcon: false,
               style: SegmentedButton.styleFrom(
                 selectedBackgroundColor: PosTheme.accentLive,
                 selectedForegroundColor: Colors.white,
                 foregroundColor: PosTheme.textSub,
               ),
-              onSelectionChanged: (sel) => DisplayPrefs.setScanMode(sel.first),
+              onSelectionChanged: (sel) => DisplayPrefs.setCashierVersion(sel.first),
             ),
           ),
         ]),

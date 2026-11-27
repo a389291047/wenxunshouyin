@@ -29,7 +29,7 @@ class DisplayPrefs {
     goodsCols.value = sp.getInt(prefGoodsCols) ?? 0;
     goodsImage.value = sp.getBool(prefGoodsImage) ?? true;
     cartNewestFirst.value = sp.getBool(prefCartNewestFirst) ?? false;
-    scanMode.value = sp.getBool(prefScanMode) ?? false;
+    cashierVersion.value = sp.getString(prefCashierVersion) == 'market' ? 'market' : '';
     await _loadGoodsSort(sp);
   }
 
@@ -66,14 +66,14 @@ class DisplayPrefs {
     await sp.setBool(prefGoodsImage, v);
   }
 
-  // ===== 超市便利店视图（v3.3.282）：收银页隐藏商品列表/图片，扫码枪扫条码直接加购 =====
-  static const prefScanMode = 'display_scan_mode';
-  static final ValueNotifier<bool> scanMode = ValueNotifier(false);
+  // ===== 收银版本（v3.3.282）：''=零售版（商品列表+购物车），'market'=商超版（大型超市扫码收银布局） =====
+  static const prefCashierVersion = 'display_cashier_version';
+  static final ValueNotifier<String> cashierVersion = ValueNotifier('');
 
-  static Future<void> setScanMode(bool v) async {
-    scanMode.value = v;
+  static Future<void> setCashierVersion(String v) async {
+    cashierVersion.value = v == 'market' ? 'market' : '';
     final sp = await SharedPreferences.getInstance();
-    await sp.setBool(prefScanMode, v);
+    await sp.setString(prefCashierVersion, cashierVersion.value);
   }
 
   // ===== 购物车排序（v3.3.243）：false=顺序（先点的在前），true=倒序（最后点的在最上） =====
@@ -169,7 +169,7 @@ class DisplayPrefs {
     await setGoodsCols(0);
     await setGoodsImage(true);
     await setGoodsSort('');
-    await setScanMode(false);
+    await setCashierVersion('');
     await setCartNewestFirst(false);
   }
 

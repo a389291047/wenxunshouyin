@@ -130,7 +130,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
     DisplayPrefs.goodsSort.addListener(_onDisplayChanged); // 商品排序改动即时刷新（v3.3.266）
-    DisplayPrefs.scanMode.addListener(_onDisplayChanged); // 超市便利店视图切换即时生效（v3.3.282）
+    DisplayPrefs.cashierVersion.addListener(_onDisplayChanged); // 收银版本切换即时生效（v3.3.282）
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
     // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
@@ -183,7 +183,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsSort.removeListener(_onDisplayChanged);
-    DisplayPrefs.scanMode.removeListener(_onDisplayChanged);
+    DisplayPrefs.cashierVersion.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     ActivityStore.list.removeListener(_onActivityChanged);
     GiftMode.value.removeListener(_onGiftModeChanged);
@@ -1273,26 +1273,23 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
               : error != null
                   ? _errorView()
-                  : ValueListenableBuilder<bool>(
-                  valueListenable: DisplayPrefs.scanMode,
-                  builder: (ctx, sm, __) => Row(
-                    children: sm
-                        ? [
-                            // 超市便利店视图（v3.3.282）：无分类栏/商品列表，扫码即加购
-                            if (cartSide == 'left') ...[_cartPanel(), Expanded(child: _scanPanel())] else ...[Expanded(child: _scanPanel()), _cartPanel()],
-                          ]
-                        : cartSide == 'left'
-                            ? [
-                                _cartPanel(), // 购物车在左（v3.3.189 可配置）
-                                Expanded(child: _goodsGrid()),
-                                _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
-                              ]
-                            : [
-                                _catRail(),
-                                Expanded(child: _goodsGrid()),
-                                _cartPanel(), // 购物车在右（默认）
-                              ],
-                  ),
+                  : ValueListenableBuilder<String>(
+                  valueListenable: DisplayPrefs.cashierVersion,
+                  builder: (ctx, ver, __) => ver == 'market'
+                      ? _marketBody() // 商超版（v3.3.282）：大型超市扫码收银布局，无商品列表/分类栏
+                      : Row(
+                          children: cartSide == 'left'
+                              ? [
+                                  _cartPanel(), // 购物车在左（v3.3.189 可配置）
+                                  Expanded(child: _goodsGrid()),
+                                  _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
+                                ]
+                              : [
+                                  _catRail(),
+                                  Expanded(child: _goodsGrid()),
+                                  _cartPanel(), // 购物车在右（默认）
+                                ],
+                        ),
                 ),
         ),
         // 自带触屏键盘（v3.3.221）：展开时挤压上方内容，不遮挡商品/底栏
@@ -1327,7 +1324,7 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
           const SizedBox(width: 10),
           _refreshBtn(),
           const SizedBox(width: 10),
-          _scanModeBtn(),
+          _marketBtn(),
           const SizedBox(width: 14),
           Expanded(child: _searchBox()),
           if (_showScaleBar) ...[
@@ -1435,10 +1432,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         icon: Icons.search_rounded,
         iconColor: PosTheme.textSub,
         onChanged: _onSearchChanged,
-        // 便利店视图（v3.3.282）：手输条码回车立即加购（不等防抖）
+        // 商超版（v3.3.282）：手输条码回车立即加购（不等防抖）
         onSubmitted: (v) {
           final t = v.trim();
-          if (DisplayPrefs.scanMode.value && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
+          if (isMarket && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
             scanDebounce?.cancel();
             _tryScanAdd(t);
           }
@@ -1455,8 +1452,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     scanDebounce?.cancel();
     final t = v.trim();
     if (!RegExp(r'^2\d{12}$').hasMatch(t)) {
-      // 不是条码秤标签格式；便利店视图下按条码精确匹配
-      if (DisplayPrefs.scanMode.value && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
+      // 不是条码秤标签格式；商超版下按条码精确匹配
+      if (isMarket && t.length >= 6 && RegExp(r'^\d+$').hasMatch(t)) {
         scanDebounce = Timer(const Duration(milliseconds: 180), () => _tryScanAdd(t));
       }
       return; // 走普通搜索
@@ -1464,11 +1461,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     scanDebounce = Timer(const Duration(milliseconds: 180), () => _tryScaleBarcode(t));
   }
 
-  /// 超市便利店视图（v3.3.282）：扫条码精确匹配商品 → 直接加入购物车
+  /// 商超版（v3.3.282）：扫条码精确匹配商品 → 直接加入购物车
   /// 秤标签已在 _onSearchChanged 单独走秤解析；这里兜普通商品条码。
   /// 称重商品（非秤标签扫码）弹称重面板；多规格商品提示回列表点选。
   Future<void> _tryScanAdd(String code) async {
-    if (!DisplayPrefs.scanMode.value || !mounted) return;
+    if (!isMarket || !mounted) return;
     Map? hit;
     for (final g in goods) {
       final c = '${g['code'] ?? g['bianma'] ?? g['barcode'] ?? ''}'.trim();
@@ -1498,9 +1495,12 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     }
   }
 
-  /// 超市便利店视图：视图切换按钮（顶栏，扫码即收银 / 商品列表两态）
-  Widget _scanModeBtn() {
-    final on = DisplayPrefs.scanMode.value;
+  /// 商超版判定
+  bool get isMarket => DisplayPrefs.cashierVersion.value == 'market';
+
+  /// 商超版切换按钮（顶栏）：零售版 / 商超版两态
+  Widget _marketBtn() {
+    final on = isMarket;
     return SizedBox(
       width: 48,
       height: 48,
@@ -1512,10 +1512,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         ),
         clipBehavior: Clip.antiAlias,
         child: Tooltip(
-          message: on ? '退出便利店视图（恢复商品列表）' : '超市便利店视图（隐藏商品列表，扫码即加购）',
+          message: on ? '切回零售版（商品列表点单）' : '切换商超版（大型超市扫码收银布局）',
           child: InkWell(
             onTap: () {
-              DisplayPrefs.setScanMode(!on);
+              DisplayPrefs.setCashierVersion(on ? '' : 'market');
               searchKeeper.node.requestFocus();
             },
             child: Icon(Icons.storefront_rounded,
@@ -1526,22 +1526,272 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     );
   }
 
-  /// 超市便利店视图主面板：无分类栏/商品列表，只留扫码提示
-  Widget _scanPanel() {
+  // ==================== 商超版收银布局（v3.3.282，大型超市模式） ====================
+  // 主体 = 全宽条码明细表（POS 表格风，支持行内加减数量） | 右侧 = 窄结算栏
+  // 无分类栏、无商品网格、无图片；加货方式 = 扫码枪扫条码 / 手输条码回车 / 无码商品
+
+  /// 商超版主布局
+  Widget _marketBody() {
     return Container(
-      color: PosTheme.bg,
-      alignment: Alignment.center,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Icon(Icons.qr_code_scanner_rounded, size: 76, color: PosTheme.accentLive.withOpacity(0.35)),
-        const SizedBox(height: 18),
-        const Text('超市便利店 · 扫码收银',
-            style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
-        const SizedBox(height: 10),
-        Text('扫码枪对准商品条码直接扫，商品自动加入购物车',
-            style: TextStyle(fontSize: 14.5, color: PosTheme.textSub)),
-        const SizedBox(height: 6),
-        Text('无条码商品点左上角「无码商品」手动录入；秤标签照常自动称重',
-            style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+      color: Colors.white,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Expanded(child: _marketTable()),
+        Container(width: 1, color: PosTheme.line),
+        _marketSide(),
+      ]),
+    );
+  }
+
+  /// 商超版明细表：表头 + 购物车行
+  Widget _marketTable() {
+    return Column(children: [
+      // 表头（固定）
+      Container(
+        height: 46,
+        color: const Color(0xFFF7F8FA),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Row(children: const [
+          Expanded(flex: 5, child: Text('商品名称', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+          Expanded(flex: 2, child: Text('单价', textAlign: TextAlign.center, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+          Expanded(flex: 3, child: Text('数量', textAlign: TextAlign.center, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+          Expanded(flex: 2, child: Text('金额', textAlign: TextAlign.right, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textSub))),
+          SizedBox(width: 40),
+        ]),
+      ),
+      // 明细行
+      Expanded(
+        child: cart.isEmpty
+            ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.qr_code_scanner_rounded, size: 76, color: PosTheme.accentLive.withOpacity(0.35)),
+                const SizedBox(height: 18),
+                const Text('扫商品条码加入购物车',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: PosTheme.textMain)),
+                const SizedBox(height: 10),
+                Text('扫码枪对准条码直接扫；也可在上方搜索框手输条码按回车',
+                    style: TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                const SizedBox(height: 6),
+                Text('无条码商品点左上角「无码商品」；秤标签自动称重',
+                    style: TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+              ])
+            : ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                itemCount: cart.length,
+                separatorBuilder: (_, __) => const Divider(height: 1, indent: 18, endIndent: 18, color: PosTheme.line),
+                itemBuilder: (_, i) => _marketRow(cart[i]),
+              ),
+      ),
+    ]);
+  }
+
+  /// 商超版明细行：名称 | 单价 | 数量(步进) | 金额 | 删除
+  Widget _marketRow(_CartLine l) {
+    final guige = '${l.goods['guige'] ?? ''}'.trim();
+    return InkWell(
+      onTap: () => _lineEdit(l), // 点行 = 改数量/改价/赠送（v3.3.205 能力全保留）
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
+        child: Row(children: [
+          // 名称 + 规格角标
+          Expanded(
+            flex: 5,
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(
+                  child: Text('${l.goods['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
+                ),
+                if (l.price != null) ...[
+                  const SizedBox(width: 5),
+                  _lineTag('改价', PosTheme.accentLive),
+                ],
+                if (l.giftQty > 0) ...[
+                  const SizedBox(width: 5),
+                  _lineTag('赠 ${l.giftText}', Colors.green),
+                ],
+              ]),
+              if (guige.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('规格：$guige', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                ),
+            ]),
+          ),
+          // 单价
+          Expanded(
+            flex: 2,
+            child: Text('¥${Fmt.money(l.unitPrice)}',
+                textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
+          ),
+          // 数量步进（称重行点数量弹称重面板）
+          Expanded(flex: 3, child: Center(child: _stepper(l))),
+          // 金额
+          Expanded(
+            flex: 2,
+            child: Text('¥${Fmt.money(l.unitPrice * l.payNum)}',
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800)),
+          ),
+          // 删除
+          InkWell(
+            onTap: () => _removeLine(l),
+            borderRadius: BorderRadius.circular(18),
+            child: const SizedBox(width: 40, height: 40, child: Icon(Icons.close, size: 19, color: PosTheme.textHint)),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// 商超版右侧结算栏（窄）：会员 / 合计 / 优惠 / 清空挂单 / 收款
+  Widget _marketSide() {
+    return Container(
+      width: 320,
+      color: Colors.white,
+      child: Column(children: [
+        // 会员条（精简）
+        InkWell(
+          onTap: _pickVip,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: PosTheme.line))),
+            child: Row(children: [
+              Container(
+                width: 38, height: 38,
+                decoration: BoxDecoration(color: PosTheme.tint, borderRadius: BorderRadius.circular(19)),
+                clipBehavior: Clip.antiAlias,
+                child: vip == null
+                    ? Icon(Icons.person_add_alt, size: 20, color: PosTheme.accentLive)
+                    : VipAvatar(avatarUrl: vipAvatarUrl(vip), radius: 19, rounded: false, fallbackText: vipAvatarChar(vip)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: vip == null
+                    ? const Text('选择会员（可选）', style: TextStyle(fontSize: 14, color: PosTheme.textSub))
+                    : Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('${vip!['name'] ?? ''}'.trim().isNotEmpty ? '${vip!['name']}' : '${vip!['phone'] ?? ''}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+                        Text('余额 ¥${Fmt.money(vip!['amount'])}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 11.5, color: PosTheme.textSub)),
+                      ]),
+              ),
+              if (vip != null) ...[
+                InkWell(
+                  onTap: _rechargeVip,
+                  borderRadius: BorderRadius.circular(9),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: PosTheme.tint,
+                      borderRadius: BorderRadius.circular(9),
+                      border: Border.all(color: PosTheme.accentLive.withValues(alpha: 0.4)),
+                    ),
+                    child: Text('充值', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: PosTheme.accentLive)),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () => setState(() => vip = null),
+                  borderRadius: BorderRadius.circular(16),
+                  child: const SizedBox(width: 30, height: 30, child: Icon(Icons.close, size: 19, color: PosTheme.textHint)),
+                ),
+              ] else
+                const Icon(Icons.chevron_right, size: 20, color: PosTheme.textHint),
+            ]),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(children: [
+              _activityBar(),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(spacing: 7, runSpacing: 6, children: [
+                  _couponChip(1),
+                  _couponChip(2),
+                  _couponChip(3),
+                  if (wholeRate > 0)
+                    _wholeTag('整单 ${_rateText(wholeRate)}折 -¥${Fmt.money(wholeCut)}',
+                        () => setState(() => wholeRate = 0)),
+                  if (wholePrice > 0)
+                    _wholeTag('整单改价 ¥${Fmt.money(wholePrice)}',
+                        () => setState(() => wholePrice = 0)),
+                ]),
+              ),
+              const Spacer(),
+              // 合计大字（商超版主视觉）
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('共 $count 件', style: const TextStyle(fontSize: 13.5, color: PosTheme.textSub)),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    Text('合计 ', style: const TextStyle(fontSize: 15, color: PosTheme.textSub)),
+                    if (couponApplied > 0 || actDiscount > 0 || wholeCut > 0 || wholeRepriceCut > 0) ...[
+                      Text('¥${Fmt.money(total)}',
+                          style: const TextStyle(fontSize: 16, color: PosTheme.textHint, decoration: TextDecoration.lineThrough)),
+                      const SizedBox(width: 8),
+                    ],
+                    Text('¥${Fmt.money(payable)}',
+                        style: TextStyle(fontSize: 40, color: PosTheme.accentLive, fontWeight: FontWeight.w800)),
+                  ]),
+                ),
+              ]),
+            ]),
+          ),
+        ),
+        // 操作按钮区（固定底部）
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(children: [
+            Row(children: [
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: BigButton('清空', onTap: cart.isEmpty ? null : _clearCart,
+                      color: const Color(0xFFF2F3F7), textColor: PosTheme.textSub, height: 48),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 48,
+                  child: BigButton(
+                    holds.isEmpty ? '挂单' : (cart.isEmpty ? '取单 ${holds.length}' : '挂单 ${holds.length}'),
+                    onTap: (cart.isEmpty && holds.isEmpty) ? null : _holdTap,
+                    color: PosTheme.tint, textColor: PosTheme.accentLive, height: 48),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: BigButton(wholeRate > 0 ? '折扣 ${_rateText(wholeRate)}折' : '整单折扣',
+                      onTap: _editWholeRate, color: PosTheme.tint, textColor: PosTheme.accentLive, height: 44),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: BigButton(wholePrice > 0 ? '改价 ¥${Fmt.money(wholePrice)}' : '整单改价',
+                      onTap: _editWholePrice, color: PosTheme.tint, textColor: PosTheme.accentLive, height: 44),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 62,
+              child: BigButton('收款 ¥${Fmt.money(payable)}', onTap: cart.isEmpty ? null : _checkout, height: 62),
+            ),
+          ]),
+        ),
       ]),
     );
   }
