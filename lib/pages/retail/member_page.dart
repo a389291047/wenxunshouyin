@@ -854,6 +854,9 @@ class _MemberPageState extends State<MemberPage> {
           Text(v, maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: c)),
         ])),
+        // v3.3.282：显隐状态图标（闭眼=隐藏，睁眼=已显示）
+        Icon(statsRevealed ? Icons.visibility : Icons.visibility_off,
+            size: 15, color: c.withOpacity(statsRevealed ? 0.85 : 0.45)),
       ]),
       ),
     );
