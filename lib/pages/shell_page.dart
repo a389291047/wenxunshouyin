@@ -84,6 +84,55 @@ class _ShellPageState extends State<ShellPage> {
     if (mounted) setState(() {});
   }
 
+  /// 侧边栏品牌位（v3.3.282）：商户 logo 图片优先；无 logo 显示商户名首字
+  /// （与底部员工头像同思路），渐变底跟随主体风格
+  Widget _brandMark() {
+    final sk = PosTheme.skin;
+    final skinned = PosTheme.hasSkin;
+    final gradient = skinned
+        ? sk.linear
+        : const LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [Color(0xFFFF9A56), Color(0xFFFF6A2C), Color(0xFFF4471B)]);
+
+    Widget inner;
+    final url = Session.logo.trim();
+    if (url.isNotEmpty) {
+      inner = Image.network(
+        url,
+        width: 46, height: 46, fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _brandChar(),
+      );
+    } else {
+      inner = _brandChar();
+    }
+
+    return Container(
+      width: 46, height: 46,
+      decoration: BoxDecoration(
+        gradient: url.isNotEmpty ? null : gradient,
+        borderRadius: BorderRadius.circular(13),
+        boxShadow: [
+          BoxShadow(
+            color: (skinned ? sk.accent : PosTheme.accent).withValues(alpha: 0.35),
+            blurRadius: 14, offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      alignment: Alignment.center,
+      child: inner,
+    );
+  }
+
+  /// 无 logo 回落：商户名第一个字（白字渐变底）
+  Widget _brandChar() {
+    final name = Session.shopName.trim();
+    final ch = name.isNotEmpty ? name.characters.first : '稳';
+    return Text(ch,
+        style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0));
+  }
+
   String get _versionLabel {
     if (_isDining) return '餐饮版';
     if (_isFresh) return '生鲜版';
@@ -195,36 +244,26 @@ class _ShellPageState extends State<ShellPage> {
             child: Column(
               children: [
                 const SizedBox(height: 30),
-                // 品牌标：渐变圆角方块「稳」+ 品牌字（跟随主体风格配色，v3.3.282 美化）
-                Container(
-                  width: 46, height: 46,
-                  decoration: BoxDecoration(
-                    gradient: skinned
-                        ? sk.linear
-                        : const LinearGradient(
-                            begin: Alignment.topLeft, end: Alignment.bottomRight,
-                            colors: [Color(0xFFFF9A56), Color(0xFFFF6A2C), Color(0xFFF4471B)]),
-                    borderRadius: BorderRadius.circular(13),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (skinned ? sk.accent : PosTheme.accent).withValues(alpha: 0.35),
-                        blurRadius: 14, offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text('稳',
-                      style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
-                ),
+                // 品牌位：商户 logo（有则显示图片）或商户名首字（无 logo 回落），
+                // 渐变底跟随主体风格（v3.3.282）
+                _brandMark(),
                 const SizedBox(height: 9),
-                const Text('稳讯收银',
+                // 商户名称（代替固定「稳讯收银」），超出一行省略号
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    Session.shopName.isNotEmpty ? Session.shopName : '稳讯收银',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 13.5,
+                    style: const TextStyle(
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                         height: 1.0,
-                        letterSpacing: 1.5)),
+                        letterSpacing: 0.5),
+                  ),
+                ),
                 const SizedBox(height: 9),
                 // 版本胶囊：描边跟主体风格主色
                 Container(

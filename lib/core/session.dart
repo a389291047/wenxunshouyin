@@ -7,6 +7,7 @@ class Session {
   static int wenxunId = 0;
   static String shopName = '';
   static String shopPhone = '';
+  static String logo = ''; // 商户logo图片地址（空=未设置，侧边栏回落显示商户名首字）
   static int staffId = 0;
   static String staffName = '';
   static int roleId = 0;
@@ -30,6 +31,7 @@ class Session {
       wenxunId = int.tryParse('${p.get('wenxun_id') ?? ''}') ?? 0;
       shopName = '${p.get('shop_name') ?? ''}';
       shopPhone = '${p.get('shop_phone') ?? ''}';
+      logo = '${p.get('logo') ?? ''}';
       staffId = int.tryParse('${p.get('staff_id') ?? ''}') ?? 0;
       staffName = '${p.get('staff_name') ?? ''}';
       roleId = int.tryParse('${p.get('role_id') ?? ''}') ?? 0;
@@ -47,6 +49,7 @@ class Session {
     wenxunId = int.tryParse('${data['id']}') ?? 0;
     shopName = (data['name'] ?? data['wenxun_name'] ?? '').toString();
     shopPhone = (data['phone'] ?? '').toString();
+    logo = (data['logo'] ?? '').toString();
     staffId = int.tryParse('${data['staff_id']}') ?? 0;
     staffName = (data['staff_name'] ?? '').toString();
     roleId = int.tryParse('${data['role_id']}') ?? 0;
@@ -59,6 +62,7 @@ class Session {
     await p.setInt('wenxun_id', wenxunId);
     await p.setString('shop_name', shopName);
     await p.setString('shop_phone', shopPhone);
+    await p.setString('logo', logo);
     await p.setInt('staff_id', staffId);
     await p.setString('staff_name', staffName);
     await p.setInt('role_id', roleId);
@@ -72,6 +76,7 @@ class Session {
     wenxunId = 0;
     shopName = '';
     shopPhone = '';
+    logo = '';
     staffId = 0;
     staffName = '';
     roleId = 0;
@@ -83,7 +88,7 @@ class Session {
     // 又要重新设置一遍。见 v3.3.209 修复。
     final p = await SharedPreferences.getInstance();
     for (final k in const [
-      'token', 'wenxun_id', 'shop_name', 'shop_phone',
+      'token', 'wenxun_id', 'shop_name', 'shop_phone', 'logo',
       'staff_id', 'staff_name', 'role_id', 'role_name',
       'hangye', 'vipadd',
     ]) {
