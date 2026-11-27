@@ -650,13 +650,14 @@ class Api {
   }
 
   /// 会员近期消费/充值记录（v3.3.250 会员详情右侧记录卡）
-  /// 返回 {'consume': 近5笔消费, 'recharge': 近5笔充值}
+  /// 返回 {'consume': 近5笔消费, 'recharge': 近5笔充值, 'deduct': 近5笔扣除（v3.3.282）}
   static Future<Map<String, List>> vipRecentRecords({required int vipId, required int wenxunId}) async {
     final r = await post('/shouyin/vip/recentRecords', {'id': vipId, 'wenxun_id': wenxunId});
     if ('${r['code']}' == '200') {
       return {
         'consume': (r['consume'] ?? []) as List,
         'recharge': (r['recharge'] ?? []) as List,
+        'deduct': (r['deduct'] ?? []) as List,
       };
     }
     throw ApiError('${r['msg'] ?? '获取会员记录失败'}');

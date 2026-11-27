@@ -233,6 +233,7 @@ class _MemberPageState extends State<MemberPage> {
   String recTab = '全部';
   List recConsume = [];
   List recRecharge = [];
+  List recDeduct = []; // 会员扣除流水（v3.3.282，wx_vip_order type=3）
   bool recLoading = false;
 
   Future<void> _loadRecords() async {
@@ -247,6 +248,7 @@ class _MemberPageState extends State<MemberPage> {
       setState(() {
         recConsume = r['consume']!;
         recRecharge = r['recharge']!;
+        recDeduct = r['deduct'] ?? [];
         recLoading = false;
       });
     } catch (_) {
@@ -274,6 +276,15 @@ class _MemberPageState extends State<MemberPage> {
           'amount': double.tryParse('${o['total']}') ?? 0,
           'sub': '${o['payment_method'] ?? ''}${refunded ? ' · 已退款' : ''}',
           'order': o, // v3.3.279：保留完整订单，点击弹窗看商品明细 + 补打小票
+        });
+      }
+      // v3.3.282：会员扣除流水（商户后台/桌面端手动扣除），-金额显示
+      for (final d in recDeduct) {
+        items.add({
+          'kind': '扣除',
+          'time': '${d['create_time'] ?? ''}',
+          'amount': double.tryParse('${d['amount']}') ?? 0,
+          'sub': '${d['remark'] ?? ''}'.trim(),
         });
       }
     }
@@ -768,9 +779,10 @@ class _MemberPageState extends State<MemberPage> {
   /// 单条记录卡片（v3.3.251）：前置圆角胶囊类型标签（充值/消费）+ 时间/说明 + 金额，
   /// Material+InkWell 触屏按压墨水纹；固定高度，不随条数撑满
   Widget _recRow(Map<String, dynamic> r, {bool last = false, required double height}) {
-    // v3.3.282：「初始」（添加会员初始金额）与充值一样为入账，+金额绿色
+    // v3.3.282：「初始」（添加会员初始金额）与充值一样为入账，+金额绿色；
+    // 「扣除」（会员余额扣减）-金额蓝色
     final isCz = r['kind'] == '充值' || r['kind'] == '初始';
-    final c = isCz ? PosTheme.green : PosTheme.accent;
+    final c = isCz ? PosTheme.green : (r['kind'] == '扣除' ? PosTheme.blue : PosTheme.accent);
     final t = '${r['time']}';
     final time = t.length >= 16 ? t.substring(0, 16) : (t.isEmpty ? '—' : t);
     final sub = '${r['sub']}'.trim();
