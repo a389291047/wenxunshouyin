@@ -29,6 +29,7 @@ class _MemberPageState extends State<MemberPage> {
   // 会员搜索触屏键盘（v3.3.231）：复用收银页 TouchKeyboard，点键盘图标展开/收起
   final searchCtrl = TextEditingController();
   bool kbOpen = false;
+  bool statsRevealed = false; // 统计卡默认隐藏数值，点击卡片才显示（再点隐藏）
 
   /// 会员等级缓存：进页面就预取（v3.3.216）。
   /// 之前是点「添加会员」弹窗打开后才请求，弹窗里转圈再突然变大，
@@ -339,12 +340,12 @@ class _MemberPageState extends State<MemberPage> {
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                     child: Row(children: [
-                      // v3.3.276b：总数用后端聚合（分页后 list.length 只是已加载条数）
-                      Expanded(child: _statCard('总会员', '${summary?['count'] ?? list.length}', Icons.groups, PosTheme.blue)),
+                      // v3.3.282：统计数值默认隐藏（****），点击卡片切换显示/隐藏
+                      Expanded(child: _statCard('总会员', statsRevealed ? '${summary?['count'] ?? list.length}' : '****', Icons.groups, PosTheme.blue)),
                       const SizedBox(width: 10),
-                      Expanded(child: _statCard('总余额', '¥${Fmt.money(_sumAmount())}', Icons.account_balance_wallet_outlined, PosTheme.green)),
+                      Expanded(child: _statCard('总余额', statsRevealed ? '¥${Fmt.money(_sumAmount())}' : '¥****', Icons.account_balance_wallet_outlined, PosTheme.green)),
                       const SizedBox(width: 10),
-                      Expanded(child: _statCard('总积分', '${_sumScore()}', Icons.stars_outlined, PosTheme.amber)),
+                      Expanded(child: _statCard('总积分', statsRevealed ? '${_sumScore()}' : '****', Icons.stars_outlined, PosTheme.amber)),
                     ]),
                   ),
                   const SizedBox(height: 8),
@@ -821,8 +822,11 @@ class _MemberPageState extends State<MemberPage> {
   }
 
   /// 左侧统计卡（v3.3.120）：同色渐变底 + 浅描边 + 圆角图标块
+  /// v3.3.282：点击卡片切换数值显示/隐藏（默认 ****）
   Widget _statCard(String k, String v, IconData icon, Color c) {
-    return Container(
+    return GestureDetector(
+      onTap: () => setState(() => statsRevealed = !statsRevealed),
+      child: Container(
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -851,6 +855,7 @@ class _MemberPageState extends State<MemberPage> {
               style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: c)),
         ])),
       ]),
+      ),
     );
   }
 
