@@ -419,25 +419,23 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
             const SizedBox(width: 13),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                // 手机号即标题（点击哪个会员显示哪个的手机号），「充值」同大字纯文字
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  Flexible(
+                    child: Text(phoneFmt.isEmpty ? '未绑定手机号' : phoneFmt,
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+                  ),
+                  const SizedBox(width: 8),
+                  const Text('充值',
+                      style: TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+                ]),
+                const SizedBox(height: 3),
                 Text(display,
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-                const SizedBox(height: 3),
-                // 手机号即标题（点击哪个会员显示哪个的手机号），大字醒目
-                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-                  Text(phoneFmt.isEmpty ? '未绑定手机号' : phoneFmt,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.22), borderRadius: BorderRadius.circular(999)),
-                    child: const Text('会员充值',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
-                  ),
-                ]),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.92))),
               ]),
             ),
             // v3.3.265：右上角关闭按钮（支付处理中禁用——只有充值成功或非支付中才能关）
