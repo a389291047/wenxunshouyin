@@ -281,11 +281,19 @@ class _MemberPageState extends State<MemberPage> {
       for (final r in recRecharge) {
         final refunded = int.tryParse('${r['pay_status']}') == 2;
         final gift = double.tryParse('${r['zengsong'] ?? 0}') ?? 0;
+        // v3.3.282：pay_type=initial 为添加会员的初始金额流水（wx_vip_order，显示备注）
+        final pt = '${r['pay_type'] ?? ''}';
+        final src = pt == 'initial'
+            ? (() {
+                final rk = '${r['remark'] ?? ''}'.trim();
+                return rk.isEmpty ? '初始金额' : rk;
+              })()
+            : (pt == 'cash' ? '现金' : '扫码');
         items.add({
           'kind': '充值',
           'time': '${r['pay_time'] ?? r['create_time'] ?? ''}',
           'amount': double.tryParse('${r['czamount']}') ?? 0,
-          'sub': '${'${r['pay_type'] ?? ''}' == 'cash' ? '现金' : '扫码'}'
+          'sub': '$src'
               '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
               '${refunded ? ' · 已退款' : ''}',
         });
