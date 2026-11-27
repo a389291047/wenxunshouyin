@@ -30,6 +30,7 @@ class DisplayPrefs {
     goodsImage.value = sp.getBool(prefGoodsImage) ?? true;
     cartNewestFirst.value = sp.getBool(prefCartNewestFirst) ?? false;
     cashierVersion.value = sp.getString(prefCashierVersion) == 'market' ? 'market' : '';
+    marketDirectPay.value = sp.getBool(prefMarketDirectPay) ?? true;
     await _loadGoodsSort(sp);
   }
 
@@ -74,6 +75,17 @@ class DisplayPrefs {
     cashierVersion.value = v == 'market' ? 'market' : '';
     final sp = await SharedPreferences.getInstance();
     await sp.setString(prefCashierVersion, cashierVersion.value);
+  }
+
+  /// 商超版 · 扫码直接收款（v3.3.282，商户自定义开关）：商超版下扫到顾客付款码
+  /// （16-32 位数字）直接按购物车应收发起星驿付收款，不进结算弹窗。默认开启。
+  static const prefMarketDirectPay = 'display_market_direct_pay';
+  static final ValueNotifier<bool> marketDirectPay = ValueNotifier(true);
+
+  static Future<void> setMarketDirectPay(bool v) async {
+    marketDirectPay.value = v;
+    final sp = await SharedPreferences.getInstance();
+    await sp.setBool(prefMarketDirectPay, v);
   }
 
   // ===== 购物车排序（v3.3.243）：false=顺序（先点的在前），true=倒序（最后点的在最上） =====
@@ -170,6 +182,7 @@ class DisplayPrefs {
     await setGoodsImage(true);
     await setGoodsSort('');
     await setCashierVersion('');
+    await setMarketDirectPay(true);
     await setCartNewestFirst(false);
   }
 
