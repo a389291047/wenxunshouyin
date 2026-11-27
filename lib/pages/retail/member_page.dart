@@ -297,15 +297,16 @@ class _MemberPageState extends State<MemberPage> {
         final pt = '${r['pay_type'] ?? ''}';
         final isInit = pt == 'initial';
         final rk = '${r['remark'] ?? ''}'.trim();
+        // v3.3.282 重打：说明文字统一显示数据库 remark（与小程序商户端一致），
+        // 老数据/后端未更新时回退到现金/扫码拼接
+        final fallback = '${pt == 'cash' ? '现金' : '扫码'}'
+            '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
+            '${refunded ? ' · 已退款' : ''}';
         items.add({
           'kind': isInit ? '初始' : '充值',
           'time': '${r['pay_time'] ?? r['create_time'] ?? ''}',
           'amount': double.tryParse('${r['czamount']}') ?? 0,
-          'sub': isInit
-              ? (rk.isEmpty ? '初始金额' : rk)
-              : '${pt == 'cash' ? '现金' : '扫码'}'
-                  '${gift > 0 ? ' · 送¥${Fmt.money(gift)}' : ''}'
-                  '${refunded ? ' · 已退款' : ''}',
+          'sub': (rk.isNotEmpty && !isInit) ? rk : (isInit ? (rk.isEmpty ? '初始金额' : rk) : fallback),
         });
       }
     }
