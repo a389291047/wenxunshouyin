@@ -183,14 +183,6 @@ class _ShellPageState extends State<ShellPage> {
           )
         : null;
 
-    // 选中菜单项底色：旧版纯色，选了方案用渐变
-    final onBg = skinned
-        ? BoxDecoration(gradient: sk.linear, borderRadius: BorderRadius.circular(12))
-        : BoxDecoration(
-            color: _isFresh ? const Color(0xFF1F5C3A) : PosTheme.sidebarActive,
-            borderRadius: BorderRadius.circular(12),
-          );
-
     return Scaffold(
       body: Row(
         children: [
@@ -202,35 +194,61 @@ class _ShellPageState extends State<ShellPage> {
                 : BoxDecoration(gradient: sidebarBg),
             child: Column(
               children: [
-                const SizedBox(height: 34),
-                // 品牌字标：稳讯
-                // 样式与下方导航选中项（会员 / 订单 · 选中态）完全一致：纯白 w600 无阴影，
-                // 只是字号放大一档更醒目
-                const Text('稳讯',
+                const SizedBox(height: 30),
+                // 品牌标：渐变圆角方块「稳」+ 品牌字（跟随主体风格配色，v3.3.282 美化）
+                Container(
+                  width: 46, height: 46,
+                  decoration: BoxDecoration(
+                    gradient: skinned
+                        ? sk.linear
+                        : const LinearGradient(
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            colors: [Color(0xFFFF9A56), Color(0xFFFF6A2C), Color(0xFFF4471B)]),
+                    borderRadius: BorderRadius.circular(13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (skinned ? sk.accent : PosTheme.accent).withValues(alpha: 0.35),
+                        blurRadius: 14, offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text('稳',
+                      style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
+                ),
+                const SizedBox(height: 9),
+                const Text('稳讯收银',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        fontSize: 17,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
-                        height: 1.0)),
-                const SizedBox(height: 8),
-                // 对应版本（零售版 / 餐饮版 / 生鲜版）：胶囊底+描边保留，
-                // 字色与下方未选中导航（会员 / 订单）一致：white60
+                        height: 1.0,
+                        letterSpacing: 1.5)),
+                const SizedBox(height: 9),
+                // 版本胶囊：描边跟主体风格主色
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3.5),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.24)),
+                    border: Border.all(
+                        color: (skinned ? sk.accent : PosTheme.accent).withValues(alpha: 0.55)),
                   ),
                   child: Text(_versionLabel,
                       style: const TextStyle(
                           fontSize: 12,
-                          color: Colors.white60,
+                          color: Colors.white,
                           letterSpacing: 1.2,
                           fontWeight: FontWeight.w500)),
                 ),
-                const SizedBox(height: 26),
+                const SizedBox(height: 18),
+                // 品牌区与导航分隔线
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(height: 1, color: Colors.white.withValues(alpha: 0.10)),
+                ),
+                const SizedBox(height: 12),
                 ..._nav.asMap().entries.map((e) {
                   final on = _index == e.key;
                   return Padding(
@@ -239,51 +257,80 @@ class _ShellPageState extends State<ShellPage> {
                       color: Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                       child: Ink(
-                        decoration: on ? onBg : null,
+                        decoration: on
+                            ? (skinned
+                                ? BoxDecoration(gradient: sk.linear, borderRadius: BorderRadius.circular(12))
+                                : BoxDecoration(
+                                    color: _isFresh ? const Color(0xFF1F5C3A) : PosTheme.sidebarActive,
+                                    borderRadius: BorderRadius.circular(12)))
+                            : null,
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: () => setState(() => _index = e.key),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            child: Column(children: [
-                            Stack(clipBehavior: Clip.none, children: [
-                              Icon(e.value.icon, size: 24, color: on ? Colors.white : Colors.white60),
-                              // 预约待安排红点（v3.3.104）
-                              if (e.value.tag == _Retail.diningPreorder)
+                          child: Stack(
+                            alignment: Alignment.centerLeft,
+                            clipBehavior: Clip.none,
+                            children: [
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                child: Column(children: [
+                                  Stack(clipBehavior: Clip.none, children: [
+                                    Icon(e.value.icon, size: 24, color: on ? Colors.white : Colors.white60),
+                                    // 预约待安排红点（v3.3.104）
+                                    if (e.value.tag == _Retail.diningPreorder)
+                                      Positioned(
+                                        right: -14,
+                                        top: -6,
+                                        child: ValueListenableBuilder<int>(
+                                          valueListenable: PreorderBadge.count,
+                                          builder: (_, n, __) => n <= 0
+                                              ? const SizedBox.shrink()
+                                              : Container(
+                                                  constraints: const BoxConstraints(minWidth: 16),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFEF4444),
+                                                    borderRadius: BorderRadius.circular(9),
+                                                  ),
+                                                  child: Text('$n',
+                                                      textAlign: TextAlign.center,
+                                                      style: const TextStyle(
+                                                          fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
+                                                ),
+                                        ),
+                                      ),
+                                  ]),
+                                  const SizedBox(height: 4),
+                                  Text(e.value.label,
+                                      style: TextStyle(
+                                          fontSize: 12.5,
+                                          color: on ? Colors.white : Colors.white60,
+                                          fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
+                                ]),
+                              ),
+                              // 选中项左侧白色指示条（v3.3.282 主体美化）
+                              if (on)
                                 Positioned(
-                                  right: -14,
-                                  top: -6,
-                                  child: ValueListenableBuilder<int>(
-                                    valueListenable: PreorderBadge.count,
-                                    builder: (_, n, __) => n <= 0
-                                        ? const SizedBox.shrink()
-                                        : Container(
-                                            constraints: const BoxConstraints(minWidth: 16),
-                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFEF4444),
-                                              borderRadius: BorderRadius.circular(9),
-                                            ),
-                                            child: Text('$n',
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                    fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700)),
-                                          ),
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  child: Center(
+                                    child: Container(
+                                      width: 3,
+                                      height: 26,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
                                   ),
                                 ),
-                            ]),
-                            const SizedBox(height: 4),
-                            Text(e.value.label,
-                                style: TextStyle(
-                                    fontSize: 12.5,
-                                    color: on ? Colors.white : Colors.white60,
-                                    fontWeight: on ? FontWeight.w600 : FontWeight.w400)),
-                          ]),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   );
                 }),
                 const Spacer(),

@@ -1849,8 +1849,8 @@ class _SettingsPageState extends State<SettingsPage> {
         child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Icon(Icons.lightbulb_outline, size: 16, color: PosTheme.amber),
           SizedBox(width: 8),
-          Expanded(child: Text('新店开业推荐「开门红」（红金渐变，喜庆醒目）；生鲜果蔬推荐「生鲜绿」；便利店/数码推荐「海洋蓝」；'
-              '奶茶/美妆推荐「紫罗兰」；烘焙/花店推荐「玫瑰金」；想统一成品牌橙选「稳讯橙」。'
+          Expanded(child: Text('新店开业推荐「开门红」（红金渐变，喜庆醒目）；生鲜果蔬推荐「生鲜绿」；商超/大型超市推荐「商超青」；'
+              '服装/鞋帽推荐「服装金」；便利店/数码推荐「海洋蓝」；奶茶/美妆推荐「紫罗兰」；烘焙/花店推荐「玫瑰金」；想统一成品牌橙选「稳讯橙」。'
               '不选则保持默认外观。',
               style: TextStyle(fontSize: 11.5, color: PosTheme.textSub, height: 1.5))),
         ]),

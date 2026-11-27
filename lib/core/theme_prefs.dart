@@ -65,13 +65,13 @@ class ThemePrefs {
     sidebar: Color(0xFF1E2430),
   );
 
-  /// 6 套可选配色方案（不含默认外观）
+  /// 8 套可选配色方案（不含默认外观）
   static const List<PosSkin> skins = [
     PosSkin(
       id: 'orange',
       name: '稳讯橙',
       desc: '经典品牌橙 · 通用',
-      gradient: [Color(0xFFFF9A56), Color(0xFFFF6A2C), Color(0xFFF4471B)],
+      gradient: [Color(0xFFFF9A56), Color(0xFFFF6A2C), Color(0xFFF4471B), Color(0xFFD93212)],
       accent: Color(0xFFFF5B2E),
       accentDeep: Color(0xFFF4471B),
       sidebar: Color(0xFF1E2430),
@@ -93,6 +93,24 @@ class ThemePrefs {
       accent: Color(0xFF12A150),
       accentDeep: Color(0xFF0A6B33),
       sidebar: Color(0xFF123524),
+    ),
+    PosSkin(
+      id: 'market',
+      name: '商超青',
+      desc: '稳重青绿 · 商超/大型超市',
+      gradient: [Color(0xFF4FD8C4), Color(0xFF12B5A0), Color(0xFF07755F)],
+      accent: Color(0xFF0FAA94),
+      accentDeep: Color(0xFF07755F),
+      sidebar: Color(0xFF0D2B27),
+    ),
+    PosSkin(
+      id: 'cloth',
+      name: '服装金',
+      desc: '香槟金渐变 · 服装/鞋帽',
+      gradient: [Color(0xFFF2D9A8), Color(0xFFD8A656), Color(0xFF96691C)],
+      accent: Color(0xFFC99242),
+      accentDeep: Color(0xFF96691C),
+      sidebar: Color(0xFF2A2118),
     ),
     PosSkin(
       id: 'ocean',
