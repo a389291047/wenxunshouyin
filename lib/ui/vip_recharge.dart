@@ -219,6 +219,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
   @override
   Widget build(BuildContext context) {
     final v = widget.vip;
+    final g1 = Color.lerp(PosTheme.accentLive, Colors.white, 0.12)!; // 渐变浅端（随主题）
     // v3.3.265：支付处理中禁关弹窗（Esc/返回键也拦截）；点空白不再关闭
     // v3.3.268：点弹窗内空白处（档位以外区域）把焦点还给付款码框——扫码枪必须常驻焦点，
     //           点空白后光标消失会输不进码；档位/方式/按钮自己的手势优先，不受影响
@@ -245,9 +246,9 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
             if (tier == null && tiers.isNotEmpty) tier = tiers.first;
             return Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (snap.connectionState != ConnectionState.done)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 28),
-                  child: Center(child: CircularProgressIndicator(color: PosTheme.accent)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 28),
+                  child: Center(child: CircularProgressIndicator(color: PosTheme.accentLive)),
                 )
               else if (tiers.isEmpty)
                 Container(
@@ -273,7 +274,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                 Expanded(child: _modeChip(
                     '扫码支付',
                     WechatPayLogo(size: 19,
-                        color: !cashMode ? PosTheme.accent : PosTheme.textSub),
+                        color: !cashMode ? PosTheme.accentLive : PosTheme.textSub),
                     !cashMode,
                     () {
                       setState(() => cashMode = false);
@@ -285,7 +286,7 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
                 const SizedBox(width: 12),
                 Expanded(child: _modeChip('现金充值（权限码）',
                     Icon(Icons.payments_outlined, size: 18,
-                        color: cashMode ? PosTheme.accent : PosTheme.textSub),
+                        color: cashMode ? PosTheme.accentLive : PosTheme.textSub),
                     cashMode,
                     () => setState(() => cashMode = true))),
               ]),
@@ -318,10 +319,10 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 10),
             decoration: BoxDecoration(
-                color: const Color(0xFFFFF2ED), borderRadius: BorderRadius.circular(10)),
+                color: PosTheme.tint, borderRadius: BorderRadius.circular(10)),
             alignment: Alignment.center,
             child: Text(cashMode ? '正在充值，请稍候…' : '支付处理中，请勿关闭弹窗…',
-                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.accent)),
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.accentLive)),
           ),
           const SizedBox(height: 10),
         ],
@@ -329,13 +330,13 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(14),
-            gradient: const LinearGradient(
+            gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [Color(0xFFFF8A5C), Color(0xFFFF5B2E)]),
+                colors: [g1, PosTheme.accentLive]),
             boxShadow: [
               BoxShadow(
-                  color: const Color(0xFFFF5B2E).withOpacity(0.35),
+                  color: PosTheme.accentLive.withOpacity(0.35),
                   blurRadius: 12,
                   offset: const Offset(0, 4)),
             ],
@@ -368,47 +369,75 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
     );
   }
 
-  /// 渐变头部：会员信息 + 当前余额（v3.3.118 美化）
+  /// 渐变头部（v3.3.282 重排）：头像 + 姓名|微信昵称（醒目）+ 手机号大字 + 充值标记
   Widget _header(Map v) {
-    final name = '${v['name'] ?? v['phone'] ?? '会员'}';
+    final xm = '${v['xm'] ?? ''}'.trim();
+    final nick = '${v['name'] ?? ''}'.trim();
+    final phone = '${v['phone'] ?? ''}'.trim();
+    // 姓名|微信昵称：xm 在前（与会员页 _vipDisplay 同款），空则兜底
+    String display;
+    if (xm.isNotEmpty && nick.isNotEmpty && xm != nick) {
+      display = '$xm　$nick';
+    } else if (xm.isNotEmpty) {
+      display = xm;
+    } else {
+      display = nick.isNotEmpty ? nick : '会员';
+    }
+    // 手机号 3-4-4 分组（大字美观）
+    final phoneFmt =
+        phone.length == 11 ? '${phone.substring(0, 3)} ${phone.substring(3, 7)} ${phone.substring(7)}' : phone;
     final avatarRaw = '${v['avatar'] ?? ''}'.trim();
     final avatarUrl = avatarRaw.isEmpty
         ? ''
         : avatarRaw.startsWith('http')
             ? avatarRaw
             : Api.base + (avatarRaw.startsWith('/') ? '' : '/') + avatarRaw;
+    final g1 = Color.lerp(PosTheme.accentLive, Colors.white, 0.15)!; // 渐变浅端
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: Container(
         padding: const EdgeInsets.fromLTRB(22, 20, 22, 18),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFFFF7A45), Color(0xFFFF5B2E)],
+            colors: [g1, PosTheme.deepLive],
           ),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             CircleAvatar(
-              radius: 22,
+              radius: 24,
               backgroundColor: Colors.white.withOpacity(0.25),
               backgroundImage: avatarUrl.isEmpty ? null : NetworkImage(avatarUrl),
               onBackgroundImageError: avatarUrl.isEmpty ? null : (_, __) {},
               child: avatarUrl.isEmpty
-                  ? Text(name.characters.isNotEmpty ? name.characters.first : '?',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white))
+                  ? Text(display.characters.isNotEmpty ? display.characters.first : '?',
+                      style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700, color: Colors.white))
                   : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 13),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('会员充值',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-                const SizedBox(height: 2),
-                Text('${v['name'] ?? ''}　${v['phone'] ?? ''}',
+                Text(display,
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70)),
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                const SizedBox(height: 3),
+                // 手机号即标题（点击哪个会员显示哪个的手机号），大字醒目
+                Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                  Text(phoneFmt.isEmpty ? '未绑定手机号' : phoneFmt,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5)),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.22), borderRadius: BorderRadius.circular(999)),
+                    child: const Text('会员充值',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white)),
+                  ),
+                ]),
               ]),
             ),
             // v3.3.265：右上角关闭按钮（支付处理中禁用——只有充值成功或非支付中才能关）
@@ -458,19 +487,19 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         padding: const EdgeInsets.symmetric(vertical: 14),
         decoration: BoxDecoration(
           gradient: on
-              ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-                  colors: [Color(0xFFFF8A5C), Color(0xFFFF5B2E)])
+              ? LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [Color.lerp(PosTheme.accentLive, Colors.white, 0.12)!, PosTheme.accentLive])
               : null,
           color: on ? null : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 1.5 : 1),
+          border: Border.all(color: on ? PosTheme.accentLive : PosTheme.line, width: on ? 1.5 : 1),
           boxShadow: on
-              ? [BoxShadow(color: PosTheme.accent.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 3))]
+              ? [BoxShadow(color: PosTheme.accentLive.withOpacity(0.25), blurRadius: 10, offset: const Offset(0, 3))]
               : null,
         ),
         child: Column(children: [
           Text('¥${t['amount'] ?? 0}',
-              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: on ? Colors.white : PosTheme.accent)),
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: on ? Colors.white : PosTheme.accentLive)),
           const SizedBox(height: 3),
           Text('送 ¥${t['zengsong'] ?? 0}',
               style: TextStyle(fontSize: 12, color: on ? Colors.white.withOpacity(0.9) : PosTheme.textSub)),
@@ -487,16 +516,16 @@ class _VipRechargeDialogState extends State<_VipRechargeDialog> {
         height: 46,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: on ? const Color(0xFFFFF2ED) : const Color(0xFFF7F8FA),
+          color: on ? PosTheme.tint : const Color(0xFFF7F8FA),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: on ? PosTheme.accent.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
+          border: Border.all(color: on ? PosTheme.accentLive.withOpacity(0.5) : PosTheme.line, width: on ? 1.5 : 1),
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           icon,
           const SizedBox(width: 6),
           Text(text, style: TextStyle(
             fontSize: 14.5, fontWeight: on ? FontWeight.w700 : FontWeight.w400,
-            color: on ? PosTheme.accent : PosTheme.textSub,
+            color: on ? PosTheme.accentLive : PosTheme.textSub,
           )),
         ]),
       ),
