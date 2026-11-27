@@ -97,6 +97,12 @@ class _MemberPageState extends State<MemberPage> {
     return v ?? list.fold(0, (s, v) => s + (double.tryParse('${v['amount']}') ?? 0));
   }
 
+  /// 总积分：同余额合计，优先后端聚合值（分页后本地 fold 会偏小）
+  num _sumScore() {
+    final v = num.tryParse('${summary?['total_score'] ?? ''}');
+    return v ?? list.fold<num>(0, (s, v) => s + (num.tryParse('${v['score']}') ?? 0));
+  }
+
   // ==================== 会员搜索触屏键盘（v3.3.231，复用收银页 TouchKeyboard） ====================
   /// 键盘写入：直接改 controller 并实时搜索（点键盘是离散点击，频率低，实时出结果）
   void _kbWrite(String text) {
@@ -334,9 +340,11 @@ class _MemberPageState extends State<MemberPage> {
                     padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
                     child: Row(children: [
                       // v3.3.276b：总数用后端聚合（分页后 list.length 只是已加载条数）
-                      Expanded(child: _statCard('会员总数', '${summary?['count'] ?? list.length}', Icons.groups, PosTheme.blue)),
+                      Expanded(child: _statCard('总会员', '${summary?['count'] ?? list.length}', Icons.groups, PosTheme.blue)),
                       const SizedBox(width: 10),
-                      Expanded(child: _statCard('余额合计', '¥${Fmt.money(_sumAmount())}', Icons.account_balance_wallet_outlined, PosTheme.green)),
+                      Expanded(child: _statCard('总余额', '¥${Fmt.money(_sumAmount())}', Icons.account_balance_wallet_outlined, PosTheme.green)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _statCard('总积分', '${_sumScore()}', Icons.stars_outlined, PosTheme.amber)),
                     ]),
                   ),
                   const SizedBox(height: 8),
