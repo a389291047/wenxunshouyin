@@ -23,12 +23,13 @@ class _RegisterPageState extends State<RegisterPage> {
   bool _showPwd = false;
   bool _busy = false;
 
+  /// 行业版本（key, 名称, 一句话描述）——注册卡无图标纯文字（v3.3.282）
   static const _hangyeList = [
-    (1, '零售版', Icons.shopping_bag_outlined),
-    (2, '餐饮版', Icons.restaurant_outlined),
-    (3, '生鲜版', Icons.eco_outlined),
-    (4, '商超版', Icons.storefront_outlined),
-    (5, '服装版', Icons.checkroom_outlined),
+    (1, '零售版', '商品列表点单收银'),
+    (2, '餐饮版', '堂食扫码点餐收银'),
+    (3, '生鲜版', '称重计价收银'),
+    (4, '商超版', '全扫码快速收银'),
+    (5, '服装版', '服装鞋帽逛选收银'),
   ];
 
   @override
@@ -123,16 +124,18 @@ class _RegisterPageState extends State<RegisterPage> {
                       const SizedBox(height: 22),
                       _field(label: '店铺名称', controller: _name, hint: '例如：稳讯便利店', maxLength: 30),
                       const SizedBox(height: 14),
-                      // 行业选择
+                      // 行业选择（v3.3.282：无图标纯文字卡 + 一句话描述，两列布局）
                       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         const Text('经营行业', style: TextStyle(fontSize: 13.5, color: PosTheme.textSub, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 8),
-                        Row(children: [
-                          for (int i = 0; i < _hangyeList.length; i++) ...[
-                            Expanded(child: _hangyeChip(_hangyeList[i])),
-                            if (i < _hangyeList.length - 1) const SizedBox(width: 10),
-                          ],
-                        ]),
+                        LayoutBuilder(builder: (ctx, c) {
+                          const gap = 8.0;
+                          final w = ((c.maxWidth - gap) / 2).floorToDouble();
+                          return Wrap(spacing: gap, runSpacing: gap, children: [
+                            for (final it in _hangyeList)
+                              SizedBox(width: w, child: _hangyeCard(it)),
+                          ]);
+                        }),
                       ]),
                       const SizedBox(height: 14),
                       _field(label: '手机号', controller: _phone, hint: '11 位手机号（同时作为登录账号）',
@@ -183,23 +186,26 @@ class _RegisterPageState extends State<RegisterPage> {
 
   // ==================== 控件 ====================
 
-  Widget _hangyeChip((int, String, IconData) item) {
+  /// 行业卡（v3.3.282）：无图标，名称 + 一句话描述，选中主色描边
+  Widget _hangyeCard((int, String, String) item) {
     final on = _hangye == item.$1;
     return InkWell(
       onTap: () => setState(() => _hangye = item.$1),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        height: 52,
+        height: 60,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           color: on ? PosTheme.accent.withValues(alpha: 0.08) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: on ? PosTheme.accent : PosTheme.line, width: on ? 2 : 1),
         ),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(item.$3, size: 18, color: on ? PosTheme.accent : PosTheme.textSub),
-          const SizedBox(width: 6),
-          Text(item.$2, style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(item.$2, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700,
               color: on ? PosTheme.accent : PosTheme.textMain)),
+          const SizedBox(height: 2),
+          Text(item.$3, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: on ? PosTheme.accent.withValues(alpha: 0.75) : PosTheme.textHint)),
         ]),
       ),
     );

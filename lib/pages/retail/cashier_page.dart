@@ -130,7 +130,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.addListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.addListener(_onDisplayChanged); // 显示/不显示商品图片
     DisplayPrefs.goodsSort.addListener(_onDisplayChanged); // 商品排序改动即时刷新（v3.3.266）
-    DisplayPrefs.cashierVersion.addListener(_onDisplayChanged); // 收银版本切换即时生效（v3.3.282）
     ThemePrefs.skinId.addListener(_onDisplayChanged); // 主体风格换色即时刷新
     _initScaleBar(); // 常驻称重条（v3.3.207，仅 Windows/安卓；mac 保持原样）
     // 副屏（客显）：把当前购物车实时推到第二块屏，600ms 一次，未开副屏时为无操作
@@ -183,7 +182,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
     DisplayPrefs.goodsCols.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsImage.removeListener(_onDisplayChanged);
     DisplayPrefs.goodsSort.removeListener(_onDisplayChanged);
-    DisplayPrefs.cashierVersion.removeListener(_onDisplayChanged);
     ThemePrefs.skinId.removeListener(_onDisplayChanged);
     ActivityStore.list.removeListener(_onActivityChanged);
     GiftMode.value.removeListener(_onGiftModeChanged);
@@ -1273,24 +1271,21 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
               ? Center(child: CircularProgressIndicator(color: PosTheme.accentLive))
               : error != null
                   ? _errorView()
-                  : ValueListenableBuilder<String>(
-                  valueListenable: DisplayPrefs.cashierVersion,
-                  builder: (ctx, ver, __) => ver == 'market'
-                      ? _marketBody() // 商超版（v3.3.282）：大型超市扫码收银布局，无商品列表/分类栏
-                      : Row(
-                          children: cartSide == 'left'
-                              ? [
-                                  _cartPanel(), // 购物车在左（v3.3.189 可配置）
-                                  Expanded(child: _goodsGrid()),
-                                  _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
-                                ]
-                              : [
-                                  _catRail(),
-                                  Expanded(child: _goodsGrid()),
-                                  _cartPanel(), // 购物车在右（默认）
-                                ],
-                        ),
-                ),
+                  : isMarket
+                  ? _marketBody() // 商超版（v3.3.282）：大型超市扫码收银布局，无商品列表/分类栏
+                  : Row(
+                      children: cartSide == 'left'
+                          ? [
+                              _cartPanel(), // 购物车在左（v3.3.189 可配置）
+                              Expanded(child: isCloth ? _goodsList() : _goodsGrid()), // 服装版=列表逛选布局
+                              _catRail(indicatorRight: true), // 分类栏在最右，选中线显示在右侧
+                            ]
+                          : [
+                              _catRail(),
+                              Expanded(child: isCloth ? _goodsList() : _goodsGrid()), // 服装版=列表逛选布局
+                              _cartPanel(), // 购物车在右（默认）
+                            ],
+                    ),
         ),
         // 自带触屏键盘（v3.3.221）：展开时挤压上方内容，不遮挡商品/底栏
         if (kbOpen)
@@ -1508,8 +1503,11 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   }
 
   /// 商超版判定
-  /// 商超版判定：行业=4 商户固定商超布局；行业=1 商户可在设置里切「收银版本」
-  bool get isMarket => Session.hangye == 4 || DisplayPrefs.cashierVersion.value == 'market';
+  /// 商超版判定：行业=4 商户固定商超布局
+  bool get isMarket => Session.hangye == 4;
+
+  /// 服装版判定：行业=5，专用列表逛选布局
+  bool get isCloth => Session.hangye == 5;
 
   /// 商超版会员按钮（顶栏，无码商品后面，文字+图标，v3.3.282）
   Widget _marketVipBtn() {
@@ -2085,6 +2083,78 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
       ),
       child: Text(text,
           style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w700, height: 1.2)),
+    );
+  }
+
+  /// 服装版商品列表（v3.3.282，行业=5）：单列大行逛选布局——
+  /// 左缩略图 + 名称/规格/价格 + 加购按钮，适合服装鞋帽慢慢翻
+  Widget _goodsList() {
+    final list = filtered;
+    if (list.isEmpty) return const EmptyView('该分类暂无在售商品', icon: Icons.checkroom);
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      itemCount: list.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final g = list[i];
+        final guige = '${g['guige'] ?? ''}'.trim();
+        return InkWell(
+          onTap: () => _tapGoods(g),
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: PosTheme.line),
+            ),
+            child: Row(children: [
+              // 缩略图（64×64，复用商品图多地址兜底组件）
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 64, height: 64,
+                  child: RetailGoodsImage(urls: _imgUrls(g), iconSize: 26),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // 名称 + 规格
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w700)),
+                  if (guige.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
+                      child: Text('规格：$guige', maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                    ),
+                  const SizedBox(height: 5),
+                  Text(_isWeighted(g) ? '¥${Fmt.money(_price(g))}/${_unitOf(g)}' : '¥${Fmt.money(_price(g))}',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: PosTheme.accentLive)),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              if (_hasSpecs(g))
+                _goodsTag('多规格', PosTheme.accentLive)
+              else
+                // 加购按钮
+                Material(
+                  color: PosTheme.accentLive,
+                  borderRadius: BorderRadius.circular(22),
+                  child: InkWell(
+                    onTap: () => _tapGoods(g),
+                    borderRadius: BorderRadius.circular(22),
+                    child: const SizedBox(
+                      width: 46, height: 46,
+                      child: Icon(Icons.add_rounded, size: 26, color: Colors.white),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+        );
+      },
     );
   }
 

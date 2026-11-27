@@ -486,7 +486,7 @@ class _BrandPanelState extends State<BrandPanel> with SingleTickerProviderStateM
             Text('稳讯收银',
                 style: TextStyle(fontSize: 46, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 6)),
             SizedBox(height: 18),
-            // 版本徽章：零售版 / 餐饮版
+            // 版本徽章：五大行业（纯文字 + 描述，v3.3.282）
             _VersionBadges(),
           ]),
         ),
@@ -495,32 +495,46 @@ class _BrandPanelState extends State<BrandPanel> with SingleTickerProviderStateM
   }
 }
 
-/// 零售版 / 餐饮版 徽章
+/// 五大行业版本徽章（v3.3.282）：纯文字 + 一句话描述，无图标，自动换行
 class _VersionBadges extends StatelessWidget {
   const _VersionBadges();
+
+  static const _items = [
+    ('零售版', '商品列表点单'),
+    ('餐饮版', '堂食扫码点餐'),
+    ('生鲜版', '称重计价收银'),
+    ('商超版', '全扫码快速收银'),
+    ('服装版', '服装鞋帽逛选'),
+  ];
+
   @override
   Widget build(BuildContext context) {
-    Widget badge(String text, IconData icon) {
+    Widget badge(String name, String desc) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(22),
           border: Border.all(color: Colors.white.withValues(alpha: 0.45), width: 1.2),
         ),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 19, color: Colors.white),
-          const SizedBox(width: 8),
-          Text(text, style: const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 1)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(name,
+              style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1.5)),
+          const SizedBox(height: 2),
+          Text(desc, style: TextStyle(fontSize: 10.5, color: Colors.white.withValues(alpha: 0.8))),
         ]),
       );
     }
 
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      badge('零售版', Icons.shopping_bag_outlined),
-      const SizedBox(width: 14),
-      badge('餐饮版', Icons.restaurant_outlined),
-    ]);
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 420),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 12,
+        runSpacing: 12,
+        children: [for (final it in _items) badge(it.$1, it.$2)],
+      ),
+    );
   }
 }
 

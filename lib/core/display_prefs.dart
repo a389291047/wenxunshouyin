@@ -29,7 +29,6 @@ class DisplayPrefs {
     goodsCols.value = sp.getInt(prefGoodsCols) ?? 0;
     goodsImage.value = sp.getBool(prefGoodsImage) ?? true;
     cartNewestFirst.value = sp.getBool(prefCartNewestFirst) ?? false;
-    cashierVersion.value = sp.getString(prefCashierVersion) == 'market' ? 'market' : '';
     marketDirectPay.value = sp.getBool(prefMarketDirectPay) ?? true;
     await _loadGoodsSort(sp);
   }
@@ -65,16 +64,6 @@ class DisplayPrefs {
     goodsImage.value = v;
     final sp = await SharedPreferences.getInstance();
     await sp.setBool(prefGoodsImage, v);
-  }
-
-  // ===== 收银版本（v3.3.282）：''=零售版（商品列表+购物车），'market'=商超版（大型超市扫码收银布局） =====
-  static const prefCashierVersion = 'display_cashier_version';
-  static final ValueNotifier<String> cashierVersion = ValueNotifier('');
-
-  static Future<void> setCashierVersion(String v) async {
-    cashierVersion.value = v == 'market' ? 'market' : '';
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString(prefCashierVersion, cashierVersion.value);
   }
 
   /// 商超版 · 扫码直接收款（v3.3.282，商户自定义开关）：商超版下扫到顾客付款码
@@ -181,7 +170,6 @@ class DisplayPrefs {
     await setGoodsCols(0);
     await setGoodsImage(true);
     await setGoodsSort('');
-    await setCashierVersion('');
     await setMarketDirectPay(true);
     await setCartNewestFirst(false);
   }

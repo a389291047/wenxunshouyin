@@ -1721,43 +1721,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ]),
       ),
-      // 2.6 收银版本（v3.3.282）：零售版 / 商超版（大型超市）；行业=4 商户固定商超版，不显示此卡
-      if (Session.hangye != 4) ...[
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
-          decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
-          child: Row(children: [
-            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(height: 10),
-              Text('收银版本', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              SizedBox(height: 3),
-              Text('零售版：商品列表点单 + 购物车收银。商超版：大型超市扫码收银布局，'
-                  '无商品列表，扫码枪扫条码直接加入全宽明细表，扫顾客付款码直接收款。', style: TextStyle(fontSize: 11.5, color: PosTheme.textHint)),
-              SizedBox(height: 10),
-            ])),
-            ValueListenableBuilder<String>(
-              valueListenable: DisplayPrefs.cashierVersion,
-              builder: (context, ver, __) => SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: '', label: Text('零售版', style: TextStyle(fontSize: 13))),
-                  ButtonSegment(value: 'market', label: Text('商超版（大型超市）', style: TextStyle(fontSize: 13))),
-                ],
-                selected: {ver == 'market' ? 'market' : ''},
-                showSelectedIcon: false,
-                style: SegmentedButton.styleFrom(
-                  selectedBackgroundColor: PosTheme.accentLive,
-                  selectedForegroundColor: Colors.white,
-                  foregroundColor: PosTheme.textSub,
-                ),
-                onSelectionChanged: (sel) => DisplayPrefs.setCashierVersion(sel.first),
-              ),
-            ),
-          ]),
-        ),
-      ],
-      const SizedBox(height: 8),
-      // 2.7 商超版 · 扫码直接收款（v3.3.282，商户自定义开关）
+      // 2.6 商超版 · 扫码直接收款（v3.3.282，商户自定义开关；行业=4 固定商超版）
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
         decoration: BoxDecoration(color: const Color(0xFFF7F8FA), borderRadius: BorderRadius.circular(10)),
