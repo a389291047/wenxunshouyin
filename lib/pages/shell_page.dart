@@ -62,18 +62,19 @@ class _ShellPageState extends State<ShellPage> {
       if (mounted) _retryPendingRecharge();
     });
     // v3.3.282 补：商户 logo 在登录之后才通过小程序上传时，本地缓存仍是空 →
-    // 侧边栏一直显示商户名首字。启动时若本地无 logo，异步拉一次云端最新值
+    // 侧边栏一直显示商户名首字。v3.3.284 起改为每次启动都拉云端最新值——
+    // 仅「空才拉」会卡死在旧缓存上（如缓存过 404 的坏 URL，永不再刷新）
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshLogo());
   }
 
-  /// 本地无 logo 时从云端拉一次（/shezhi/getLogo），成功后刷新侧边栏品牌位
+  /// 每次启动从云端拉最新 logo（/shezhi/getLogo），值有变化才刷新侧边栏品牌位
   Future<void> _refreshLogo() async {
-    if (!mounted || Session.logo.trim().isNotEmpty || Session.wenxunId <= 0) return;
+    if (!mounted || Session.wenxunId <= 0) return;
     try {
       final r = await Api.post('/shezhi/getLogo', {'wenxun_id': Session.wenxunId});
       if (!mounted) return;
       final v = (r['logo'] ?? '').toString().trim();
-      if ('${r['code']}' == '200' && v.isNotEmpty) {
+      if ('${r['code']}' == '200' && v.isNotEmpty && v != Session.logo.trim()) {
         await Session.setLogo(v);
         if (mounted) setState(() {});
       }
