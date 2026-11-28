@@ -1574,12 +1574,87 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
 
   /// 商超版主布局：全宽明细表 + 底部汇总条（v3.3.282 无右侧结算栏）
   Widget _marketBody() {
+    // 有关键词且不是顾客付款码（16-32位走直接收款，不显示搜索）时，显示搜索结果列表
+    final showSearch = keyword.isNotEmpty && !RegExp(r'^\d{16,32}$').hasMatch(keyword);
     return Container(
       color: Colors.white,
       child: Column(children: [
-        Expanded(child: _marketTable()),
+        Expanded(child: showSearch ? _marketSearchList() : _marketTable()),
         _marketBottomBar(),
       ]),
+    );
+  }
+
+  /// 商超版搜索结果列表（v3.3.287）：名称/简拼/条码匹配，点选加购；行内名称后显示条码
+  Widget _marketSearchList() {
+    final list = filtered;
+    return Column(children: [
+      Container(
+        height: 42,
+        color: const Color(0xFFF7F8FA),
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        child: Row(children: [
+          Expanded(
+            child: Text('搜索结果 · ${list.length} 个商品 · 点选加入购物车',
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: PosTheme.textSub)),
+          ),
+        ]),
+      ),
+      Expanded(
+        child: list.isEmpty
+            ? Center(
+                child: Text('未找到匹配「$keyword」的商品',
+                    style: const TextStyle(fontSize: 15, color: PosTheme.textHint)))
+            : ListView.separated(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                itemCount: list.length,
+                separatorBuilder: (_, __) =>
+                    const Divider(height: 1, indent: 18, endIndent: 18, color: PosTheme.line),
+                itemBuilder: (_, i) => _marketSearchRow(list[i]),
+              ),
+      ),
+    ]);
+  }
+
+  /// 商超版搜索结果行：名称 + 条码（灰色小字）| 价格 | 加购图标
+  Widget _marketSearchRow(Map g) {
+    final code = '${g['code'] ?? g['bianma'] ?? g['barcode'] ?? ''}'.trim();
+    final guige = '${g['guige'] ?? ''}'.trim();
+    return InkWell(
+      onTap: () => _tapGoods(g),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(
+                  child: Text('${g['title']}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700)),
+                ),
+                if (code.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(code, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                  ),
+                ],
+              ]),
+              if (guige.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text('规格：$guige', maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
+                ),
+            ]),
+          ),
+          const SizedBox(width: 12),
+          Text('¥${Fmt.money(_price(g))}',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: PosTheme.textMain)),
+          const SizedBox(width: 8),
+          Icon(Icons.add_circle_outline_rounded, size: 24, color: PosTheme.accentLive),
+        ]),
+      ),
     );
   }
 
@@ -1627,6 +1702,8 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 商超版明细行：名称 | 单价 | 数量(步进) | 金额 | 删除
   Widget _marketRow(_CartLine l) {
     final guige = '${l.goods['guige'] ?? ''}'.trim();
+    final code = '${l.goods['code'] ?? l.goods['bianma'] ?? l.goods['barcode'] ?? ''}'.trim();
+    final subParts = [if (guige.isNotEmpty) '规格：$guige', if (code.isNotEmpty) '条码：$code'];
     return InkWell(
       onTap: () => _lineEdit(l), // 点行 = 改数量/改价/赠送（v3.3.205 能力全保留）
       child: Padding(
@@ -1650,10 +1727,10 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
                   _lineTag('赠 ${l.giftText}', Colors.green),
                 ],
               ]),
-              if (guige.isNotEmpty)
+              if (subParts.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
-                  child: Text('规格：$guige', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  child: Text(subParts.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: const TextStyle(fontSize: 12.5, color: PosTheme.textHint)),
                 ),
             ]),
