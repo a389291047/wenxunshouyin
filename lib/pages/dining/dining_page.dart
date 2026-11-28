@@ -2348,20 +2348,6 @@ class _TableBillDialogState extends State<_TableBillDialog> {
             extraLines: extra,
           )).catchError((_) => <String, dynamic>{});
         }
-        // 挂账小票（v3.3.275）：挂账结算时打「挂账消费单」商户留存联（可带签字栏）+ 可选客户联
-        if (picked == '挂账') {
-          unawaited(printGuazhangAfterSettle(
-            orderSn: orderSn,
-            tableTitle: tableTitle,
-            peopleNum: peopleNum,
-            goodsTotal: goodsTotal,
-            finalTotal: total,
-            cart: cart,
-            extraLines: extra,
-            gzName: gzName,
-            gzPhone: gzPhone,
-          ));
-        }
         // 现金结算自动弹钱箱（v3.3.202，异步不阻塞收银）
         CashDrawer.autoOpen(picked);
         // 用 navigator.context 打开成功弹窗（本 State 已随账单弹窗销毁），
@@ -4538,66 +4524,3 @@ class _DiningSkuPickerDialogState extends State<DiningSkuPickerDialog> {
   }
 }
 
-/// 挂账结算后打挂账小票（v3.3.275，fire-and-forget，不阻塞结账成功弹窗）：
-/// 商户留存联（签字栏按设置）+ 可选客户联（不带签字栏）；
-/// 累计欠款余额按挂账人（同名合并，电话可辅助匹配）从挂账台账实时统计（含本单）
-Future<void> printGuazhangAfterSettle({
-  required String orderSn,
-  required String tableTitle,
-  required int peopleNum,
-  required double goodsTotal,
-  required double finalTotal,
-  required List<Map<String, dynamic>> cart,
-  required List<String> extraLines,
-  required String gzName,
-  required String gzPhone,
-}) async {
-  try {
-    if (!await PrintPrefs.on('guazhang')) return;
-    final opts = await PrintPrefs.guazhangOpts();
-    var balance = 0.0;
-    if (opts['balance'] == true) {
-      final gl = await Api.guazhangLst(status: 0);
-      final rows = ((gl['list'] ?? []) as List).whereType<Map>();
-      balance = rows.fold<double>(finalTotal, (s, r) {
-        final nm = '${r['name'] ?? ''}'.trim();
-        final ph = '${r['phone'] ?? ''}'.trim();
-        final same = nm == gzName.trim() &&
-            (gzPhone.trim().isEmpty || ph.isEmpty || ph == gzPhone.trim());
-        return same ? s + (double.tryParse('${r['amount']}') ?? 0) : s;
-      });
-    }
-    await CloudPrinter.print(CloudPrinter.guazhangTicket(
-      orderSn: orderSn,
-      tableTitle: tableTitle,
-      peopleNum: peopleNum,
-      gzName: gzName,
-      gzPhone: gzPhone,
-      goodsTotal: goodsTotal,
-      finalTotal: finalTotal,
-      cart: cart,
-      extraLines: extraLines,
-      balance: balance,
-      opts: opts,
-      copy: 'shop',
-    ));
-    if (opts['customer'] == true) {
-      await CloudPrinter.print(CloudPrinter.guazhangTicket(
-        orderSn: orderSn,
-        tableTitle: tableTitle,
-        peopleNum: peopleNum,
-        gzName: gzName,
-        gzPhone: gzPhone,
-        goodsTotal: goodsTotal,
-        finalTotal: finalTotal,
-        cart: cart,
-        extraLines: extraLines,
-        balance: balance,
-        opts: opts,
-        copy: 'customer',
-      ));
-    }
-  } catch (_) {
-    // 打印失败不阻塞结账流程
-  }
-}
