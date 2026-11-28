@@ -1314,10 +1314,6 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _noCodeBtn(),
-          if (isMarket) ...[
-            const SizedBox(width: 10),
-            _marketVipBtn(), // 商超版：会员入口放顶栏（无码商品后面，v3.3.282）
-          ],
           const SizedBox(width: 10),
           _kbBtn(),
           const SizedBox(width: 10),
@@ -1509,50 +1505,65 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
   /// 服装版判定：行业=5，专用列表逛选布局
   bool get isCloth => Session.hangye == 5;
 
-  /// 商超版会员按钮（顶栏，无码商品后面，文字+图标，v3.3.282）
-  Widget _marketVipBtn() {
+  /// 商超版底部会员条（v3.3.286）：选择会员放底栏；选中后显示手机号+余额，可充值/关闭
+  Widget _marketVipBar() {
     final hasVip = vip != null;
-    final label = hasVip
-        ? ('${vip!['name'] ?? ''}'.trim().isNotEmpty ? '${vip!['name']}'.trim() : '${vip!['phone'] ?? ''}')
-        : '选择会员';
-    return SizedBox(
+    if (!hasVip) {
+      return SizedBox(
+        width: 128, height: 48,
+        child: BigButton('选择会员', onTap: _pickVip,
+            color: PosTheme.tint, textColor: PosTheme.accentLive, height: 48),
+      );
+    }
+    final phone = '${vip!['phone'] ?? ''}'.trim();
+    final name = '${vip!['name'] ?? vip!['xm'] ?? ''}'.trim();
+    return Container(
       height: 48,
-      child: Material(
-        color: hasVip ? PosTheme.tint : Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: hasVip ? Colors.transparent : PosTheme.line),
+      padding: const EdgeInsets.fromLTRB(12, 0, 6, 0),
+      decoration: BoxDecoration(
+        color: PosTheme.tint,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.person, size: 20, color: PosTheme.accentLive),
+        const SizedBox(width: 8),
+        // 手机号（无手机号回落昵称/姓名）
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 130),
+          child: Text(phone.isNotEmpty ? phone : (name.isNotEmpty ? name : '未命名会员'),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: _pickVip,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(hasVip ? Icons.person : Icons.person_add_alt,
-                  size: 20, color: hasVip ? PosTheme.accentLive : PosTheme.textSub),
-              const SizedBox(width: 7),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 120),
-                child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: hasVip ? PosTheme.accentLive : PosTheme.textSub)),
-              ),
-              if (hasVip) ...[
-                const SizedBox(width: 6),
-                InkWell(
-                  onTap: () => setState(() => vip = null),
-                  borderRadius: BorderRadius.circular(14),
-                  child: const SizedBox(width: 28, height: 28,
-                      child: Icon(Icons.close, size: 16, color: PosTheme.textHint)),
-                ),
-              ],
-            ]),
+        const SizedBox(width: 10),
+        // 余额（现金+赠送，实时随充值刷新）
+        Text('余额 ¥${Fmt.money(_vipBalance())}',
+            style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: PosTheme.accentLive)),
+        const SizedBox(width: 8),
+        // 充值
+        InkWell(
+          onTap: _rechargeVip,
+          borderRadius: BorderRadius.circular(15),
+          child: Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: PosTheme.accentLive,
+              borderRadius: BorderRadius.circular(15),
+            ),
+            child: const Text('充值',
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Colors.white)),
           ),
         ),
-      ),
+        const SizedBox(width: 4),
+        // 关闭（清除选中会员）
+        InkWell(
+          onTap: () => setState(() => vip = null),
+          borderRadius: BorderRadius.circular(14),
+          child: const SizedBox(width: 28, height: 28,
+              child: Icon(Icons.close, size: 16, color: PosTheme.textHint)),
+        ),
+      ]),
     );
   }
 
@@ -1682,6 +1693,9 @@ class _RetailCashierPageState extends State<RetailCashierPage> {
         color: Colors.white,
       ),
       child: Row(children: [
+        // 会员条（v3.3.286 移到底栏）：未选=选择会员按钮；已选=手机号+余额+充值+关闭
+        _marketVipBar(),
+        const SizedBox(width: 10),
         // 清空 / 挂单（紧凑）
         SizedBox(
           width: 92, height: 48,
